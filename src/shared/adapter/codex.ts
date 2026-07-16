@@ -155,13 +155,17 @@ export function parseCodexSession(
 
   const timestamps = records.map((r) => r.timestamp).filter((t): t is string => !!t)
 
+  // Codex's own session_index can store junk thread_names (command XML) —
+  // trust it only when it doesn't look machine-generated
+  const indexTitle = opts.titleIndex?.get(id)
+  const cleanIndexTitle = indexTitle && !isInjectedNoise(indexTitle) ? indexTitle : undefined
+
   return {
     meta: {
       id,
       source: 'codex',
       title:
-        opts.titleIndex?.get(id) ??
-        (preview || firstAssistantText || untitledFallback(timestamps[0] ?? '')),
+        cleanIndexTitle ?? (preview || firstAssistantText || untitledFallback(timestamps[0] ?? '')),
       project: sessionMeta?.cwd ?? null,
       createdAt: timestamps[0] ?? '',
       updatedAt: timestamps[timestamps.length - 1] ?? '',
