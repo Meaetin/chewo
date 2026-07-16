@@ -6,6 +6,8 @@ interface SidebarProps {
   sessions: SessionMeta[]
   hiddenSessions: SessionMeta[]
   projects: Project[]
+  /** Live terminal count per section (keyed by project id, null = Home) */
+  liveCounts: Map<string | null, number>
   selectedProjectId: string | null
   selectedSessionId?: string
   onSelectProject: (id: string | null) => void
@@ -123,6 +125,7 @@ export function Sidebar({
   sessions,
   hiddenSessions,
   projects,
+  liveCounts,
   selectedProjectId,
   selectedSessionId,
   onSelectProject,
@@ -218,6 +221,11 @@ export function Sidebar({
             >
               <span className="project-row-chevron">{homeExpanded ? '▾' : '▸'}</span>
               <span className="project-row-name">Home</span>
+              {(liveCounts.get(null) ?? 0) > 0 && (
+                <span className="project-row-live" title="Live terminals in this section">
+                  ● {liveCounts.get(null)}
+                </span>
+              )}
               <span className="project-row-count">{homeSessions.length}</span>
             </div>
             {homeExpanded && (
@@ -250,6 +258,11 @@ export function Sidebar({
                 >
                   <span className="project-row-chevron">{expanded ? '▾' : '▸'}</span>
                   <span className="project-row-name">{p.name}</span>
+                  {(liveCounts.get(p.id) ?? 0) > 0 && (
+                    <span className="project-row-live" title="Live terminals in this section">
+                      ● {liveCounts.get(p.id)}
+                    </span>
+                  )}
                   <span className="project-row-count">{projectSessions.length}</span>
                   <button
                     className="project-delete-button"

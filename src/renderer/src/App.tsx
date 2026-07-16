@@ -105,10 +105,12 @@ export function App(): React.JSX.Element {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
-  // Every live terminal stays visible while hopping between projects —
-  // tabs carry a section label instead of being scoped away
-  const sectionLabel = (projectId: string | null): string =>
-    projects.find((p) => p.id === projectId)?.name ?? 'Home'
+  // Tab bar shows only the selected section's terminals (Home when nothing
+  // is selected). Terminals in other sections keep running — the sidebar
+  // shows a live count per section so they stay discoverable.
+  const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
+  const liveCounts = new Map<string | null, number>()
+  for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
 
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id))
   const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id))
@@ -249,6 +251,7 @@ export function App(): React.JSX.Element {
         sessions={visibleSessions}
         hiddenSessions={hiddenSessions}
         projects={projects}
+        liveCounts={liveCounts}
         selectedProjectId={selectedProjectId}
         selectedSessionId={view.kind === 'transcript' ? view.session.id : undefined}
         onHideSession={hideSession}
@@ -265,7 +268,7 @@ export function App(): React.JSX.Element {
 
       <main className="main-panel">
         <div className="terminal-tab-bar">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <div
               key={tab.termId}
               className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''}`}
@@ -274,7 +277,6 @@ export function App(): React.JSX.Element {
               <span className={`source-badge source-badge-${tab.source}`}>
                 {tab.source === 'claude' ? 'CC' : 'CX'}
               </span>
-              <span className="terminal-tab-section">{sectionLabel(tab.projectId)}</span>
               <span className="terminal-tab-label">{tab.label}</span>
               <button
                 className="terminal-tab-close"
