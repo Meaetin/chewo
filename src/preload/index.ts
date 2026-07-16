@@ -14,6 +14,13 @@ export interface TermBoundEvent {
   sessionId: string
   title: string
 }
+export interface HandoffEvent {
+  to: 'claude' | 'codex'
+  from: string
+  note: string
+  /** false when no live pane of the target agent existed to type into */
+  nudged: boolean
+}
 
 const api = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
@@ -45,6 +52,12 @@ const api = {
     const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
     ipcRenderer.on('terminal:session-bound', listener)
     return () => ipcRenderer.removeListener('terminal:session-bound', listener)
+  },
+
+  onHandoff: (cb: (e: HandoffEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: HandoffEvent): void => cb(payload)
+    ipcRenderer.on('handoff:received', listener)
+    return () => ipcRenderer.removeListener('handoff:received', listener)
   },
 
   homeDir: homedir(),

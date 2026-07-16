@@ -99,6 +99,29 @@ export function disposeAllTerminals(): void {
   terminals.clear()
 }
 
+// Debounce nudges per agent so rapid handoffs don't concatenate typed text
+const lastNudgeMs = new Map<Source, number>()
+const NUDGE_DEBOUNCE_MS = 5000
+
+/**
+ * Type a visible "check your inbox" into the most recent live pane of the
+ * target agent. Deliberately no Enter — the user reviews and submits.
+ * Returns false when no pane of that agent is open.
+ */
+export function nudgeAgentPane(source: Source): boolean {
+  let best: PaneRecord | undefined
+  for (const rec of terminals.values()) {
+    if (rec.source === source && (!best || rec.spawnedAtMs > best.spawnedAtMs)) best = rec
+  }
+  if (!best) return false
+  const last = lastNudgeMs.get(source) ?? 0
+  if (Date.now() - last > NUDGE_DEBOUNCE_MS) {
+    best.proc.write('check your inbox')
+    lastNudgeMs.set(source, Date.now())
+  }
+  return true
+}
+
 /** Panes spawned fresh whose session id we haven't identified yet. */
 export function getUnboundPanes(): UnboundPane[] {
   const out: UnboundPane[] = []

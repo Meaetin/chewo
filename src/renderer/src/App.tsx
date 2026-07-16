@@ -31,7 +31,15 @@ export function App(): React.JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
+
+  const showToast = useCallback((text: string) => {
+    setToast(text)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 8000)
+  }, [])
 
   const refresh = useCallback(async () => {
     const result = await window.api.listSessions()
@@ -57,12 +65,21 @@ export function App(): React.JSX.Element {
         )
       )
     })
+    const offHandoff = window.api.onHandoff(({ to, from, note, nudged }) => {
+      const summary = note ? ` — “${note.slice(0, 80)}${note.length > 80 ? '…' : ''}”` : ''
+      showToast(
+        nudged
+          ? `Handoff ${from} → ${to}${summary}. Typed “check your inbox” into the ${to} terminal — press Enter there to receive it.`
+          : `Handoff ${from} → ${to}${summary}. No ${to} terminal open — it's waiting in the inbox.`
+      )
+    })
     return () => {
       offChanged()
       offExit()
       offBound()
+      offHandoff()
     }
-  }, [refresh])
+  }, [refresh, showToast])
 
   // Persist projects + remembered terminals whenever state settles.
   // A project's saved list = its live bound tabs + dormant leftovers.
@@ -310,6 +327,12 @@ export function App(): React.JSX.Element {
             />
           ))}
         </div>
+
+        {toast && (
+          <div className="toast" onClick={() => setToast(null)}>
+            {toast}
+          </div>
+        )}
       </main>
     </div>
   )

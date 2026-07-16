@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
@@ -11,6 +13,7 @@ import {
   disposeAllTerminals,
   getUnboundPanes,
   killTerminal,
+  nudgeAgentPane,
   resizeTerminal,
   writeTerminal,
   type CreateTerminalOptions
@@ -110,10 +113,44 @@ function watchSessionStores(): void {
   app.on('before-quit', () => watcher.close())
 }
 
+/**
+ * Phase 3 nudge: when a bridge handoff lands in ~/.context-bridge/inbox/,
+ * type "check your inbox" into the target agent's most recent pane (user
+ * submits — never auto-sent) and toast the renderer.
+ */
+function watchHandoffInbox(): void {
+  const inboxRoot = join(homedir(), '.context-bridge', 'inbox')
+  mkdirSync(join(inboxRoot, 'claude'), { recursive: true })
+  mkdirSync(join(inboxRoot, 'codex'), { recursive: true })
+
+  const watcher = chokidar.watch(inboxRoot, { ignoreInitial: true, depth: 2 })
+  watcher.on('add', (path) => {
+    if (!path.endsWith('.json')) return
+    const agent = basename(dirname(path))
+    if (agent !== 'claude' && agent !== 'codex') return
+
+    let from = ''
+    let note = ''
+    try {
+      const handoff = JSON.parse(readFileSync(path, 'utf8'))
+      from = handoff.from ?? ''
+      note = (handoff.note ?? '').slice(0, 200)
+    } catch {
+      /* unreadable — still nudge; check_inbox will surface it */
+    }
+
+    const nudged = nudgeAgentPane(agent)
+    safeSend(mainWindow, 'handoff:received', { to: agent, from, note, nudged })
+  })
+
+  app.on('before-quit', () => watcher.close())
+}
+
 app.whenReady().then(() => {
   registerIpc()
   createWindow()
   watchSessionStores()
+  watchHandoffInbox()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
