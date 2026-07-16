@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { SessionMeta } from '../../../shared/adapter/types'
-import type { Project } from '../../../shared/projects'
+import { sessionInProject, type Project } from '../../../shared/projects'
 
 interface SidebarProps {
   sessions: SessionMeta[]
@@ -14,11 +14,8 @@ interface SidebarProps {
   onNewTerminal: (source: 'claude' | 'codex') => void
 }
 
-function projectLabel(project: string | null): string {
-  if (!project) return 'unknown project'
-  const parts = project.split('/')
-  return parts[parts.length - 1] || project
-}
+const INITIAL_VISIBLE = 5
+const SHOW_MORE_STEP = 15
 
 function relativeTime(iso: string): string {
   if (!iso) return ''
@@ -33,6 +30,34 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 30)}mo`
 }
 
+function SessionRow({
+  session,
+  selected,
+  showProject,
+  onSelect
+}: {
+  session: SessionMeta
+  selected: boolean
+  showProject?: string
+  onSelect: (s: SessionMeta) => void
+}): React.JSX.Element {
+  return (
+    <div
+      className={`session-item ${selected ? 'session-item-selected' : ''}`}
+      onClick={() => onSelect(session)}
+    >
+      <div className="session-item-top">
+        <span className={`source-badge source-badge-${session.source}`}>
+          {session.source === 'claude' ? 'CC' : 'CX'}
+        </span>
+        <span className="session-item-title">{session.title}</span>
+        <span className="session-item-time">{relativeTime(session.updatedAt)}</span>
+      </div>
+      {showProject && <div className="session-item-preview">{showProject}</div>}
+    </div>
+  )
+}
+
 export function Sidebar({
   sessions,
   projects,
@@ -45,66 +70,43 @@ export function Sidebar({
   onNewTerminal
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({})
 
-  const groups = useMemo(() => {
+  const searching = query.trim().length > 0
+
+  // Global search — the escape hatch for sessions outside any project
+  const searchResults = useMemo(() => {
+    if (!searching) return []
     const q = query.toLowerCase()
-    const filtered = q
-      ? sessions.filter(
-          (s) =>
-            s.title.toLowerCase().includes(q) ||
-            s.preview.toLowerCase().includes(q) ||
-            (s.project ?? '').toLowerCase().includes(q)
-        )
-      : sessions
+    return sessions
+      .filter(
+        (s) =>
+          s.title.toLowerCase().includes(q) ||
+          s.preview.toLowerCase().includes(q) ||
+          (s.project ?? '').toLowerCase().includes(q)
+      )
+      .slice(0, 50)
+  }, [sessions, query, searching])
 
-    const byProject = new Map<string, SessionMeta[]>()
-    for (const s of filtered) {
-      const key = projectLabel(s.project)
-      const list = byProject.get(key) ?? []
-      list.push(s)
-      byProject.set(key, list)
+  const sessionsByProject = useMemo(() => {
+    const map = new Map<string, SessionMeta[]>()
+    for (const p of projects) {
+      map.set(
+        p.id,
+        sessions.filter((s) => sessionInProject(s.project, p.path))
+      )
     }
-    // Groups ordered by their most recent session (input is already sorted desc)
-    return [...byProject.entries()]
-  }, [sessions, query])
+    return map
+  }, [sessions, projects])
+
+  const toggleProject = (id: string): void => {
+    const next = selectedProjectId === id ? null : id
+    onSelectProject(next)
+    if (next === null) setVisibleCounts((c) => ({ ...c, [id]: INITIAL_VISIBLE }))
+  }
 
   return (
     <aside className="sidebar">
-      <div className="project-rail">
-        <div className="project-rail-header">
-          <span>Projects</span>
-          <button className="project-add-button" onClick={onCreateProject} title="Add a project folder">
-            +
-          </button>
-        </div>
-        <div
-          className={`project-row ${selectedProjectId === null ? 'project-row-selected' : ''}`}
-          onClick={() => onSelectProject(null)}
-        >
-          <span className="project-row-name">All sessions</span>
-        </div>
-        {projects.map((p) => (
-          <div
-            key={p.id}
-            className={`project-row ${selectedProjectId === p.id ? 'project-row-selected' : ''}`}
-            onClick={() => onSelectProject(p.id)}
-            title={p.path}
-          >
-            <span className="project-row-name">{p.name}</span>
-            <button
-              className="project-delete-button"
-              title="Remove project (sessions are not deleted)"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDeleteProject(p.id)
-              }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-
       <div className="sidebar-actions">
         <button className="new-terminal-button" onClick={() => onNewTerminal('claude')}>
           + Claude
@@ -116,35 +118,95 @@ export function Sidebar({
 
       <input
         className="session-search-input"
-        placeholder="Search sessions…"
+        placeholder="Search all sessions…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
 
-      <div className="session-list">
-        {groups.map(([project, items]) => (
-          <div key={project} className="project-group">
-            <div className="project-group-header">{project}</div>
-            {items.map((s) => (
-              <div
-                key={`${s.source}:${s.id}`}
-                className={`session-item ${s.id === selectedSessionId ? 'session-item-selected' : ''}`}
-                onClick={() => onSelect(s)}
-              >
-                <div className="session-item-top">
-                  <span className={`source-badge source-badge-${s.source}`}>
-                    {s.source === 'claude' ? 'CC' : 'CX'}
-                  </span>
-                  <span className="session-item-title">{s.title}</span>
-                  <span className="session-item-time">{relativeTime(s.updatedAt)}</span>
-                </div>
-                {s.preview && <div className="session-item-preview">{s.preview}</div>}
-              </div>
-            ))}
+      {searching ? (
+        <div className="session-list">
+          {searchResults.map((s) => (
+            <SessionRow
+              key={`${s.source}:${s.id}`}
+              session={s}
+              selected={s.id === selectedSessionId}
+              showProject={s.project ?? undefined}
+              onSelect={onSelect}
+            />
+          ))}
+          {searchResults.length === 0 && <div className="session-list-empty">No sessions found</div>}
+        </div>
+      ) : (
+        <div className="session-list">
+          <div className="project-rail-header">
+            <span>Projects</span>
+            <button className="project-add-button" onClick={onCreateProject} title="Add a project folder">
+              +
+            </button>
           </div>
-        ))}
-        {groups.length === 0 && <div className="session-list-empty">No sessions found</div>}
-      </div>
+
+          {projects.map((p) => {
+            const expanded = selectedProjectId === p.id
+            const projectSessions = sessionsByProject.get(p.id) ?? []
+            const visible = visibleCounts[p.id] ?? INITIAL_VISIBLE
+            return (
+              <div key={p.id} className="project-section">
+                <div
+                  className={`project-row ${expanded ? 'project-row-selected' : ''}`}
+                  onClick={() => toggleProject(p.id)}
+                  title={p.path}
+                >
+                  <span className="project-row-chevron">{expanded ? '▾' : '▸'}</span>
+                  <span className="project-row-name">{p.name}</span>
+                  <span className="project-row-count">{projectSessions.length}</span>
+                  <button
+                    className="project-delete-button"
+                    title="Remove project (sessions are not deleted)"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteProject(p.id)
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {expanded && (
+                  <div className="project-sessions">
+                    {projectSessions.slice(0, visible).map((s) => (
+                      <SessionRow
+                        key={`${s.source}:${s.id}`}
+                        session={s}
+                        selected={s.id === selectedSessionId}
+                        onSelect={onSelect}
+                      />
+                    ))}
+                    {projectSessions.length === 0 && (
+                      <div className="session-list-empty">No sessions in this folder yet</div>
+                    )}
+                    {projectSessions.length > visible && (
+                      <button
+                        className="show-more-button"
+                        onClick={() =>
+                          setVisibleCounts((c) => ({ ...c, [p.id]: visible + SHOW_MORE_STEP }))
+                        }
+                      >
+                        Show more ({projectSessions.length - visible})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {projects.length === 0 && (
+            <div className="session-list-empty">
+              No projects yet — add a folder with “+”, or search above to find any past session.
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   )
 }

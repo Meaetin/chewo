@@ -46,13 +46,6 @@ body {
   flex-direction: column;
 }
 
-.project-rail {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
 .project-rail-header {
   display: flex;
   align-items: center;
@@ -79,10 +72,45 @@ body {
 .project-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 5px 12px;
+  gap: 6px;
+  padding: 6px 12px;
   cursor: pointer;
   border-left: 2px solid transparent;
+}
+
+.project-row-chevron {
+  color: var(--text-dim);
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.project-row-count {
+  color: var(--text-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.project-sessions {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  margin-left: 17px;
+}
+
+.show-more-button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.show-more-button:hover {
+  color: var(--text);
 }
 
 .project-row:hover {
@@ -95,6 +123,7 @@ body {
 }
 
 .project-row-name {
+  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -160,15 +189,6 @@ body {
   flex: 1;
   overflow-y: auto;
   padding-bottom: 12px;
-}
-
-.project-group-header {
-  padding: 10px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
 }
 
 .session-item {

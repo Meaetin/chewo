@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
-  sessionInProject,
   type Project,
   type ProjectsFile,
   type SavedTerminal
@@ -81,18 +80,8 @@ export function App(): React.JSX.Element {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
-  const visibleSessions = useMemo(
-    () =>
-      selectedProject
-        ? sessions.filter((s) => sessionInProject(s.project, selectedProject.path))
-        : sessions,
-    [sessions, selectedProject]
-  )
-
-  // "All" view shows every live tab; a project view shows only its own
-  const visibleTabs = selectedProject
-    ? tabs.filter((t) => t.projectId === selectedProject.id)
-    : tabs
+  // No project selected = the default workspace: only unscoped terminals
+  const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
 
   const liveSessionIds = new Set(tabs.map((t) => t.sessionId).filter(Boolean))
   const dormantTerminals = selectedProject
@@ -209,7 +198,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="app-layout">
       <Sidebar
-        sessions={visibleSessions}
+        sessions={sessions}
         projects={projects}
         selectedProjectId={selectedProjectId}
         selectedSessionId={view.kind === 'transcript' ? view.session.id : undefined}
@@ -278,7 +267,7 @@ export function App(): React.JSX.Element {
               <p>
                 {selectedProject
                   ? `Sessions and terminals scoped to ${selectedProject.path}`
-                  : 'Select a session from the sidebar, or start a new terminal.'}
+                  : 'Open a project, search past sessions, or start a terminal (runs in your home folder).'}
               </p>
             </div>
           )}
