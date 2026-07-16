@@ -4,6 +4,7 @@ import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
+import { safeSend } from './safe-send'
 import {
   bindPaneSession,
   createTerminal,
@@ -81,13 +82,11 @@ function bindNewSessions(): void {
     if (!pane) continue
     bindPaneSession(pane.termId, session.id)
     panes.splice(panes.indexOf(pane), 1)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('terminal:session-bound', {
-        id: pane.termId,
-        sessionId: session.id,
-        title: session.title
-      })
-    }
+    safeSend(mainWindow, 'terminal:session-bound', {
+      id: pane.termId,
+      sessionId: session.id,
+      title: session.title
+    })
     if (panes.length === 0) break
   }
 }
@@ -104,9 +103,7 @@ function watchSessionStores(): void {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       bindNewSessions()
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('sessions:changed')
-      }
+      safeSend(mainWindow, 'sessions:changed')
     }, 1000)
   })
 

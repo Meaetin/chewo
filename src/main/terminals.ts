@@ -4,6 +4,7 @@ import type { BrowserWindow } from 'electron'
 import * as pty from 'node-pty'
 import type { Source } from '../shared/adapter'
 import type { UnboundPane } from '../shared/projects'
+import { safeSend } from './safe-send'
 
 export interface CreateTerminalOptions {
   source: Source
@@ -70,11 +71,11 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
   })
 
   proc.onData((data) => {
-    if (!win.isDestroyed()) win.webContents.send('terminal:data', { id, data })
+    safeSend(win, 'terminal:data', { id, data })
   })
   proc.onExit(({ exitCode }) => {
     terminals.delete(id)
-    if (!win.isDestroyed()) win.webContents.send('terminal:exit', { id, exitCode })
+    safeSend(win, 'terminal:exit', { id, exitCode })
   })
 
   return id
