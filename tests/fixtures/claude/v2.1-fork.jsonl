@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"timestamp":"2026-07-02T09:00:00.000Z","cwd":"/Users/test/proj","sessionId":"bbbbbbbb-1111-2222-3333-444444444444","message":{"role":"user","content":"refactor the auth module"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"timestamp":"2026-07-02T09:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Here is plan A."}]}}
+{"type":"user","uuid":"u2a","parentUuid":"a1","isSidechain":false,"timestamp":"2026-07-02T09:01:00.000Z","message":{"role":"user","content":"abandoned branch question"}}
+{"type":"assistant","uuid":"a2a","parentUuid":"u2a","isSidechain":false,"timestamp":"2026-07-02T09:01:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"abandoned branch answer"}]}}
+{"type":"user","uuid":"u2b","parentUuid":"a1","isSidechain":false,"timestamp":"2026-07-02T09:02:00.000Z","message":{"role":"user","content":"actually use plan B"}}
+{"type":"assistant","uuid":"a2b","parentUuid":"u2b","isSidechain":false,"timestamp":"2026-07-02T09:02:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Done with plan B."}]}}

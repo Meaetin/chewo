@@ -1,0 +1,42 @@
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+
+export interface TermDataEvent {
+  id: number
+  data: string
+}
+export interface TermExitEvent {
+  id: number
+  exitCode: number
+}
+
+const api = {
+  listSessions: () => ipcRenderer.invoke('sessions:list'),
+  getSession: (ref: { source: string; filePath: string }) =>
+    ipcRenderer.invoke('sessions:get', ref),
+  onSessionsChanged: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('sessions:changed', listener)
+    return () => ipcRenderer.removeListener('sessions:changed', listener)
+  },
+
+  createTerminal: (opts: { source: string; sessionId?: string; cwd?: string | null }) =>
+    ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
+  termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
+  termResize: (id: number, cols: number, rows: number) =>
+    ipcRenderer.send('terminal:resize', { id, cols, rows }),
+  termKill: (id: number) => ipcRenderer.send('terminal:kill', { id }),
+  onTermData: (cb: (e: TermDataEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: TermDataEvent): void => cb(payload)
+    ipcRenderer.on('terminal:data', listener)
+    return () => ipcRenderer.removeListener('terminal:data', listener)
+  },
+  onTermExit: (cb: (e: TermExitEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: TermExitEvent): void => cb(payload)
+    ipcRenderer.on('terminal:exit', listener)
+    return () => ipcRenderer.removeListener('terminal:exit', listener)
+  }
+}
+
+export type Api = typeof api
+
+contextBridge.exposeInMainWorld('api', api)

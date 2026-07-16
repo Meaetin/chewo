@@ -1,0 +1,11 @@
+{"type":"mode","mode":"normal","sessionId":"aaaaaaaa-1111-2222-3333-444444444444"}
+{"type":"permission-mode","permissionMode":"auto","sessionId":"aaaaaaaa-1111-2222-3333-444444444444"}
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"timestamp":"2026-07-01T10:00:00.000Z","cwd":"/Users/test/Desktop/Projects/pie","gitBranch":"main","slug":"apple-pie-recipe","sessionId":"aaaaaaaa-1111-2222-3333-444444444444","message":{"role":"user","content":"how do I make an apple pie?"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"timestamp":"2026-07-01T10:00:05.000Z","cwd":"/Users/test/Desktop/Projects/pie","gitBranch":"main","slug":"apple-pie-recipe","message":{"role":"assistant","content":[{"type":"text","text":"Let me check your recipe file first."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/Users/test/Desktop/Projects/pie/recipe.md"}}]}}
+{"type":"user","uuid":"u2","parentUuid":"a1","isSidechain":false,"timestamp":"2026-07-01T10:00:06.000Z","cwd":"/Users/test/Desktop/Projects/pie","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"flour, apples, butter"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"u2","isSidechain":false,"timestamp":"2026-07-01T10:00:10.000Z","cwd":"/Users/test/Desktop/Projects/pie","message":{"role":"assistant","content":[{"type":"text","text":"You need flour, apples, and butter. Roll the dough, fill, bake at 190C."}]}}
+{"type":"user","uuid":"s1","parentUuid":null,"isSidechain":true,"timestamp":"2026-07-01T10:00:07.000Z","cwd":"/Users/test/Desktop/Projects/pie","message":{"role":"user","content":"subagent: search for baking temperatures"}}
+{"type":"assistant","uuid":"s2","parentUuid":"s1","isSidechain":true,"timestamp":"2026-07-01T10:00:08.000Z","cwd":"/Users/test/Desktop/Projects/pie","message":{"role":"assistant","content":[{"type":"text","text":"subagent result: 190C is standard"}]}}
+{"type":"file-history-snapshot","messageId":"m1","snapshot":{},"isSnapshotUpdate":false}
+{"type":"ai-title","aiTitle":"How to make an apple pie","leafUuid":"a2","sessionId":"aaaaaaaa-1111-2222-3333-444444444444"}
+{"type":"some-future-record","payload":{"new":"thing"}}

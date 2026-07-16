@@ -1,0 +1,39 @@
+{
+  "name": "cohesion",
+  "version": "0.1.0",
+  "description": "Agent Cohesion Workbench — unified Claude Code + Codex CLI session browser and terminal workspace",
+  "main": "out/main/index.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "canary": "tsx scripts/canary.ts",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.1.1",
+    "electron-vite": "^5.0.0",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "chokidar": "^5.0.0",
+    "node-pty": "^1.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

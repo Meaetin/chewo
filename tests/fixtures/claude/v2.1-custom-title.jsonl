@@ -1,0 +1,6 @@
+{"type":"user","uuid":"u1","parentUuid":null,"isSidechain":false,"timestamp":"2026-07-05T12:00:00.000Z","cwd":"/Users/test/proj","sessionId":"cccccccc-1111-2222-3333-444444444444","message":{"role":"user","content":"first message"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"timestamp":"2026-07-05T12:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"reply"}]}}
+{"type":"ai-title","aiTitle":"Generated title","leafUuid":"a1","sessionId":"cccccccc-1111-2222-3333-444444444444"}
+{"type":"custom-title","customTitle":"My renamed session","sessionId":"cccccccc-1111-2222-3333-444444444444"}
+{"type":"agent-name","agentName":"some-agent-slug","sessionId":"cccccccc-1111-2222-3333-444444444444"}
+{"type":"pr-link","sessionId":"cccccccc-1111-2222-3333-444444444444","prNumber":7,"prUrl":"https://github.com/test/repo/pull/7","prRepository":"test/repo","timestamp":"2026-07-05T12:01:00.000Z"}
