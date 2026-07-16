@@ -31,6 +31,7 @@ export function App(): React.JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  const [homeTerminals, setHomeTerminals] = useState<SavedTerminal[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
@@ -52,6 +53,7 @@ export function App(): React.JSX.Element {
       setProjects(file.projects)
       setSelectedProjectId(file.selectedProjectId)
       setHiddenIds(new Set(file.hiddenSessionIds))
+      setHomeTerminals(file.homeTerminals)
       loaded.current = true
     })
     const offChanged = window.api.onSessionsChanged(() => void refresh())
@@ -82,29 +84,31 @@ export function App(): React.JSX.Element {
   }, [refresh, showToast])
 
   // Persist projects + remembered terminals whenever state settles.
-  // A project's saved list = its live bound tabs + dormant leftovers.
+  // A section's saved list = its live bound tabs + dormant leftovers.
   useEffect(() => {
     if (!loaded.current) return
-    const withTerminals = projects.map((p) => {
+    const savedFor = (projectId: string | null, dormant: SavedTerminal[]): SavedTerminal[] => {
       const live: SavedTerminal[] = tabs
-        .filter((t) => t.projectId === p.id && t.sessionId)
+        .filter((t) => t.projectId === projectId && t.sessionId)
         .map((t) => ({ source: t.source, sessionId: t.sessionId!, label: t.label }))
       const liveIds = new Set(live.map((t) => t.sessionId))
-      const dormant = p.terminals.filter((t) => !liveIds.has(t.sessionId))
-      return { ...p, terminals: [...live, ...dormant] }
-    })
+      return [...live, ...dormant.filter((t) => !liveIds.has(t.sessionId))]
+    }
     const file: ProjectsFile = {
-      projects: withTerminals,
+      projects: projects.map((p) => ({ ...p, terminals: savedFor(p.id, p.terminals) })),
       selectedProjectId,
-      hiddenSessionIds: [...hiddenIds]
+      hiddenSessionIds: [...hiddenIds],
+      homeTerminals: savedFor(null, homeTerminals)
     }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId, hiddenIds])
+  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
-  // No project selected = the default workspace: only unscoped terminals
-  const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
+  // Every live terminal stays visible while hopping between projects —
+  // tabs carry a section label instead of being scoped away
+  const sectionLabel = (projectId: string | null): string =>
+    projects.find((p) => p.id === projectId)?.name ?? 'Home'
 
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id))
   const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id))
@@ -123,10 +127,12 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
+  // Dormant (resumable) tabs show for the selected section only — Home's
+  // when nothing is selected
   const liveSessionIds = new Set(tabs.map((t) => t.sessionId).filter(Boolean))
-  const dormantTerminals = selectedProject
-    ? selectedProject.terminals.filter((t) => !liveSessionIds.has(t.sessionId))
-    : []
+  const dormantTerminals = (selectedProject?.terminals ?? homeTerminals).filter(
+    (t) => !liveSessionIds.has(t.sessionId)
+  )
 
   const openTerminal = useCallback(
     async (opts: {
@@ -184,13 +190,12 @@ export function App(): React.JSX.Element {
 
   const wakeDormant = useCallback(
     (t: SavedTerminal) => {
-      if (!selectedProject) return
       void openTerminal({
         source: t.source,
         sessionId: t.sessionId,
-        cwd: selectedProject.path,
+        cwd: selectedProject?.path ?? null,
         label: t.label,
-        projectId: selectedProject.id
+        projectId: selectedProject?.id ?? null
       })
     },
     [openTerminal, selectedProject]
@@ -204,14 +209,17 @@ export function App(): React.JSX.Element {
 
   const removeDormant = useCallback(
     (sessionId: string) => {
-      if (!selectedProject) return
-      setProjects((ps) =>
-        ps.map((p) =>
-          p.id === selectedProject.id
-            ? { ...p, terminals: p.terminals.filter((t) => t.sessionId !== sessionId) }
-            : p
+      if (selectedProject) {
+        setProjects((ps) =>
+          ps.map((p) =>
+            p.id === selectedProject.id
+              ? { ...p, terminals: p.terminals.filter((t) => t.sessionId !== sessionId) }
+              : p
+          )
         )
-      )
+      } else {
+        setHomeTerminals((ts) => ts.filter((t) => t.sessionId !== sessionId))
+      }
     },
     [selectedProject]
   )
@@ -257,7 +265,7 @@ export function App(): React.JSX.Element {
 
       <main className="main-panel">
         <div className="terminal-tab-bar">
-          {visibleTabs.map((tab) => (
+          {tabs.map((tab) => (
             <div
               key={tab.termId}
               className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''}`}
@@ -266,6 +274,7 @@ export function App(): React.JSX.Element {
               <span className={`source-badge source-badge-${tab.source}`}>
                 {tab.source === 'claude' ? 'CC' : 'CX'}
               </span>
+              <span className="terminal-tab-section">{sectionLabel(tab.projectId)}</span>
               <span className="terminal-tab-label">{tab.label}</span>
               <button
                 className="terminal-tab-close"

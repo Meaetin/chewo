@@ -14,7 +14,11 @@ export function loadProjects(): ProjectsFile {
   try {
     const parsed = JSON.parse(readFileSync(filePath(), 'utf8')) as ProjectsFile
     if (!Array.isArray(parsed.projects)) return EMPTY_PROJECTS_FILE
-    return { ...parsed, hiddenSessionIds: parsed.hiddenSessionIds ?? [] }
+    return {
+      ...parsed,
+      hiddenSessionIds: parsed.hiddenSessionIds ?? [],
+      homeTerminals: parsed.homeTerminals ?? []
+    }
   } catch {
     return EMPTY_PROJECTS_FILE
   }

@@ -20,12 +20,15 @@ export interface ProjectsFile {
   selectedProjectId: string | null
   /** Sessions hidden app-wide (projects + search). Files on disk are never touched. */
   hiddenSessionIds: string[]
+  /** Remembered terminals of the Home section (terminals with no project) */
+  homeTerminals: SavedTerminal[]
 }
 
 export const EMPTY_PROJECTS_FILE: ProjectsFile = {
   projects: [],
   selectedProjectId: null,
-  hiddenSessionIds: []
+  hiddenSessionIds: [],
+  homeTerminals: []
 }
 
 const normalize = (p: string): string => (p.endsWith('/') ? p.slice(0, -1) : p)
