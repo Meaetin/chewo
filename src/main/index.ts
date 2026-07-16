@@ -22,7 +22,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    title: 'Cohesion',
+    title: 'Chewo',
     backgroundColor: '#16161e',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),

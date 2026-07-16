@@ -1,5 +1,5 @@
 {
-  "name": "@cohesion/context-bridge",
+  "name": "@chewo/context-bridge",
   "version": "0.1.0",
   "description": "MCP server exposing Claude Code + Codex session history as tools — the shared memory both agents query",
   "private": true,

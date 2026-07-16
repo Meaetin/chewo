@@ -289,7 +289,7 @@ export function App(): React.JSX.Element {
         <div className="main-content">
           {view.kind === 'empty' && (
             <div className="empty-state">
-              <h2>{selectedProject ? selectedProject.name : 'Cohesion'}</h2>
+              <h2>{selectedProject ? selectedProject.name : 'Chewo'}</h2>
               <p>
                 {selectedProject
                   ? `Sessions and terminals scoped to ${selectedProject.path}`

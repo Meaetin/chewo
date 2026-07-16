@@ -1,7 +1,7 @@
 {
-  "name": "cohesion",
+  "name": "chewo",
   "version": "0.1.0",
-  "description": "Agent Cohesion Workbench — unified Claude Code + Codex CLI session browser and terminal workspace",
+  "description": "Chewo — unified Claude Code + Codex CLI session browser, terminal workspace, and cross-agent context bridge",
   "main": "out/main/index.js",
   "type": "module",
   "private": true,
