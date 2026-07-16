@@ -35,6 +35,9 @@ export function App(): React.JSX.Element {
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
+  // Last-viewed terminal per section, so switching sections lands you back
+  // where you were instead of on an empty state
+  const lastViewedTerm = useRef(new Map<string | null, number>())
 
   const showToast = useCallback((text: string) => {
     setToast(text)
@@ -114,6 +117,28 @@ export function App(): React.JSX.Element {
 
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id))
   const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id))
+
+  // Remember which terminal was last viewed in each section
+  useEffect(() => {
+    if (view.kind !== 'terminal') return
+    const tab = tabs.find((t) => t.termId === view.termId)
+    if (tab) lastViewedTerm.current.set(tab.projectId, tab.termId)
+  }, [view, tabs])
+
+  const selectSection = useCallback(
+    (id: string | null) => {
+      setSelectedProjectId(id)
+      const sectionTabs = tabs.filter((t) => t.projectId === id)
+      if (sectionTabs.length === 0) {
+        setView({ kind: 'empty' })
+        return
+      }
+      const remembered = lastViewedTerm.current.get(id)
+      const target = sectionTabs.find((t) => t.termId === remembered) ?? sectionTabs[sectionTabs.length - 1]
+      setView({ kind: 'terminal', termId: target.termId })
+    },
+    [tabs]
+  )
 
   const hideSession = useCallback((id: string) => {
     setHiddenIds((prev) => new Set(prev).add(id))
@@ -256,10 +281,7 @@ export function App(): React.JSX.Element {
         selectedSessionId={view.kind === 'transcript' ? view.session.id : undefined}
         onHideSession={hideSession}
         onRestoreSession={restoreSession}
-        onSelectProject={(id) => {
-          setSelectedProjectId(id)
-          setView({ kind: 'empty' })
-        }}
+        onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
         onDeleteProject={deleteProject}
         onSelect={(session) => setView({ kind: 'transcript', session })}
