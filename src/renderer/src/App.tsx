@@ -30,6 +30,7 @@ export function App(): React.JSX.Element {
   const [view, setView] = useState<MainView>({ kind: 'empty' })
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const loaded = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -42,6 +43,7 @@ export function App(): React.JSX.Element {
     void window.api.loadProjects().then((file: ProjectsFile) => {
       setProjects(file.projects)
       setSelectedProjectId(file.selectedProjectId)
+      setHiddenIds(new Set(file.hiddenSessionIds))
       loaded.current = true
     })
     const offChanged = window.api.onSessionsChanged(() => void refresh())
@@ -74,14 +76,35 @@ export function App(): React.JSX.Element {
       const dormant = p.terminals.filter((t) => !liveIds.has(t.sessionId))
       return { ...p, terminals: [...live, ...dormant] }
     })
-    const file: ProjectsFile = { projects: withTerminals, selectedProjectId }
+    const file: ProjectsFile = {
+      projects: withTerminals,
+      selectedProjectId,
+      hiddenSessionIds: [...hiddenIds]
+    }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId])
+  }, [projects, tabs, selectedProjectId, hiddenIds])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
   // No project selected = the default workspace: only unscoped terminals
   const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
+
+  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id))
+  const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id))
+
+  const hideSession = useCallback((id: string) => {
+    setHiddenIds((prev) => new Set(prev).add(id))
+    // If the hidden session's transcript is open, close it
+    setView((v) => (v.kind === 'transcript' && v.session.id === id ? { kind: 'empty' } : v))
+  }, [])
+
+  const restoreSession = useCallback((id: string) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
 
   const liveSessionIds = new Set(tabs.map((t) => t.sessionId).filter(Boolean))
   const dormantTerminals = selectedProject
@@ -198,10 +221,13 @@ export function App(): React.JSX.Element {
   return (
     <div className="app-layout">
       <Sidebar
-        sessions={sessions}
+        sessions={visibleSessions}
+        hiddenSessions={hiddenSessions}
         projects={projects}
         selectedProjectId={selectedProjectId}
         selectedSessionId={view.kind === 'transcript' ? view.session.id : undefined}
+        onHideSession={hideSession}
+        onRestoreSession={restoreSession}
         onSelectProject={(id) => {
           setSelectedProjectId(id)
           setView({ kind: 'empty' })

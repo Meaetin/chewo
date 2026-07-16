@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { homedir } from 'node:os'
 
 export interface TermDataEvent {
   id: number
@@ -46,6 +47,7 @@ const api = {
     return () => ipcRenderer.removeListener('terminal:session-bound', listener)
   },
 
+  homeDir: homedir(),
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

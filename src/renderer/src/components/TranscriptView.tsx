@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { NormalizedMessage, SessionMeta } from '../../../shared/adapter/types'
@@ -8,10 +8,44 @@ interface TranscriptViewProps {
   onResume: (session: SessionMeta) => void
 }
 
+const FIND_HIGHLIGHT = 'transcript-find'
+const FIND_CURRENT = 'transcript-find-current'
+
+/** All matches of `query` as Ranges over the container's text nodes. */
+function findMatches(container: HTMLElement, query: string): Range[] {
+  const q = query.toLowerCase()
+  const ranges: Range[] = []
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent?.toLowerCase() ?? ''
+    let idx = text.indexOf(q)
+    while (idx !== -1) {
+      const range = new Range()
+      range.setStart(node, idx)
+      range.setEnd(node, idx + q.length)
+      ranges.push(range)
+      idx = text.indexOf(q, idx + q.length)
+    }
+  }
+  return ranges
+}
+
+function clearHighlights(): void {
+  CSS.highlights?.delete(FIND_HIGHLIGHT)
+  CSS.highlights?.delete(FIND_CURRENT)
+}
+
 export function TranscriptView({ session, onResume }: TranscriptViewProps): React.JSX.Element {
   const [messages, setMessages] = useState<NormalizedMessage[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set())
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [matchCount, setMatchCount] = useState(0)
+  const [currentMatch, setCurrentMatch] = useState(0)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const findInputRef = useRef<HTMLInputElement>(null)
+  const rangesRef = useRef<Range[]>([])
 
   const toggleResult = (i: number): void =>
     setExpandedResults((prev) => {
@@ -20,6 +54,69 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
       else next.add(i)
       return next
     })
+
+  // (2) Old sessions open at their most recent exchange, not the top
+  useEffect(() => {
+    if (!messages) return
+    requestAnimationFrame(() => {
+      const el = messagesRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }, [messages])
+
+  // (1) ⌘F / Ctrl+F opens the find bar; Esc closes it
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setFindOpen(true)
+        requestAnimationFrame(() => findInputRef.current?.select())
+      } else if (e.key === 'Escape' && findOpen) {
+        setFindOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [findOpen])
+
+  const gotoMatch = useCallback((idx: number) => {
+    const ranges = rangesRef.current
+    if (ranges.length === 0) return
+    const clamped = ((idx % ranges.length) + ranges.length) % ranges.length
+    setCurrentMatch(clamped)
+    CSS.highlights?.set(FIND_CURRENT, new Highlight(ranges[clamped]))
+    const el = ranges[clamped].startContainer.parentElement
+    el?.scrollIntoView({ block: 'center' })
+  }, [])
+
+  // Recompute highlights when the query, messages, or expanded results change
+  // (collapsed tool outputs are not in the DOM, so they are not searched)
+  useEffect(() => {
+    if (!findOpen || !findQuery.trim() || !messagesRef.current) {
+      clearHighlights()
+      rangesRef.current = []
+      setMatchCount(0)
+      return
+    }
+    const raf = requestAnimationFrame(() => {
+      const container = messagesRef.current
+      if (!container) return
+      const ranges = findMatches(container, findQuery.trim())
+      rangesRef.current = ranges
+      setMatchCount(ranges.length)
+      if (ranges.length > 0) {
+        CSS.highlights?.set(FIND_HIGHLIGHT, new Highlight(...ranges))
+        CSS.highlights?.set(FIND_CURRENT, new Highlight(ranges[0]))
+        setCurrentMatch(0)
+        ranges[0].startContainer.parentElement?.scrollIntoView({ block: 'center' })
+      } else {
+        clearHighlights()
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [findOpen, findQuery, messages, expandedResults])
+
+  useEffect(() => clearHighlights, []) // unmount cleanup
 
   useEffect(() => {
     let cancelled = false
@@ -54,7 +151,35 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
         </button>
       </header>
 
-      <div className="transcript-messages">
+      {findOpen && (
+        <div className="find-bar">
+          <input
+            ref={findInputRef}
+            className="find-input"
+            placeholder="Find in transcript…"
+            value={findQuery}
+            autoFocus
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') gotoMatch(currentMatch + (e.shiftKey ? -1 : 1))
+            }}
+          />
+          <span className="find-count">
+            {matchCount > 0 ? `${currentMatch + 1}/${matchCount}` : findQuery ? '0/0' : ''}
+          </span>
+          <button className="find-nav-button" onClick={() => gotoMatch(currentMatch - 1)}>
+            ↑
+          </button>
+          <button className="find-nav-button" onClick={() => gotoMatch(currentMatch + 1)}>
+            ↓
+          </button>
+          <button className="find-nav-button" onClick={() => setFindOpen(false)}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div className="transcript-messages" ref={messagesRef}>
         {error && <div className="transcript-error">{error}</div>}
         {!messages && !error && <div className="transcript-loading">Loading…</div>}
         {messages?.map((m, i) => (

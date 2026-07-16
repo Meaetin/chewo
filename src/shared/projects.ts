@@ -18,9 +18,15 @@ export interface Project {
 export interface ProjectsFile {
   projects: Project[]
   selectedProjectId: string | null
+  /** Sessions hidden app-wide (projects + search). Files on disk are never touched. */
+  hiddenSessionIds: string[]
 }
 
-export const EMPTY_PROJECTS_FILE: ProjectsFile = { projects: [], selectedProjectId: null }
+export const EMPTY_PROJECTS_FILE: ProjectsFile = {
+  projects: [],
+  selectedProjectId: null,
+  hiddenSessionIds: []
+}
 
 const normalize = (p: string): string => (p.endsWith('/') ? p.slice(0, -1) : p)
 
