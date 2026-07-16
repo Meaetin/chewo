@@ -14,6 +14,7 @@
   --text-dim: #8888a0;
   --accent-claude: #d97757;
   --accent-codex: #6ba4f8;
+  --accent-live: #34d399;
 }
 
 html,
@@ -311,6 +312,20 @@ body {
   color: var(--accent-claude);
   font-size: 10px;
   flex-shrink: 0;
+}
+
+.session-live-dot {
+  color: var(--accent-live);
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+.session-item-live {
+  background: color-mix(in srgb, var(--accent-live) 6%, transparent);
+}
+
+.session-item-live .session-item-title {
+  color: color-mix(in srgb, var(--accent-live) 35%, var(--text));
 }
 
 .terminal-tab-close {

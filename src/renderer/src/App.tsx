@@ -125,6 +125,27 @@ export function App(): React.JSX.Element {
     if (tab) lastViewedTerm.current.set(tab.projectId, tab.termId)
   }, [view, tabs])
 
+  // Sessions that currently have a live terminal — sidebar rows route to the
+  // terminal instead of the transcript
+  const liveSessionTabs = new Map(tabs.filter((t) => t.sessionId).map((t) => [t.sessionId!, t]))
+
+  const openSession = useCallback(
+    (s: SessionMeta) => {
+      const tab = tabs.find((t) => t.sessionId === s.id)
+      if (tab) {
+        setSelectedProjectId(tab.projectId) // may jump sections (e.g. from search)
+        setView({ kind: 'terminal', termId: tab.termId })
+      } else {
+        setView({ kind: 'transcript', session: s })
+      }
+    },
+    [tabs]
+  )
+
+  const openTranscript = useCallback((s: SessionMeta) => {
+    setView({ kind: 'transcript', session: s })
+  }, [])
+
   const selectSection = useCallback(
     (id: string | null) => {
       setSelectedProjectId(id)
@@ -277,14 +298,22 @@ export function App(): React.JSX.Element {
         hiddenSessions={hiddenSessions}
         projects={projects}
         liveCounts={liveCounts}
+        liveSessionIds={new Set(liveSessionTabs.keys())}
         selectedProjectId={selectedProjectId}
-        selectedSessionId={view.kind === 'transcript' ? view.session.id : undefined}
+        selectedSessionId={
+          view.kind === 'transcript'
+            ? view.session.id
+            : view.kind === 'terminal'
+              ? tabs.find((t) => t.termId === view.termId)?.sessionId
+              : undefined
+        }
         onHideSession={hideSession}
         onRestoreSession={restoreSession}
+        onOpenTranscript={openTranscript}
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
         onDeleteProject={deleteProject}
-        onSelect={(session) => setView({ kind: 'transcript', session })}
+        onSelect={openSession}
         onNewTerminal={newTerminal}
       />
 

@@ -8,6 +8,8 @@ interface SidebarProps {
   projects: Project[]
   /** Live terminal count per section (keyed by project id, null = Home) */
   liveCounts: Map<string | null, number>
+  /** Sessions that currently have an open terminal */
+  liveSessionIds: Set<string>
   selectedProjectId: string | null
   selectedSessionId?: string
   onSelectProject: (id: string | null) => void
@@ -16,6 +18,7 @@ interface SidebarProps {
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
+  onOpenTranscript: (session: SessionMeta) => void
   onNewTerminal: (source: 'claude' | 'codex') => void
 }
 
@@ -38,31 +41,50 @@ function relativeTime(iso: string): string {
 function SessionRow({
   session,
   selected,
+  live,
   showProject,
   onSelect,
+  onOpenTranscript,
   actionLabel,
   actionTitle,
   onAction
 }: {
   session: SessionMeta
   selected: boolean
+  /** A terminal is open for this session — clicking focuses it */
+  live?: boolean
   showProject?: string
   onSelect: (s: SessionMeta) => void
+  onOpenTranscript?: (s: SessionMeta) => void
   actionLabel?: string
   actionTitle?: string
   onAction?: (id: string) => void
 }): React.JSX.Element {
   return (
     <div
-      className={`session-item ${selected ? 'session-item-selected' : ''}`}
+      className={`session-item ${selected ? 'session-item-selected' : ''} ${live ? 'session-item-live' : ''}`}
+      title={live ? 'Terminal open — click to focus it' : undefined}
       onClick={() => onSelect(session)}
     >
       <div className="session-item-top">
         <span className={`source-badge source-badge-${session.source}`}>
           {session.source === 'claude' ? 'CC' : 'CX'}
         </span>
+        {live && <span className="session-live-dot">●</span>}
         <span className="session-item-title">{session.title}</span>
         <span className="session-item-time">{relativeTime(session.updatedAt)}</span>
+        {live && onOpenTranscript && (
+          <button
+            className="session-action-button"
+            title="View transcript"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenTranscript(session)
+            }}
+          >
+            ≡
+          </button>
+        )}
         {onAction && (
           <button
             className="session-action-button"
@@ -84,7 +106,9 @@ function SessionRow({
 interface SessionGroupProps {
   sessions: SessionMeta[]
   selectedSessionId?: string
+  liveSessionIds: Set<string>
   onSelect: (s: SessionMeta) => void
+  onOpenTranscript: (s: SessionMeta) => void
   onHideSession: (id: string) => void
   emptyText: string
 }
@@ -93,7 +117,9 @@ interface SessionGroupProps {
 function SessionGroup({
   sessions,
   selectedSessionId,
+  liveSessionIds,
   onSelect,
+  onOpenTranscript,
   onHideSession,
   emptyText
 }: SessionGroupProps): React.JSX.Element {
@@ -105,7 +131,9 @@ function SessionGroup({
           key={`${s.source}:${s.id}`}
           session={s}
           selected={s.id === selectedSessionId}
+          live={liveSessionIds.has(s.id)}
           onSelect={onSelect}
+          onOpenTranscript={onOpenTranscript}
           actionLabel="✕"
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
@@ -126,6 +154,7 @@ export function Sidebar({
   hiddenSessions,
   projects,
   liveCounts,
+  liveSessionIds,
   selectedProjectId,
   selectedSessionId,
   onSelectProject,
@@ -134,6 +163,7 @@ export function Sidebar({
   onHideSession,
   onRestoreSession,
   onSelect,
+  onOpenTranscript,
   onNewTerminal
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -202,8 +232,10 @@ export function Sidebar({
               key={`${s.source}:${s.id}`}
               session={s}
               selected={s.id === selectedSessionId}
+              live={liveSessionIds.has(s.id)}
               showProject={s.project ?? undefined}
               onSelect={onSelect}
+              onOpenTranscript={onOpenTranscript}
               actionLabel="✕"
               actionTitle="Hide session"
               onAction={onHideSession}
@@ -232,7 +264,9 @@ export function Sidebar({
               <SessionGroup
                 sessions={homeSessions}
                 selectedSessionId={selectedSessionId}
+                liveSessionIds={liveSessionIds}
                 onSelect={onSelect}
+                onOpenTranscript={onOpenTranscript}
                 onHideSession={onHideSession}
                 emptyText="No sessions started in your home folder"
               />
@@ -279,7 +313,9 @@ export function Sidebar({
                   <SessionGroup
                     sessions={projectSessions}
                     selectedSessionId={selectedSessionId}
+                    liveSessionIds={liveSessionIds}
                     onSelect={onSelect}
+                    onOpenTranscript={onOpenTranscript}
                     onHideSession={onHideSession}
                     emptyText="No sessions in this folder yet"
                   />
