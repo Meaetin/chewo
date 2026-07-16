@@ -25,6 +25,22 @@ interface PaneRecord {
 const terminals = new Map<number, PaneRecord>()
 let nextId = 1
 
+/**
+ * The app (or the dev server) may itself have been launched from inside a
+ * Claude Code session. Those inherited env vars make a spawned `claude`
+ * treat itself as a nested child session and SKIP writing its session file
+ * entirely — breaking the sidebar, binding, and resume. Scrub them.
+ */
+export function buildPtyEnv(base: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(base)) {
+    if (value === undefined) continue
+    if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_')) continue
+    env[key] = value
+  }
+  return env
+}
+
 function buildCommand(opts: CreateTerminalOptions): string {
   if (opts.source === 'claude') {
     return opts.sessionId ? `claude --resume ${opts.sessionId}` : 'claude'
@@ -41,7 +57,7 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
     cols: 80,
     rows: 24,
     cwd,
-    env: process.env as Record<string, string>
+    env: buildPtyEnv(process.env)
   })
 
   const id = nextId++
