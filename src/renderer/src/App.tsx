@@ -10,14 +10,18 @@ import { Sidebar } from './components/Sidebar'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 
+export type PaneSource = Source | 'shell'
+
 export interface TerminalTab {
   termId: number
   projectId: string | null
-  source: Source
+  source: PaneSource
   label: string
   sessionId?: string
   exited: boolean
 }
+
+const BADGES: Record<PaneSource, string> = { claude: 'CC', codex: 'CX', shell: 'SH' }
 
 type MainView =
   | { kind: 'transcript'; session: SessionMeta }
@@ -92,8 +96,12 @@ export function App(): React.JSX.Element {
     if (!loaded.current) return
     const savedFor = (projectId: string | null, dormant: SavedTerminal[]): SavedTerminal[] => {
       const live: SavedTerminal[] = tabs
-        .filter((t) => t.projectId === projectId && t.sessionId)
-        .map((t) => ({ source: t.source, sessionId: t.sessionId!, label: t.label }))
+        // Shell panes have no session to resume — only agent tabs persist
+        .filter(
+          (t): t is TerminalTab & { source: Source; sessionId: string } =>
+            t.projectId === projectId && !!t.sessionId && t.source !== 'shell'
+        )
+        .map((t) => ({ source: t.source, sessionId: t.sessionId, label: t.label }))
       const liveIds = new Set(live.map((t) => t.sessionId))
       return [...live, ...dormant.filter((t) => !liveIds.has(t.sessionId))]
     }
@@ -184,7 +192,7 @@ export function App(): React.JSX.Element {
 
   const openTerminal = useCallback(
     async (opts: {
-      source: Source
+      source: PaneSource
       sessionId?: string
       cwd?: string | null
       label?: string
@@ -212,12 +220,13 @@ export function App(): React.JSX.Element {
   )
 
   const newTerminal = useCallback(
-    (source: Source) =>
+    (source: PaneSource) =>
       void openTerminal({
         source,
         // Selected project → its path; no project → $HOME (main falls back)
         cwd: selectedProject?.path ?? null,
-        projectId: selectedProject?.id ?? null
+        projectId: selectedProject?.id ?? null,
+        label: source === 'shell' ? 'zsh' : undefined
       }),
     [openTerminal, selectedProject]
   )
@@ -326,7 +335,7 @@ export function App(): React.JSX.Element {
               onClick={() => setView({ kind: 'terminal', termId: tab.termId })}
             >
               <span className={`source-badge source-badge-${tab.source}`}>
-                {tab.source === 'claude' ? 'CC' : 'CX'}
+                {BADGES[tab.source]}
               </span>
               <span className="terminal-tab-label">{tab.label}</span>
               <button
@@ -340,6 +349,14 @@ export function App(): React.JSX.Element {
               </button>
             </div>
           ))}
+
+          <button
+            className="new-shell-button"
+            title={`New shell in ${selectedProject?.name ?? 'Home'}`}
+            onClick={() => newTerminal('shell')}
+          >
+            +
+          </button>
 
           {dormantTerminals.map((t) => (
             <div

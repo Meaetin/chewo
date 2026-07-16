@@ -6,9 +6,12 @@ import type { Source } from '../shared/adapter'
 import type { UnboundPane } from '../shared/projects'
 import { safeSend } from './safe-send'
 
+/** What a pane runs: an agent CLI or a plain shell */
+export type PaneSource = Source | 'shell'
+
 export interface CreateTerminalOptions {
-  source: Source
-  /** Resume this session; omit for a fresh one */
+  source: PaneSource
+  /** Resume this session; omit for a fresh one (agents only) */
   sessionId?: string
   /** Working directory — the session's original project when resuming */
   cwd?: string | null
@@ -16,7 +19,7 @@ export interface CreateTerminalOptions {
 
 interface PaneRecord {
   proc: pty.IPty
-  source: Source
+  source: PaneSource
   cwd: string
   spawnedAtMs: number
   /** Known immediately when resuming; bound later (via the session-store watcher) when fresh */
@@ -42,7 +45,9 @@ export function buildPtyEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   return env
 }
 
-function buildCommand(opts: CreateTerminalOptions): string {
+/** null = plain interactive shell, no command */
+function buildCommand(opts: CreateTerminalOptions): string | null {
+  if (opts.source === 'shell') return null
   if (opts.source === 'claude') {
     return opts.sessionId ? `claude --resume ${opts.sessionId}` : 'claude'
   }
@@ -53,7 +58,8 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
   const cwd = opts.cwd && existsSync(opts.cwd) ? opts.cwd : homedir()
   // Login+interactive zsh so the user's PATH (nvm, homebrew, …) resolves the
   // CLI — a packaged Electron app does not inherit the shell environment.
-  const proc = pty.spawn('/bin/zsh', ['-il', '-c', buildCommand(opts)], {
+  const command = buildCommand(opts)
+  const proc = pty.spawn('/bin/zsh', command ? ['-il', '-c', command] : ['-il'], {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
@@ -122,11 +128,12 @@ export function nudgeAgentPane(source: Source): boolean {
   return true
 }
 
-/** Panes spawned fresh whose session id we haven't identified yet. */
+/** Agent panes spawned fresh whose session id we haven't identified yet.
+ *  Shell panes have no session and never participate in binding. */
 export function getUnboundPanes(): UnboundPane[] {
   const out: UnboundPane[] = []
   for (const [termId, rec] of terminals) {
-    if (!rec.sessionId) {
+    if (!rec.sessionId && rec.source !== 'shell') {
       out.push({ termId, source: rec.source, cwd: rec.cwd, spawnedAtMs: rec.spawnedAtMs })
     }
   }

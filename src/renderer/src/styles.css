@@ -262,6 +262,30 @@ body {
   color: var(--accent-codex);
 }
 
+.source-badge-shell {
+  background: color-mix(in srgb, var(--text-dim) 22%, transparent);
+  color: var(--text-dim);
+}
+
+.new-shell-button {
+  align-self: center;
+  width: 26px;
+  height: 24px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.new-shell-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 /* ---------- main panel ---------- */
 
 .main-panel {
