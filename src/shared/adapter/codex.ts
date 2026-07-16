@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
+import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
 
 /**
@@ -31,20 +32,6 @@ interface CodexRecord {
 
 const KNOWN_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted'])
 
-const NOISE_PREFIXES = [
-  '<environment_context',
-  '<user_instructions',
-  '<turn_context',
-  '<command-name',
-  '<local-command',
-  '<system-reminder'
-]
-
-function isNoise(text: string): boolean {
-  const t = text.trimStart()
-  return NOISE_PREFIXES.some((p) => t.startsWith(p))
-}
-
 /** Extract the session UUID from `rollout-2026-06-05T16-15-28-<uuid>.jsonl` */
 function idFromFilename(filePath: string): string {
   const name = basename(filePath, '.jsonl')
@@ -59,7 +46,12 @@ function responseItemToMessage(payload: NonNullable<CodexRecord['payload']>, tim
       .filter((c) => (c.type === 'input_text' || c.type === 'output_text') && c.text)
       .map((c) => c.text)
       .join('\n')
-    if (!text.trim() || isNoise(text)) return null
+    if (!text.trim()) return null
+    if (role === 'user') {
+      const command = extractCommand(text)
+      if (command) return { role, text: command, commandName: command, timestamp }
+      if (isInjectedNoise(text)) return null
+    }
     return { role, text, timestamp }
   }
   if (payload.type === 'function_call') {
@@ -117,8 +109,10 @@ export function parseCodexSession(
     if (msg) messages.push(msg)
   }
 
-  const firstUserText = messages.find((m) => m.role === 'user')?.text ?? ''
+  const firstUserText = messages.find((m) => m.role === 'user' && !m.commandName)?.text ?? ''
   const preview = firstUserText.replace(/\s+/g, ' ').trim().slice(0, 120)
+  const firstAssistantText =
+    messages.find((m) => m.role === 'assistant')?.text.replace(/\s+/g, ' ').trim().slice(0, 50) ?? ''
 
   const timestamps = records.map((r) => r.timestamp).filter((t): t is string => !!t)
 
@@ -126,12 +120,14 @@ export function parseCodexSession(
     meta: {
       id,
       source: 'codex',
-      title: opts.titleIndex?.get(id) ?? (preview || basename(filePath, '.jsonl')),
+      title:
+        opts.titleIndex?.get(id) ??
+        (preview || firstAssistantText || untitledFallback(timestamps[0] ?? '')),
       project: sessionMeta?.cwd ?? null,
       createdAt: timestamps[0] ?? '',
       updatedAt: timestamps[timestamps.length - 1] ?? '',
       filePath,
-      messageCount: messages.length,
+      messageCount: messages.filter((m) => !m.commandName).length,
       preview
     },
     messages,

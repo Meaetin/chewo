@@ -55,6 +55,22 @@ describe('claude adapter', () => {
     expect(meta.title).toBe('refactor the auth module') // no slug either → first user msg
   })
 
+  test('command-only session: /clear becomes a chip, messageCount is 0 (hidden)', () => {
+    const { meta, messages } = parseClaudeSession(fixture('claude/v2.1-command-only.jsonl'))
+    expect(meta.messageCount).toBe(0)
+    const chip = messages.find((m) => m.commandName)
+    expect(chip?.commandName).toBe('/clear')
+    // the local-command-caveat injection is dropped entirely
+    expect(messages.some((m) => m.text.includes('Caveat'))).toBe(false)
+  })
+
+  test('assistant-only session: title falls back to assistant text, never a UUID', () => {
+    const { meta } = parseClaudeSession(fixture('claude/v2.1-assistant-only.jsonl'))
+    expect(meta.title).toContain('Back again')
+    expect(meta.title).not.toMatch(/^[0-9a-f]{8}-/)
+    expect(meta.messageCount).toBe(1)
+  })
+
   test('user-set custom-title outranks generated ai-title', () => {
     const { meta, stats } = parseClaudeSession(fixture('claude/v2.1-custom-title.jsonl'))
     expect(meta.title).toBe('My renamed session')
@@ -79,10 +95,12 @@ describe('codex adapter', () => {
     expect(assistant[0].text).toContain('dutch oven')
   })
 
-  test('noise (user_instructions injection) is filtered; real user msg is preview', () => {
+  test('injected noise (user_instructions, permissions instructions) is filtered', () => {
     const { meta, messages } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
     expect(messages.some((m) => m.text.includes('AGENTS.md'))).toBe(false)
+    expect(messages.some((m) => m.text.includes('sandbox_mode'))).toBe(false)
     expect(meta.preview).toContain('sourdough')
+    expect(meta.title).not.toContain('permissions')
   })
 
   test('function_call becomes a tool message with joined command', () => {

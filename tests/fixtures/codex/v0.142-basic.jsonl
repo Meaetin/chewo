@@ -1,6 +1,7 @@
 {"timestamp":"2026-07-03T08:00:00.000Z","type":"session_meta","payload":{"id":"019e0000-0000-7000-8000-000000000001","timestamp":"2026-07-03T08:00:00.000Z","cwd":"/Users/test/Desktop/Projects/bread","originator":"codex_cli","cli_version":"0.142.5","source":"cli","model_provider":"openai"}}
 {"timestamp":"2026-07-03T08:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}
 {"timestamp":"2026-07-03T08:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>injected AGENTS.md content</user_instructions>"}]}}
+{"timestamp":"2026-07-03T08:00:01.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<permissions instructions>\nFilesystem sandboxing defines which files can be read or written. `sandbox_mode` is `workspace-write`.\n# Escalation Requests\n</permissions instructions>"}]}}
 {"timestamp":"2026-07-03T08:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"how do I bake sourdough bread?"}]}}
 {"timestamp":"2026-07-03T08:00:05.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\",\"-la\",\"recipes/\"]}","call_id":"c1"}}
 {"timestamp":"2026-07-03T08:00:06.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"sourdough.md"}}

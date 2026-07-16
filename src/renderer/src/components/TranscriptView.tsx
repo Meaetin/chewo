@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { NormalizedMessage, SessionMeta } from '../../../shared/adapter/types'
 
 interface TranscriptViewProps {
@@ -48,14 +50,28 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
         {!messages && !error && <div className="transcript-loading">Loading…</div>}
         {messages?.map((m, i) => (
           <div key={i} className={`message message-${m.role}`}>
-            {m.role === 'tool' ? (
+            {m.commandName ? (
+              <div className="command-chip" title="Slash command">
+                <span className="command-chip-symbol">⌘</span>
+                <code>{m.commandName}</code>
+              </div>
+            ) : m.role === 'tool' ? (
               <div className="tool-call-chip">
                 <span className="tool-call-name">{m.toolName}</span>
                 {m.text && <code className="tool-call-detail">{m.text.slice(0, 160)}</code>}
               </div>
-            ) : (
+            ) : m.role === 'assistant' ? (
               <>
-                <div className="message-role-label">{m.role}</div>
+                <div className="message-role-label">assistant</div>
+                <div className="message-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                </div>
+              </>
+            ) : (
+              // User text stays literal — pasted code/logs must not be
+              // reinterpreted as markdown
+              <>
+                <div className="message-role-label">user</div>
                 <div className="message-text">{m.text}</div>
               </>
             )}

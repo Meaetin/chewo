@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
+import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
 
 /**
@@ -60,13 +61,6 @@ const KNOWN_TYPES = new Set([
   'pr-link'
 ])
 
-const NOISE_PREFIXES = ['<command-name', '<local-command', '<system-reminder']
-
-function isNoise(text: string): boolean {
-  const t = text.trimStart()
-  return NOISE_PREFIXES.some((p) => t.startsWith(p))
-}
-
 function extractFiles(input: Record<string, unknown> | undefined): string[] {
   if (!input) return []
   const files: string[] = []
@@ -96,15 +90,30 @@ function recordToMessages(rec: ClaudeRecord): NormalizedMessage[] {
   const out: NormalizedMessage[] = []
   const base = { timestamp: rec.timestamp, isSidechain: rec.isSidechain || undefined }
 
+  // Slash commands → compact chip; other injected pseudo-XML → dropped.
+  // Assistant text passes through untouched.
+  const pushText = (text: string): void => {
+    if (!text.trim()) return
+    if (role === 'user') {
+      const command = extractCommand(text)
+      if (command) {
+        out.push({ role, text: command, commandName: command, ...base })
+        return
+      }
+      if (isInjectedNoise(text)) return
+    }
+    out.push({ role, text, ...base })
+  }
+
   if (typeof msg.content === 'string') {
-    if (msg.content.trim()) out.push({ role, text: msg.content, ...base })
+    pushText(msg.content)
     return out
   }
   if (!Array.isArray(msg.content)) return out
 
   for (const block of msg.content as ContentBlock[]) {
     if (block.type === 'text' && block.text?.trim()) {
-      out.push({ role, text: block.text, ...base })
+      pushText(block.text)
     } else if (block.type === 'tool_use') {
       out.push({
         role: 'tool',
@@ -177,17 +186,21 @@ export function parseClaudeSession(
     return undefined
   }
 
-  const firstUserText = messages.find((m) => m.role === 'user' && !isNoise(m.text))?.text ?? ''
+  const firstUserText = messages.find((m) => m.role === 'user' && !m.commandName)?.text ?? ''
   const preview = firstUserText.replace(/\s+/g, ' ').trim().slice(0, 120)
+  const firstAssistantText =
+    messages.find((m) => m.role === 'assistant')?.text.replace(/\s+/g, ' ').trim().slice(0, 50) ?? ''
+  const created = records.find((r) => r.timestamp)?.timestamp ?? ''
 
-  // custom-title is a user-set rename — it outranks the generated ai-title
+  // custom-title is a user-set rename — it outranks the generated ai-title.
+  // Final fallbacks never surface a raw UUID.
   const title =
     first((r) => (r.type === 'custom-title' ? r.customTitle : undefined)) ??
     first((r) => (r.type === 'ai-title' ? r.aiTitle : undefined)) ??
     first((r) => (r.type === 'summary' ? r.summary : undefined)) ??
     first((r) => (r.type === 'agent-name' ? r.agentName : undefined))?.replace(/-/g, ' ') ??
     first((r) => r.slug)?.replace(/-/g, ' ') ??
-    (preview || basename(filePath, '.jsonl'))
+    (preview || firstAssistantText || untitledFallback(created))
 
   const timestamps = records.map((r) => r.timestamp).filter((t): t is string => !!t)
 
@@ -201,7 +214,7 @@ export function parseClaudeSession(
       createdAt: timestamps[0] ?? '',
       updatedAt: timestamps[timestamps.length - 1] ?? '',
       filePath,
-      messageCount: messages.length,
+      messageCount: messages.filter((m) => !m.commandName).length,
       preview
     },
     messages,

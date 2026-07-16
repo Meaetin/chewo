@@ -10,6 +10,8 @@ export interface SessionMeta {
   createdAt: string
   updatedAt: string
   filePath: string
+  /** Count of real conversation messages — slash-command chips excluded, so
+   *  command-only sessions (e.g. a lone /clear) count 0 and are hidden */
   messageCount: number
   /** First real user message, truncated — for search and sidebar subtitles */
   preview: string
@@ -18,6 +20,8 @@ export interface SessionMeta {
 export interface NormalizedMessage {
   role: 'user' | 'assistant' | 'tool'
   text: string
+  /** Set when this is a slash-command invocation (e.g. "/clear") — render as a chip */
+  commandName?: string
   toolName?: string
   filesTouched?: string[]
   timestamp?: string
