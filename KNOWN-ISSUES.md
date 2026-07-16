@@ -101,10 +101,11 @@ purpose — the escape hatch after removing "All sessions". ⌘F transcript
 find only searches rendered DOM: collapsed tool outputs are excluded until
 expanded.
 
-### 14. Unscoped terminals are not persisted
-Dormant-tab persistence is per-project. Terminals opened with no project
-selected (spawn in $HOME) die with the app and are not remembered. Add a
-top-level saved-terminals list if this ever hurts.
+### 14. ~~Unscoped terminals are not persisted~~ RESOLVED 2026-07-17
+Home is now a full section: its terminals persist in `homeTerminals`
+(projects.json) and wake as dormant tabs in $HOME. Also: live tabs are no
+longer scoped away on project switch — all live terminals stay visible with
+section labels; only dormant tabs remain per-section.
 
 ### 15. Adapter caps
 Tool results capped at 4,000 chars at parse time; digest 8k; full-transcript
