@@ -11,6 +11,7 @@ interface TerminalPaneProps {
 export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const termRef = useRef<Terminal | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -23,8 +24,10 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
     })
     const fit = new FitAddon()
     fitRef.current = fit
+    termRef.current = term
     term.loadAddon(fit)
     term.open(container)
+    term.focus() // type immediately — no click required
 
     term.onData((data) => window.api.termInput(termId, data))
 
@@ -50,16 +53,19 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
       resizeObserver.disconnect()
       offData()
       offExit()
+      termRef.current = null
       term.dispose()
     }
   }, [termId])
 
   useEffect(() => {
     if (active) {
-      // Re-fit after becoming visible (display:none while inactive)
+      // Re-fit and take keyboard focus after becoming visible
+      // (display:none while inactive)
       requestAnimationFrame(() => {
         const container = containerRef.current
         if (container && container.offsetWidth > 0) fitRef.current?.fit()
+        termRef.current?.focus()
       })
     }
   }, [active])
