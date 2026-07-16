@@ -38,7 +38,25 @@ interface ContentBlock {
   type?: string
   text?: string
   name?: string
+  id?: string
+  tool_use_id?: string
+  content?: unknown
   input?: Record<string, unknown>
+}
+
+const RESULT_CAP = 4000
+
+/** tool_result content is a string or an array of text blocks */
+function resultText(content: unknown): string {
+  if (typeof content === 'string') return content.slice(0, RESULT_CAP)
+  if (Array.isArray(content)) {
+    return (content as ContentBlock[])
+      .filter((b) => b.type === 'text' && b.text)
+      .map((b) => b.text)
+      .join('\n')
+      .slice(0, RESULT_CAP)
+  }
+  return ''
 }
 
 const KNOWN_TYPES = new Set([
@@ -83,7 +101,7 @@ function summarizeToolInput(input: Record<string, unknown> | undefined): string 
   }
 }
 
-function recordToMessages(rec: ClaudeRecord): NormalizedMessage[] {
+function recordToMessages(rec: ClaudeRecord, results: Map<string, string>): NormalizedMessage[] {
   const msg = rec.message
   if (!msg) return []
   const role = rec.type === 'assistant' ? 'assistant' : 'user'
@@ -120,12 +138,28 @@ function recordToMessages(rec: ClaudeRecord): NormalizedMessage[] {
         toolName: block.name ?? 'unknown',
         text: summarizeToolInput(block.input),
         filesTouched: extractFiles(block.input),
+        toolResult: block.id ? results.get(block.id) : undefined,
         ...base
       })
     }
-    // tool_result / thinking blocks are intentionally dropped in v1
+    // tool_result blocks surface via the results map; thinking blocks are dropped
   }
   return out
+}
+
+/** Map tool_use_id → result text across the whole file. */
+function collectToolResults(records: ClaudeRecord[]): Map<string, string> {
+  const results = new Map<string, string>()
+  for (const rec of records) {
+    if (rec.type !== 'user' || !Array.isArray(rec.message?.content)) continue
+    for (const block of rec.message.content as ContentBlock[]) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        const text = resultText(block.content)
+        if (text) results.set(block.tool_use_id, text)
+      }
+    }
+  }
+  return results
 }
 
 export function parseClaudeSession(
@@ -172,9 +206,12 @@ export function parseClaudeSession(
     cursor = cursor.parentUuid ? byUuid.get(cursor.parentUuid) : undefined
   }
 
-  const messages: NormalizedMessage[] = chain.flatMap(recordToMessages)
+  const toolResults = collectToolResults(records)
+  const messages: NormalizedMessage[] = chain.flatMap((r) => recordToMessages(r, toolResults))
   if (opts.includeSidechains) {
-    messages.push(...msgRecs.filter((r) => r.isSidechain).flatMap(recordToMessages))
+    messages.push(
+      ...msgRecs.filter((r) => r.isSidechain).flatMap((r) => recordToMessages(r, toolResults))
+    )
   }
 
   // --- meta ---

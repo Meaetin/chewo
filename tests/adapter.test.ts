@@ -16,13 +16,14 @@ describe('claude adapter', () => {
     expect(meta.preview).toContain('apple pie')
   })
 
-  test('normalizes messages: text + tool_use, tool_result dropped', () => {
+  test('normalizes messages: text + tool_use, result attached to the call', () => {
     const { messages } = parseClaudeSession(fixture('claude/v2.1-basic.jsonl'))
     const roles = messages.map((m) => m.role)
     expect(roles).toEqual(['user', 'assistant', 'tool', 'assistant'])
     const tool = messages.find((m) => m.role === 'tool')!
     expect(tool.toolName).toBe('Read')
     expect(tool.filesTouched).toEqual(['/Users/test/Desktop/Projects/pie/recipe.md'])
+    expect(tool.toolResult).toBe('flour, apples, butter')
   })
 
   test('excludes sidechains by default, includes them on request', () => {
@@ -103,11 +104,18 @@ describe('codex adapter', () => {
     expect(meta.title).not.toContain('permissions')
   })
 
-  test('function_call becomes a tool message with joined command', () => {
+  test('function_call becomes a tool message with joined command and its output', () => {
     const { messages } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
     const tool = messages.find((m) => m.role === 'tool')!
     expect(tool.toolName).toBe('shell')
     expect(tool.text).toBe('ls -la recipes/')
+    expect(tool.toolResult).toBe('sourdough.md')
+  })
+
+  test('AGENTS.md injection (markdown header, no tag) is filtered', () => {
+    const { meta, messages } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
+    expect(messages.some((m) => m.text.includes('AGENTS.md'))).toBe(false)
+    expect(meta.title).not.toContain('AGENTS.md')
   })
 
   test('unknown record types are counted, never fatal', () => {

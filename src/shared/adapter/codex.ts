@@ -27,7 +27,23 @@ interface CodexRecord {
     name?: string
     arguments?: string
     action?: { command?: string[] }
+    call_id?: string
+    output?: unknown
   }
+}
+
+const RESULT_CAP = 4000
+
+/** function_call_output payloads wrap text in JSON ({"output": "..."}) as often as not */
+function outputText(output: unknown): string {
+  if (typeof output !== 'string') return ''
+  try {
+    const parsed = JSON.parse(output)
+    if (typeof parsed?.output === 'string') return parsed.output.slice(0, RESULT_CAP)
+  } catch {
+    /* raw string output */
+  }
+  return output.slice(0, RESULT_CAP)
 }
 
 const KNOWN_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted'])
@@ -39,7 +55,11 @@ function idFromFilename(filePath: string): string {
   return m?.[0] ?? name
 }
 
-function responseItemToMessage(payload: NonNullable<CodexRecord['payload']>, timestamp?: string): NormalizedMessage | null {
+function responseItemToMessage(
+  payload: NonNullable<CodexRecord['payload']>,
+  timestamp: string | undefined,
+  results: Map<string, string>
+): NormalizedMessage | null {
   if (payload.type === 'message') {
     const role = payload.role === 'assistant' ? 'assistant' : 'user'
     const text = (payload.content ?? [])
@@ -63,13 +83,21 @@ function responseItemToMessage(payload: NonNullable<CodexRecord['payload']>, tim
     } catch {
       /* keep raw arguments string */
     }
-    return { role: 'tool', toolName: payload.name ?? 'unknown', text: text.slice(0, 300), timestamp }
+    return {
+      role: 'tool',
+      toolName: payload.name ?? 'unknown',
+      text: text.slice(0, 300),
+      toolResult: payload.call_id ? results.get(payload.call_id) : undefined,
+      timestamp
+    }
   }
   if (payload.type === 'local_shell_call') {
+    const callId = payload.call_id ?? payload.id
     return {
       role: 'tool',
       toolName: 'shell',
       text: (payload.action?.command ?? []).join(' ').slice(0, 300),
+      toolResult: callId ? results.get(callId) : undefined,
       timestamp
     }
   }
@@ -102,10 +130,21 @@ export function parseCodexSession(
   const sessionMeta = records.find((r) => r.type === 'session_meta')?.payload
   const id = sessionMeta?.id ?? idFromFilename(filePath)
 
+  // First pass: collect tool outputs so calls can carry their results
+  const toolResults = new Map<string, string>()
+  for (const rec of records) {
+    const p = rec.payload
+    if (rec.type !== 'response_item' || !p) continue
+    if ((p.type === 'function_call_output' || p.type === 'local_shell_call_output') && p.call_id) {
+      const text = outputText(p.output)
+      if (text) toolResults.set(p.call_id, text)
+    }
+  }
+
   const messages: NormalizedMessage[] = []
   for (const rec of records) {
     if (rec.type !== 'response_item' || !rec.payload) continue
-    const msg = responseItemToMessage(rec.payload, rec.timestamp)
+    const msg = responseItemToMessage(rec.payload, rec.timestamp, toolResults)
     if (msg) messages.push(msg)
   }
 

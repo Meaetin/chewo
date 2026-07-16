@@ -23,6 +23,8 @@ export interface NormalizedMessage {
   /** Set when this is a slash-command invocation (e.g. "/clear") — render as a chip */
   commandName?: string
   toolName?: string
+  /** Output of the tool call, when recoverable — capped, render collapsed */
+  toolResult?: string
   filesTouched?: string[]
   timestamp?: string
   isSidechain?: boolean

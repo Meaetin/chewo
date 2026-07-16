@@ -442,6 +442,36 @@ body {
   font-family: 'SF Mono', Menlo, monospace;
 }
 
+.tool-call-chip-expandable {
+  cursor: pointer;
+}
+
+.tool-call-chip-expandable:hover {
+  background: var(--bg-hover);
+}
+
+.tool-call-chevron {
+  color: var(--text-dim);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.tool-result-output {
+  margin-top: 4px;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .command-chip {
   display: inline-flex;
   align-items: center;

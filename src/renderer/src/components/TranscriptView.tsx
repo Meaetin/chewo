@@ -11,6 +11,15 @@ interface TranscriptViewProps {
 export function TranscriptView({ session, onResume }: TranscriptViewProps): React.JSX.Element {
   const [messages, setMessages] = useState<NormalizedMessage[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set())
+
+  const toggleResult = (i: number): void =>
+    setExpandedResults((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
 
   useEffect(() => {
     let cancelled = false
@@ -56,9 +65,21 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
                 <code>{m.commandName}</code>
               </div>
             ) : m.role === 'tool' ? (
-              <div className="tool-call-chip">
-                <span className="tool-call-name">{m.toolName}</span>
-                {m.text && <code className="tool-call-detail">{m.text.slice(0, 160)}</code>}
+              <div className="tool-call-block">
+                <div
+                  className={`tool-call-chip ${m.toolResult ? 'tool-call-chip-expandable' : ''}`}
+                  onClick={m.toolResult ? () => toggleResult(i) : undefined}
+                  title={m.toolResult ? 'Show tool output' : undefined}
+                >
+                  {m.toolResult && (
+                    <span className="tool-call-chevron">{expandedResults.has(i) ? '▾' : '▸'}</span>
+                  )}
+                  <span className="tool-call-name">{m.toolName}</span>
+                  {m.text && <code className="tool-call-detail">{m.text.slice(0, 160)}</code>}
+                </div>
+                {m.toolResult && expandedResults.has(i) && (
+                  <pre className="tool-result-output">{m.toolResult}</pre>
+                )}
               </div>
             ) : m.role === 'assistant' ? (
               <>

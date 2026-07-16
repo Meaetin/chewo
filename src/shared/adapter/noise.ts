@@ -7,10 +7,14 @@
  * CLI release, so instead of a prefix list we use the shape: real humans
  * essentially never START a message with an XML-ish tag.
  */
-const INJECTED_TAG_RE = /^<[a-z][\w-]*[\s>]/i
+const INJECTED_PATTERNS = [
+  /^<[a-z][\w-]*[\s>]/i, // pseudo-XML blocks: <command-name>, <permissions instructions>, …
+  /^# AGENTS\.md/i // Codex injects AGENTS.md content under a markdown header, no tag
+]
 
 export function isInjectedNoise(text: string): boolean {
-  return INJECTED_TAG_RE.test(text.trimStart())
+  const t = text.trimStart()
+  return INJECTED_PATTERNS.some((re) => re.test(t))
 }
 
 /** Slash-command invocations are worth showing (compactly), unlike other noise. */
