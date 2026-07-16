@@ -32,33 +32,51 @@ function projectName(project: string | null): string {
   return project?.split('/').pop()?.toLowerCase() ?? ''
 }
 
+const norm = (p: string): string => (p.endsWith('/') ? p.slice(0, -1) : p)
+
+/** Prefix-related paths (same project tree) get a ranking boost, never a filter. */
+function pathBoost(sessionProject: string | null, boostPath: string | undefined): number {
+  if (!sessionProject || !boostPath) return 0
+  const sp = norm(sessionProject)
+  const bp = norm(boostPath)
+  if (sp === bp) return 4
+  if (sp.startsWith(bp + '/') || bp.startsWith(sp + '/')) return 2
+  return 0
+}
+
 /**
  * Fuzzy ranking over titles + previews + project names. Deliberately returns
  * a candidate LIST — titles are auto-generated and collide, so the calling
  * model disambiguates rather than this code silently guessing.
+ * `boostPath` (the CLI's cwd) ranks current-project sessions first WITHOUT
+ * hiding cross-project results — global memory is the point of the bridge.
  */
 export function searchSessions(
   query: string,
-  opts: { source?: Source; project?: string; limit?: number } & StoreOptions = {}
+  opts: { source?: Source; project?: string; limit?: number; boostPath?: string } & StoreOptions = {}
 ): SearchCandidate[] {
   const { sessions } = scanAll(opts)
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
   const phrase = query.toLowerCase().trim()
+  // Whole-word matching — substring scoring lets "to" match inside "sourdough"
+  const words = (text: string): Set<string> =>
+    new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
 
   const scored = sessions
     .filter((s) => !opts.source || s.source === opts.source)
     .filter((s) => !opts.project || projectName(s.project).includes(opts.project.toLowerCase()))
     .map((s) => {
-      const title = s.title.toLowerCase()
-      const preview = s.preview.toLowerCase()
+      const titleWords = words(s.title)
+      const previewWords = words(s.preview)
       const proj = projectName(s.project)
       let score = 0
       for (const tok of tokens) {
-        if (title.includes(tok)) score += 3
-        if (preview.includes(tok)) score += 1
+        if (titleWords.has(tok)) score += 3
+        if (previewWords.has(tok)) score += 1
         if (proj.includes(tok)) score += 2
       }
-      if (phrase.length > 3 && title.includes(phrase)) score += 5
+      if (phrase.length > 3 && s.title.toLowerCase().includes(phrase)) score += 5
+      if (score > 0) score += pathBoost(s.project, opts.boostPath)
       return { s, score }
     })
     .filter((x) => x.score > 0)

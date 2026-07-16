@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import type { BrowserWindow } from 'electron'
 import * as pty from 'node-pty'
 import type { Source } from '../shared/adapter'
+import type { UnboundPane } from '../shared/projects'
 
 export interface CreateTerminalOptions {
   source: Source
@@ -12,7 +13,16 @@ export interface CreateTerminalOptions {
   cwd?: string | null
 }
 
-const terminals = new Map<number, pty.IPty>()
+interface PaneRecord {
+  proc: pty.IPty
+  source: Source
+  cwd: string
+  spawnedAtMs: number
+  /** Known immediately when resuming; bound later (via the session-store watcher) when fresh */
+  sessionId?: string
+}
+
+const terminals = new Map<number, PaneRecord>()
 let nextId = 1
 
 function buildCommand(opts: CreateTerminalOptions): string {
@@ -35,7 +45,13 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
   })
 
   const id = nextId++
-  terminals.set(id, proc)
+  terminals.set(id, {
+    proc,
+    source: opts.source,
+    cwd,
+    spawnedAtMs: Date.now(),
+    sessionId: opts.sessionId
+  })
 
   proc.onData((data) => {
     if (!win.isDestroyed()) win.webContents.send('terminal:data', { id, data })
@@ -49,19 +65,35 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
 }
 
 export function writeTerminal(id: number, data: string): void {
-  terminals.get(id)?.write(data)
+  terminals.get(id)?.proc.write(data)
 }
 
 export function resizeTerminal(id: number, cols: number, rows: number): void {
-  if (cols > 0 && rows > 0) terminals.get(id)?.resize(cols, rows)
+  if (cols > 0 && rows > 0) terminals.get(id)?.proc.resize(cols, rows)
 }
 
 export function killTerminal(id: number): void {
-  terminals.get(id)?.kill()
+  terminals.get(id)?.proc.kill()
   terminals.delete(id)
 }
 
 export function disposeAllTerminals(): void {
-  for (const proc of terminals.values()) proc.kill()
+  for (const rec of terminals.values()) rec.proc.kill()
   terminals.clear()
+}
+
+/** Panes spawned fresh whose session id we haven't identified yet. */
+export function getUnboundPanes(): UnboundPane[] {
+  const out: UnboundPane[] = []
+  for (const [termId, rec] of terminals) {
+    if (!rec.sessionId) {
+      out.push({ termId, source: rec.source, cwd: rec.cwd, spawnedAtMs: rec.spawnedAtMs })
+    }
+  }
+  return out
+}
+
+export function bindPaneSession(termId: number, sessionId: string): void {
+  const rec = terminals.get(termId)
+  if (rec) rec.sessionId = sessionId
 }

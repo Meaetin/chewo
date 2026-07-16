@@ -1,6 +1,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { buildServer } from './server'
-import type { AgentName } from './inbox'
+import { auditLog, type AgentName } from './inbox'
 
 function parseAgent(argv: string[]): AgentName {
   const i = argv.indexOf('--agent')
@@ -12,7 +12,12 @@ function parseAgent(argv: string[]): AgentName {
 }
 
 async function main(): Promise<void> {
-  const server = buildServer({ agent: parseAgent(process.argv) })
+  const agent = parseAgent(process.argv)
+  // Assumption to verify from audit logs: CLIs spawn MCP servers in the
+  // session's cwd. If they don't, the boost silently degrades to neutral.
+  const cwd = process.cwd()
+  auditLog(agent, 'startup', { cwd })
+  const server = buildServer({ agent, cwd })
   await server.connect(new StdioServerTransport())
 }
 

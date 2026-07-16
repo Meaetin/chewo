@@ -61,6 +61,24 @@ describe('searchSessions', () => {
     const codexOnly = searchSessions('apple pie', { claudeRoot, codexRoot, source: 'codex' })
     expect(codexOnly).toHaveLength(0)
   })
+
+  test('boostPath ranks current-project sessions first without hiding others', () => {
+    // "how" hits the pie session (title+preview) harder than the bread session
+    // (preview only) — the cwd boost must flip the order without dropping results.
+    const neutral = searchSessions('how', { claudeRoot, codexRoot, limit: 10 })
+    expect(neutral.length).toBeGreaterThanOrEqual(2)
+    expect(neutral[0].project).toBe('/Users/test/Desktop/Projects/pie')
+
+    const boosted = searchSessions('how', {
+      claudeRoot,
+      codexRoot,
+      limit: 10,
+      boostPath: '/Users/test/Desktop/Projects/bread'
+    })
+    expect(boosted[0].project).toBe('/Users/test/Desktop/Projects/bread')
+    // cross-project result still present — boost, not filter
+    expect(boosted.length).toBe(neutral.length)
+  })
 })
 
 describe('digest & pagination', () => {

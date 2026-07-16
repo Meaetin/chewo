@@ -1,9 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { SessionMeta } from '../../../shared/adapter/types'
+import type { Project } from '../../../shared/projects'
 
 interface SidebarProps {
   sessions: SessionMeta[]
-  selectedId?: string
+  projects: Project[]
+  selectedProjectId: string | null
+  selectedSessionId?: string
+  onSelectProject: (id: string | null) => void
+  onCreateProject: () => void
+  onDeleteProject: (id: string) => void
   onSelect: (session: SessionMeta) => void
   onNewTerminal: (source: 'claude' | 'codex') => void
 }
@@ -27,7 +33,17 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 30)}mo`
 }
 
-export function Sidebar({ sessions, selectedId, onSelect, onNewTerminal }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  sessions,
+  projects,
+  selectedProjectId,
+  selectedSessionId,
+  onSelectProject,
+  onCreateProject,
+  onDeleteProject,
+  onSelect,
+  onNewTerminal
+}: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
 
   const groups = useMemo(() => {
@@ -54,6 +70,41 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewTerminal }: Sideb
 
   return (
     <aside className="sidebar">
+      <div className="project-rail">
+        <div className="project-rail-header">
+          <span>Projects</span>
+          <button className="project-add-button" onClick={onCreateProject} title="Add a project folder">
+            +
+          </button>
+        </div>
+        <div
+          className={`project-row ${selectedProjectId === null ? 'project-row-selected' : ''}`}
+          onClick={() => onSelectProject(null)}
+        >
+          <span className="project-row-name">All sessions</span>
+        </div>
+        {projects.map((p) => (
+          <div
+            key={p.id}
+            className={`project-row ${selectedProjectId === p.id ? 'project-row-selected' : ''}`}
+            onClick={() => onSelectProject(p.id)}
+            title={p.path}
+          >
+            <span className="project-row-name">{p.name}</span>
+            <button
+              className="project-delete-button"
+              title="Remove project (sessions are not deleted)"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteProject(p.id)
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="sidebar-actions">
         <button className="new-terminal-button" onClick={() => onNewTerminal('claude')}>
           + Claude
@@ -77,7 +128,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewTerminal }: Sideb
             {items.map((s) => (
               <div
                 key={`${s.source}:${s.id}`}
-                className={`session-item ${s.id === selectedId ? 'session-item-selected' : ''}`}
+                className={`session-item ${s.id === selectedSessionId ? 'session-item-selected' : ''}`}
                 onClick={() => onSelect(s)}
               >
                 <div className="session-item-top">

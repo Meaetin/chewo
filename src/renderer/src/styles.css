@@ -46,6 +46,85 @@ body {
   flex-direction: column;
 }
 
+.project-rail {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.project-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.project-add-button {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.project-row:hover {
+  background: var(--bg-hover);
+}
+
+.project-row-selected {
+  background: var(--bg-selected);
+  border-left-color: var(--accent-codex);
+}
+
+.project-row-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-delete-button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.project-row:hover .project-delete-button {
+  visibility: visible;
+}
+
+.project-delete-button:hover {
+  color: var(--text);
+}
+
+.terminal-tab-dormant {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.terminal-tab-dormant:hover {
+  opacity: 0.9;
+}
+
 .sidebar-actions {
   display: flex;
   gap: 8px;

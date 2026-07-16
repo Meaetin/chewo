@@ -1,10 +1,14 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
+import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
+import { loadProjects, saveProjects } from './projects'
 import {
+  bindPaneSession,
   createTerminal,
   disposeAllTerminals,
+  getUnboundPanes,
   killTerminal,
   resizeTerminal,
   writeTerminal,
@@ -54,6 +58,38 @@ function registerIpc(): void {
     resizeTerminal(id, cols, rows)
   )
   ipcMain.on('terminal:kill', (_e, { id }: { id: number }) => killTerminal(id))
+
+  ipcMain.handle('projects:load', () => loadProjects())
+  ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
+  ipcMain.handle('dialog:pickFolder', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    return result.canceled ? null : result.filePaths[0]
+  })
+}
+
+/**
+ * Fresh terminals don't tell us their session id. When new session files
+ * appear, match them to unbound panes by source + cwd + spawn time and tell
+ * the renderer, so the tab can be labeled and persisted as resumable.
+ */
+function bindNewSessions(): void {
+  const panes = getUnboundPanes()
+  if (panes.length === 0) return
+  const { sessions } = scanAll()
+  for (const session of sessions) {
+    const pane = matchSessionToPane(panes, session)
+    if (!pane) continue
+    bindPaneSession(pane.termId, session.id)
+    panes.splice(panes.indexOf(pane), 1)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal:session-bound', {
+        id: pane.termId,
+        sessionId: session.id,
+        title: session.title
+      })
+    }
+    if (panes.length === 0) break
+  }
 }
 
 function watchSessionStores(): void {
@@ -67,6 +103,7 @@ function watchSessionStores(): void {
     // Debounce: JSONL files are appended line-by-line during active sessions
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
+      bindNewSessions()
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('sessions:changed')
       }

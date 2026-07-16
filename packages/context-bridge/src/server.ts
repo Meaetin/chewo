@@ -15,6 +15,8 @@ export interface BridgeOptions extends StoreOptions {
   /** Which agent this instance serves — routes handoff/inbox. */
   agent: AgentName
   bridgeRoot?: string
+  /** The CLI session's cwd — boosts (never filters) current-project search results. */
+  cwd?: string
 }
 
 const asText = (value: unknown): { content: [{ type: 'text'; text: string }] } => ({
@@ -33,7 +35,10 @@ export function buildServer(opts: BridgeOptions): McpServer {
     {
       description:
         'Search past Claude Code AND Codex CLI conversations by topic. Returns ranked candidates ' +
-        '(titles collide — pick the best match, usually the most recent). Follow up with get_session for content.',
+        '(titles collide — pick the best match, usually the most recent). Sessions from the current ' +
+        'working project rank first, but ALL projects are searched — when the user names another ' +
+        'project ("from my abc project…"), pass it as the project parameter. ' +
+        'Follow up with get_session for content.',
       inputSchema: {
         query: z.string().describe('Topic or title words, e.g. "how to make an apple"'),
         source: z.enum(['claude', 'codex']).optional().describe('Restrict to one tool'),
@@ -43,7 +48,7 @@ export function buildServer(opts: BridgeOptions): McpServer {
     },
     async (args) => {
       audit('search_sessions', args)
-      return asText(searchSessions(args.query, { ...storeOpts, ...args }))
+      return asText(searchSessions(args.query, { ...storeOpts, ...args, boostPath: opts.cwd }))
     }
   )
 

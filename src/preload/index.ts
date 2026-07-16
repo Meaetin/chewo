@@ -8,6 +8,11 @@ export interface TermExitEvent {
   id: number
   exitCode: number
 }
+export interface TermBoundEvent {
+  id: number
+  sessionId: string
+  title: string
+}
 
 const api = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
@@ -34,7 +39,16 @@ const api = {
     const listener = (_e: IpcRendererEvent, payload: TermExitEvent): void => cb(payload)
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
-  }
+  },
+  onTermBound: (cb: (e: TermBoundEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
+    ipcRenderer.on('terminal:session-bound', listener)
+    return () => ipcRenderer.removeListener('terminal:session-bound', listener)
+  },
+
+  loadProjects: () => ipcRenderer.invoke('projects:load'),
+  saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
+  pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>
 }
 
 export type Api = typeof api
