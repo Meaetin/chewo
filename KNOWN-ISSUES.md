@@ -140,6 +140,10 @@ and the renderer.
   round).
 - **Electron binary**: if `npm run dev` says "Electron uninstall", run
   `node node_modules/electron/install.js` (interrupted download).
+- **electron-vite dev needs `--watch`** (now in the dev script): without it,
+  only renderer code hot-reloads — main/preload edits silently never reach
+  the running app. Symptom: UI renders new features but preload-backed data
+  (`window.api.*`) is undefined. Cost us the "Home shows 0 sessions" bug.
 
 ---
 
