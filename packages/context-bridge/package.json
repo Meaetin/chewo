@@ -1,0 +1,14 @@
+{
+  "name": "@cohesion/context-bridge",
+  "version": "0.1.0",
+  "description": "MCP server exposing Claude Code + Codex session history as tools — the shared memory both agents query",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  }
+}
