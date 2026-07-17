@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copyAgent, copyMemoryFile, copySkill, readMemoryFile } from '../src/main/capability-writer'
-import type { CopyDestination } from '../src/shared/capabilities/types'
+import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from '../src/main/capability-writer'
+import { parseClaudeHooks } from '../src/shared/capabilities/scan'
+import type { CopyDestination, HookRef } from '../src/shared/capabilities/types'
 
 let tmp: string
 
@@ -117,6 +118,66 @@ describe('copyMemoryFile', () => {
     expect(() => readMemoryFile(join(tmp, 'projA/README.md'))).toThrow(/refusing/)
     writeFileSync(join(tmp, 'projA/CLAUDE.md'), '# ok')
     expect(readMemoryFile(join(tmp, 'projA/CLAUDE.md'))).toBe('# ok')
+  })
+})
+
+describe('copyHook + parseClaudeHooks', () => {
+  const hookRef: HookRef = {
+    event: 'PreToolUse',
+    matcher: 'Bash',
+    command: 'echo pre-bash-check',
+    settingsPath: '/src/settings.json'
+  }
+
+  test('merges into existing settings.json preserving other keys; roundtrips through the parser', () => {
+    const settingsPath = join(tmp, 'projA/.claude/settings.json')
+    mkdirSync(join(tmp, 'projA/.claude'), { recursive: true })
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        permissions: { allow: ['Bash(ls:*)'] },
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] }
+      })
+    )
+
+    const results = copyHook(hookRef, [
+      { kind: 'project', path: join(tmp, 'projA'), tool: 'claude', label: 'projA' }
+    ])
+    expect(results[0].status).toBe('copied')
+
+    const cfg = JSON.parse(readFileSync(settingsPath, 'utf8'))
+    expect(cfg.permissions.allow).toEqual(['Bash(ls:*)']) // untouched
+    expect(cfg.hooks.Stop).toHaveLength(1) // untouched
+    expect(cfg.hooks.PreToolUse[0]).toEqual({
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: 'echo pre-bash-check' }]
+    })
+
+    // the scanner reads back what the writer wrote
+    const parsed = parseClaudeHooks(settingsPath)
+    expect(parsed).toContainEqual(
+      expect.objectContaining({ event: 'PreToolUse', matcher: 'Bash', command: 'echo pre-bash-check' })
+    )
+  })
+
+  test('identical hook → exists; same matcher different command appends to the slot', () => {
+    const target: CopyDestination[] = [
+      { kind: 'project', path: join(tmp, 'projB'), tool: 'claude', label: 'projB' }
+    ]
+    expect(copyHook(hookRef, target)[0].status).toBe('copied')
+    expect(copyHook(hookRef, target)[0].status).toBe('exists')
+
+    const second = copyHook({ ...hookRef, command: 'echo other-check' }, target)
+    expect(second[0].status).toBe('copied')
+    const cfg = JSON.parse(readFileSync(join(tmp, 'projB/.claude/settings.json'), 'utf8'))
+    expect(cfg.hooks.PreToolUse).toHaveLength(1) // one matcher slot
+    expect(cfg.hooks.PreToolUse[0].hooks).toHaveLength(2) // two commands in it
+  })
+
+  test('global destination writes to ~/.claude/settings.json', () => {
+    const results = copyHook(hookRef, [{ kind: 'global', tool: 'claude', label: 'Personal' }], roots())
+    expect(results[0].status).toBe('copied')
+    expect(existsSync(join(tmp, 'claude-home/settings.json'))).toBe(true)
   })
 })
 

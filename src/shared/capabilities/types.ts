@@ -34,6 +34,17 @@ export interface McpRef {
   envKeys?: string[]
 }
 
+/** Claude Code hook (settings.json) — a command run automatically on an event */
+export interface HookRef {
+  /** e.g. PreToolUse, PostToolUse, Stop, Notification */
+  event: string
+  /** Tool matcher pattern, when the event supports one */
+  matcher?: string
+  command: string
+  /** Which settings file defines it */
+  settingsPath: string
+}
+
 export type CapabilityScope =
   | { kind: 'global'; tool: Tool }
   | { kind: 'project'; projectId: string; name: string; path: string }
@@ -44,6 +55,8 @@ export interface CapabilityInventory {
   skills: SkillRef[]
   agents: AgentRef[]
   mcp: McpRef[]
+  /** Claude Code only — Codex hook definitions are plugin-managed */
+  hooks: HookRef[]
 }
 
 /** Minimal project shape the scanner needs (renderer passes its Project list) */

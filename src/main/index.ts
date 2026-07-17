@@ -6,9 +6,9 @@ import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
 import { scanCapabilities } from '../shared/capabilities/scan'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
-import { copyAgent, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
+import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
 import { copyMcp } from './mcp-writer'
-import type { McpRef } from '../shared/capabilities/types'
+import type { HookRef, McpRef } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
 import { safeSend } from './safe-send'
@@ -91,6 +91,11 @@ function registerIpc(): void {
     'capabilities:copyMcp',
     (_e, args: { ref: McpRef; destinations: CopyDestination[]; overwrite: boolean }) =>
       copyMcp(args.ref, args.destinations, args.overwrite)
+  )
+  ipcMain.handle(
+    'capabilities:copyHook',
+    (_e, args: { ref: HookRef; destinations: CopyDestination[] }) =>
+      copyHook(args.ref, args.destinations)
   )
 
   ipcMain.handle('projects:load', () => loadProjects())

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import type { CopyDestination, CopyResult } from '../shared/capabilities/types'
+import type { CopyDestination, CopyResult, HookRef } from '../shared/capabilities/types'
 
 /**
  * The ONLY writer for capabilities (SPEC-CAPABILITIES.md §3). Rules:
@@ -130,6 +130,71 @@ export function readMemoryFile(path: string): string {
     throw new Error(`refusing to read non-instruction file: ${path}`)
   }
   return readFileSync(path, 'utf8')
+}
+
+interface HookSettingsEntry {
+  matcher?: string
+  hooks?: Array<{ type?: string; command?: string }>
+}
+
+function hookSettingsPathFor(dest: CopyDestination, roots: WriterRoots): string {
+  if (dest.kind === 'global') {
+    return join(roots.claudeHome ?? join(homedir(), '.claude'), 'settings.json')
+  }
+  if (!dest.path) throw new Error('project destination requires a path')
+  return join(dest.path, '.claude', 'settings.json')
+}
+
+/**
+ * Merge one hook (event + matcher + command) into settings.json, preserving
+ * everything else in the file. Identical hook already present → 'exists'.
+ * Hooks are auto-executing commands: only ever installed via explicit user
+ * action in the copy picker, never in bulk with other capability kinds.
+ */
+export function copyHook(
+  ref: HookRef,
+  destinations: CopyDestination[],
+  roots: WriterRoots = {}
+): CopyResult[] {
+  if (!ref.event || typeof ref.command !== 'string' || !ref.command.trim()) {
+    throw new Error('invalid hook: needs event and command')
+  }
+
+  return destinations.map((dest) => {
+    let settingsPath = ''
+    try {
+      settingsPath = hookSettingsPathFor(dest, roots)
+      let cfg: { hooks?: Record<string, HookSettingsEntry[]>; [k: string]: unknown } = {}
+      if (existsSync(settingsPath)) {
+        cfg = JSON.parse(readFileSync(settingsPath, 'utf8'))
+      }
+      cfg.hooks ??= {}
+      const entries = (cfg.hooks[ref.event] ??= [])
+
+      const alreadyThere = entries.some(
+        (e) =>
+          (e.matcher || undefined) === ref.matcher &&
+          (e.hooks ?? []).some((h) => h.command === ref.command)
+      )
+      if (alreadyThere) return { dest, status: 'exists' as const, path: settingsPath }
+
+      const slot = entries.find((e) => (e.matcher || undefined) === ref.matcher)
+      const hook = { type: 'command', command: ref.command }
+      if (slot) (slot.hooks ??= []).push(hook)
+      else entries.push(ref.matcher ? { matcher: ref.matcher, hooks: [hook] } : { hooks: [hook] })
+
+      mkdirSync(join(settingsPath, '..'), { recursive: true })
+      writeFileSync(settingsPath, JSON.stringify(cfg, null, 2) + '\n')
+      return { dest, status: 'copied' as const, path: settingsPath }
+    } catch (err) {
+      return {
+        dest,
+        status: 'error' as const,
+        path: settingsPath,
+        error: err instanceof Error ? err.message : String(err)
+      }
+    }
+  })
 }
 
 export function copyAgent(

@@ -7,6 +7,7 @@ import type {
   CopyDestination,
   CopyResult,
   FileRef,
+  HookRef,
   McpRef,
   SkillRef,
   Tool
@@ -24,6 +25,7 @@ type CopySubject =
   | { kind: 'agent'; ref: AgentRef }
   | { kind: 'memory'; ref: FileRef; file: MemoryKind }
   | { kind: 'mcp'; ref: McpRef }
+  | { kind: 'hook'; ref: HookRef }
 
 function scopeTitle(inv: CapabilityInventory): string {
   if (inv.scope.kind === 'global') {
@@ -91,6 +93,20 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
     return holders
   }
 
+  /** Scopes that already have this exact hook (event+matcher+command) */
+  const hookHolders = (ref: HookRef): Set<string> => {
+    const holders = new Set<string>()
+    for (const inv of inventories ?? []) {
+      const has = inv.hooks.some(
+        (h) => h.event === ref.event && h.matcher === ref.matcher && h.command === ref.command
+      )
+      if (!has) continue
+      if (inv.scope.kind === 'project') holders.add(inv.scope.projectId)
+      else if (inv.scope.tool === 'claude') holders.add('personal')
+    }
+    return holders
+  }
+
   /** Scopes already running a server with this name */
   const mcpHolders = (name: string): Set<string> => {
     const holders = new Set<string>()
@@ -125,7 +141,7 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
       return dests
     }
     const tools: Tool[] =
-      copying.kind === 'agent'
+      copying.kind === 'agent' || copying.kind === 'hook'
         ? ['claude']
         : copying.kind === 'memory'
           ? [copying.file === 'CLAUDE.md' ? 'claude' : 'codex']
@@ -157,13 +173,15 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
             ? window.api.copyAgent({ sourcePath: copying.ref.path, destinations: dests, overwrite })
             : copying.kind === 'mcp'
               ? window.api.copyMcp({ ref: copying.ref, destinations: dests, overwrite })
-              : window.api.copyMemory({ sourcePath: copying.ref.path, destinations: dests })
+              : copying.kind === 'hook'
+                ? window.api.copyHook({ ref: copying.ref, destinations: dests })
+                : window.api.copyMemory({ sourcePath: copying.ref.path, destinations: dests })
 
       let results = await invoke(destinations, false)
 
-      // Memory files have no overwrite path by design — skills/agents confirm
+      // Memory files and hooks have no overwrite path — skills/agents/mcp confirm
       const collisions = results.filter((r) => r.status === 'exists')
-      if (copying.kind !== 'memory' && collisions.length > 0) {
+      if (copying.kind !== 'memory' && copying.kind !== 'hook' && collisions.length > 0) {
         const list = collisions.map((r) => `${r.dest.label} (${r.dest.tool})`).join(', ')
         if (window.confirm(`Already installed in: ${list}.\n\nOverwrite those copies?`)) {
           const forced = await invoke(collisions.map((r) => r.dest), true)
@@ -300,6 +318,32 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
             </div>
 
             <div className="capability-group">
+              <div className="capability-group-title">Hooks ({inv.hooks.length})</div>
+              {inv.hooks.map((h, hi) => (
+                <div key={hi} className="capability-row" title={h.settingsPath}>
+                  <span className="source-badge source-badge-claude">CC</span>
+                  <span className="capability-name">
+                    {h.event}
+                    {h.matcher ? ` · ${h.matcher}` : ''}
+                  </span>
+                  <span className="capability-detail">
+                    <code>{h.command}</code>
+                  </span>
+                  <button className="copy-to-button" onClick={() => startCopy({ kind: 'hook', ref: h })}>
+                    Copy to…
+                  </button>
+                </div>
+              ))}
+              {inv.hooks.length === 0 && (
+                <div className="capability-empty">
+                  {inv.scope.kind === 'global' && inv.scope.tool === 'codex'
+                    ? 'plugin-managed in Codex'
+                    : 'none'}
+                </div>
+              )}
+            </div>
+
+            <div className="capability-group">
               <div className="capability-group-title">MCP servers ({inv.mcp.length})</div>
               {inv.mcp.map((m) => (
                 <div key={`${m.tool}:${m.name}`} className="capability-row">
@@ -352,7 +396,9 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                   ? `subagent “${copying.ref.name}”`
                   : copying.kind === 'mcp'
                     ? `MCP server “${copying.ref.name}”`
-                    : copying.file}
+                    : copying.kind === 'hook'
+                      ? `hook ${copying.ref.event}${copying.ref.matcher ? ` · ${copying.ref.matcher}` : ''}`
+                      : copying.file}
             </h3>
 
             {copying.kind === 'skill' && (
@@ -382,6 +428,14 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                 </div>
               </div>
             )}
+            {copying.kind === 'hook' && (
+              <div className="copy-modal-section">
+                <div className="copy-modal-label">
+                  ⚠ Hooks run automatically. This installs into .claude/settings.json:
+                </div>
+                <code className="hook-command-preview">{copying.ref.command}</code>
+              </div>
+            )}
             {copying.kind === 'mcp' && copying.ref.envKeys && copying.ref.envKeys.length > 0 && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">
@@ -399,7 +453,9 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                     ? memoryHolders(copying.file)
                     : copying.kind === 'mcp'
                       ? mcpHolders(copying.ref.name)
-                      : new Set<string>()
+                      : copying.kind === 'hook'
+                        ? hookHolders(copying.ref)
+                        : new Set<string>()
                 const option = (key: string, text: string, note?: string): React.JSX.Element => {
                   const disabled = holders.has(key) || !!note
                   return (

@@ -5,6 +5,7 @@ import type {
   AgentRef,
   CapabilityInventory,
   FileRef,
+  HookRef,
   McpRef,
   ProjectTarget,
   SkillRef,
@@ -203,6 +204,40 @@ function readClaudeProjectMcp(projectPath: string): McpRef[] {
   }
 }
 
+interface HookEntry {
+  matcher?: string
+  hooks?: Array<{ type?: string; command?: string }>
+}
+
+/** Flatten the settings.json `hooks` object into rows — tolerant of shape drift. */
+export function parseClaudeHooks(settingsPath: string): HookRef[] {
+  let hooksObj: Record<string, HookEntry[]>
+  try {
+    const cfg = JSON.parse(readFileSync(settingsPath, 'utf8'))
+    hooksObj = cfg.hooks ?? {}
+  } catch {
+    return []
+  }
+  const refs: HookRef[] = []
+  for (const [event, entries] of Object.entries(hooksObj)) {
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      for (const hook of entry.hooks ?? []) {
+        if (typeof hook.command !== 'string') continue
+        refs.push({ event, matcher: entry.matcher || undefined, command: hook.command, settingsPath })
+      }
+    }
+  }
+  return refs
+}
+
+function readClaudeProjectHooks(projectPath: string): HookRef[] {
+  return [
+    ...parseClaudeHooks(join(projectPath, '.claude', 'settings.json')),
+    ...parseClaudeHooks(join(projectPath, '.claude', 'settings.local.json'))
+  ]
+}
+
 // ---------- scanners ----------
 
 export function scanCapabilities(
@@ -230,7 +265,8 @@ export function scanCapabilities(
     memory: { claudeMd: fileRef(join(claudeHome, 'CLAUDE.md')) },
     skills: readSkillsDir(join(claudeHome, 'skills'), ['claude']),
     agents: readAgentsDir(join(claudeHome, 'agents')),
-    mcp: claudeUserMcp
+    mcp: claudeUserMcp,
+    hooks: parseClaudeHooks(join(claudeHome, 'settings.json'))
   })
 
   // Personal · Codex
@@ -245,7 +281,8 @@ export function scanCapabilities(
     memory: { agentsMd: fileRef(join(codexHome, 'AGENTS.md')) },
     skills: readSkillsDir(join(codexHome, 'skills'), ['codex']),
     agents: [],
-    mcp: codexMcp
+    mcp: codexMcp,
+    hooks: [] // Codex hook definitions are plugin-managed, not user config
   })
 
   // Each project
@@ -262,7 +299,8 @@ export function scanCapabilities(
         ...readSkillsDir(join(p.path, '.agents', 'skills'), ['codex'])
       ],
       agents: readAgentsDir(join(p.path, '.claude', 'agents')),
-      mcp: readClaudeProjectMcp(p.path)
+      mcp: readClaudeProjectMcp(p.path),
+      hooks: readClaudeProjectHooks(p.path)
     })
   }
 
