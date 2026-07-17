@@ -821,6 +821,126 @@ body {
   opacity: 0.6;
 }
 
+.capabilities-banner {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--accent-live) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-live) 40%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.copy-to-button {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.capability-row:hover .copy-to-button {
+  visibility: visible;
+}
+
+.copy-to-button:hover {
+  background: var(--bg-selected);
+}
+
+.copy-to-button ~ .capability-meta {
+  margin-left: 8px;
+}
+
+.copy-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.copy-modal {
+  width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.copy-modal-title {
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.copy-modal-section {
+  margin-bottom: 14px;
+}
+
+.copy-modal-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.copy-modal-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.copy-modal-selectall {
+  margin-top: 4px;
+  background: none;
+  border: none;
+  color: var(--accent-codex);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.copy-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.copy-modal-cancel {
+  padding: 7px 14px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.copy-modal-apply {
+  padding: 7px 14px;
+  background: var(--accent-claude);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copy-modal-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ---------- toast ---------- */
 
 .toast {

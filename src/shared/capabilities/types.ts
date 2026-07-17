@@ -48,3 +48,21 @@ export interface ProjectTarget {
   name: string
   path: string
 }
+
+/** Where a copy lands: a project dir or a personal (global) scope, per tool */
+export interface CopyDestination {
+  kind: 'global' | 'project'
+  /** Project path — required when kind is 'project' */
+  path?: string
+  tool: Tool
+  /** Display name for results (project name or "Personal") */
+  label: string
+}
+
+export interface CopyResult {
+  dest: CopyDestination
+  status: 'copied' | 'exists' | 'error'
+  /** Final on-disk location */
+  path: string
+  error?: string
+}

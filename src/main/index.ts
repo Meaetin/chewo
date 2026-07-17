@@ -5,7 +5,8 @@ import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
 import { scanCapabilities } from '../shared/capabilities/scan'
-import type { ProjectTarget } from '../shared/capabilities/types'
+import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
+import { copyAgent, copySkill } from './capability-writer'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
 import { safeSend } from './safe-send'
@@ -67,6 +68,16 @@ function registerIpc(): void {
 
   ipcMain.handle('capabilities:scan', (_e, projects: ProjectTarget[]) =>
     scanCapabilities(projects)
+  )
+  ipcMain.handle(
+    'capabilities:copySkill',
+    (_e, args: { sourceDir: string; destinations: CopyDestination[]; overwrite: boolean }) =>
+      copySkill(args.sourceDir, args.destinations, args.overwrite)
+  )
+  ipcMain.handle(
+    'capabilities:copyAgent',
+    (_e, args: { sourcePath: string; destinations: CopyDestination[]; overwrite: boolean }) =>
+      copyAgent(args.sourcePath, args.destinations, args.overwrite)
   )
 
   ipcMain.handle('projects:load', () => loadProjects())

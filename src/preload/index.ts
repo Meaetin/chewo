@@ -63,6 +63,10 @@ const api = {
   homeDir: homedir(),
   scanCapabilities: (projects: Array<{ id: string; name: string; path: string }>) =>
     ipcRenderer.invoke('capabilities:scan', projects),
+  copySkill: (args: { sourceDir: string; destinations: unknown[]; overwrite: boolean }) =>
+    ipcRenderer.invoke('capabilities:copySkill', args),
+  copyAgent: (args: { sourcePath: string; destinations: unknown[]; overwrite: boolean }) =>
+    ipcRenderer.invoke('capabilities:copyAgent', args),
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>
