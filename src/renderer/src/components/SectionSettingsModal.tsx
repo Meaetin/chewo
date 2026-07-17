@@ -1,17 +1,18 @@
 import { useState } from 'react'
-import type { AgentSettings, ClaudePermissionMode, CodexApprovalPolicy } from '../../../shared/projects'
+import type {
+  AgentSettings,
+  ClaudePermissionMode,
+  CodexApprovalPolicy
+} from '../../../shared/projects'
 import { ModalShell } from './ModalShell'
+import { Select, type SelectOption } from './Select'
 
 /**
  * Both CLIs start every fresh session at their own default and forget the mode
  * you flipped to last time. These labels describe what each value actually
  * does — the blast radius is the user's call, so nothing is preselected.
  */
-const CLAUDE_MODES: Array<{
-  value: ClaudePermissionMode | ''
-  label: string
-  detail: string
-}> = [
+const CLAUDE_MODES: SelectOption<ClaudePermissionMode | ''>[] = [
   { value: '', label: 'Ask every time', detail: 'Claude’s default — prompts on first use of each tool' },
   { value: 'plan', label: 'Plan', detail: 'Read and explore only, no edits' },
   { value: 'acceptEdits', label: 'Accept edits', detail: 'Auto-approves file edits and safe shell commands' },
@@ -24,7 +25,7 @@ const CLAUDE_MODES: Array<{
   }
 ]
 
-const CODEX_POLICIES: Array<{ value: CodexApprovalPolicy | ''; label: string; detail: string }> = [
+const CODEX_POLICIES: SelectOption<CodexApprovalPolicy | ''>[] = [
   { value: '', label: 'Ask every time', detail: 'Codex’s default' },
   { value: 'untrusted', label: 'Trusted commands only', detail: 'Runs ls/cat/sed etc., escalates the rest' },
   { value: 'on-request', label: 'Model decides', detail: 'Codex asks when it judges it necessary' },
@@ -41,9 +42,11 @@ interface SectionSettingsModalProps {
   showWorktreeSetup: boolean
   onClose: () => void
   onSave: (settings: AgentSettings, worktreeSetup?: string) => void
+  /** Projects only — Home can't be removed */
+  onRemove?: () => void
 }
 
-/** Per-section agent launch settings: permission mode + worktree setup command. */
+/** Per-section settings: how agents launch here, worktree setup, remove project. */
 export function SectionSettingsModal({
   name,
   path,
@@ -51,7 +54,8 @@ export function SectionSettingsModal({
   worktreeSetup,
   showWorktreeSetup,
   onClose,
-  onSave
+  onSave,
+  onRemove
 }: SectionSettingsModalProps): React.JSX.Element {
   const [claudeMode, setClaudeMode] = useState<ClaudePermissionMode | ''>(settings.claudeMode ?? '')
   const [codexApproval, setCodexApproval] = useState<CodexApprovalPolicy | ''>(
@@ -63,12 +67,20 @@ export function SectionSettingsModal({
 
   const save = (): void => {
     onSave(
-      {
-        claudeMode: claudeMode || undefined,
-        codexApproval: codexApproval || undefined
-      },
+      { claudeMode: claudeMode || undefined, codexApproval: codexApproval || undefined },
       showWorktreeSetup ? setup.trim() || undefined : undefined
     )
+    onClose()
+  }
+
+  const remove = (): void => {
+    if (
+      !window.confirm(
+        `Remove ${name} from Chewo?\n\nThe folder and its sessions are not deleted — only this project entry and its remembered terminals.`
+      )
+    )
+      return
+    onRemove?.()
     onClose()
   }
 
@@ -79,6 +91,15 @@ export function SectionSettingsModal({
       onClose={onClose}
       footer={
         <>
+          {onRemove && (
+            <button
+              className="wt-button wt-button-danger"
+              title="Remove this project from Chewo — the folder and its sessions stay"
+              onClick={remove}
+            >
+              Remove project…
+            </button>
+          )}
           <div className="wt-footer-spacer" />
           <button className="wt-button" onClick={onClose}>
             Cancel
@@ -93,18 +114,7 @@ export function SectionSettingsModal({
         <label className="wt-field-label" htmlFor="set-claude">
           <span className="source-badge source-badge-claude">CC</span> Claude permission mode
         </label>
-        <select
-          id="set-claude"
-          className="wt-input"
-          value={claudeMode}
-          onChange={(e) => setClaudeMode(e.target.value as ClaudePermissionMode | '')}
-        >
-          {CLAUDE_MODES.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+        <Select id="set-claude" value={claudeMode} options={CLAUDE_MODES} onChange={setClaudeMode} />
         <div className="wt-field-hint">
           {CLAUDE_MODES.find((m) => m.value === claudeMode)?.detail}
         </div>
@@ -114,18 +124,12 @@ export function SectionSettingsModal({
         <label className="wt-field-label" htmlFor="set-codex">
           <span className="source-badge source-badge-codex">CX</span> Codex approval policy
         </label>
-        <select
+        <Select
           id="set-codex"
-          className="wt-input"
           value={codexApproval}
-          onChange={(e) => setCodexApproval(e.target.value as CodexApprovalPolicy | '')}
-        >
-          {CODEX_POLICIES.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+          options={CODEX_POLICIES}
+          onChange={setCodexApproval}
+        />
         <div className="wt-field-hint">
           {CODEX_POLICIES.find((p) => p.value === codexApproval)?.detail}
         </div>

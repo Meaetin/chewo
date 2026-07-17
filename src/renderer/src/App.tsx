@@ -453,7 +453,6 @@ export function App(): React.JSX.Element {
         onOpenTranscript={openTranscript}
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
-        onDeleteProject={deleteProject}
         onSelect={openSession}
         onNewTerminal={newTerminal}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
@@ -608,6 +607,7 @@ export function App(): React.JSX.Element {
                 showWorktreeSetup={!!target}
                 onClose={() => setSettingsFor(null)}
                 onSave={(s, setup) => saveSectionSettings(settingsFor.id, s, setup)}
+                onRemove={target ? () => deleteProject(target.id) : undefined}
               />
             )
           })()}

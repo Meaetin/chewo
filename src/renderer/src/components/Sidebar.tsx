@@ -16,7 +16,6 @@ interface SidebarProps {
   selectedSessionId?: string
   onSelectProject: (id: string | null) => void
   onCreateProject: () => void
-  onDeleteProject: (id: string) => void
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
@@ -167,7 +166,6 @@ export function Sidebar({
   selectedSessionId,
   onSelectProject,
   onCreateProject,
-  onDeleteProject,
   onHideSession,
   onRestoreSession,
   onSelect,
@@ -341,23 +339,13 @@ export function Sidebar({
                   <span className="project-row-count">{projectSessions.length}</span>
                   <button
                     className="project-settings-button"
-                    title="Project settings — how agents launch here"
+                    title="Project settings — permissions, worktree setup, remove"
                     onClick={(e) => {
                       e.stopPropagation()
                       onOpenSettings(p.id)
                     }}
                   >
                     ⚙
-                  </button>
-                  <button
-                    className="project-delete-button"
-                    title="Remove project (sessions are not deleted)"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDeleteProject(p.id)
-                    }}
-                  >
-                    ×
                   </button>
                 </div>
                 {expanded && (
