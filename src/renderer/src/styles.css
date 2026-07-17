@@ -662,15 +662,16 @@ body {
   background: color-mix(in srgb, var(--accent-claude) 85%, #fff);
 }
 
+/* Destructive actions read as red text; the filled surface only on hover */
 .wt-button-danger {
   background: none;
   border-color: transparent;
-  color: var(--text-dim);
+  color: #e06c75;
 }
 
 .wt-button-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, #e06c75 12%, transparent);
-  color: #e06c75;
+  background: color-mix(in srgb, #e06c75 14%, transparent);
+  color: #ef7f88;
 }
 
 /* worktree modal state banners */

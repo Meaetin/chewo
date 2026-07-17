@@ -60,15 +60,20 @@ export function Select<T extends string>({
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
       setOpen(false)
     }
-    // Any scroll/resize invalidates the captured rect — close rather than drift
     const close = (): void => setOpen(false)
+    // An ancestor scrolling would drift the fixed-positioned menu, so close —
+    // but scrolling the menu's own list must not close it.
+    const onScroll = (e: Event): void => {
+      if (menuRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
     document.addEventListener('mousedown', onPointerDown)
     window.addEventListener('resize', close)
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', onPointerDown)
       window.removeEventListener('resize', close)
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [open])
 

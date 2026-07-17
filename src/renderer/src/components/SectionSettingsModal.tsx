@@ -97,7 +97,7 @@ export function SectionSettingsModal({
               title="Remove this project from Chewo — the folder and its sessions stay"
               onClick={remove}
             >
-              Remove project…
+              Remove Project
             </button>
           )}
           <div className="wt-footer-spacer" />
