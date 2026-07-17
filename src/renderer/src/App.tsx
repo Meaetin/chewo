@@ -9,6 +9,7 @@ import {
 import { Sidebar } from './components/Sidebar'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
+import { CapabilitiesView } from './components/CapabilitiesView'
 
 export type PaneSource = Source | 'shell'
 
@@ -26,6 +27,7 @@ const BADGES: Record<PaneSource, string> = { claude: 'CC', codex: 'CX', shell: '
 type MainView =
   | { kind: 'transcript'; session: SessionMeta }
   | { kind: 'terminal'; termId: number }
+  | { kind: 'capabilities' }
   | { kind: 'empty' }
 
 export function App(): React.JSX.Element {
@@ -324,6 +326,7 @@ export function App(): React.JSX.Element {
         onDeleteProject={deleteProject}
         onSelect={openSession}
         onNewTerminal={newTerminal}
+        onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
 
       <main className="main-panel">
@@ -397,6 +400,8 @@ export function App(): React.JSX.Element {
           {view.kind === 'transcript' && (
             <TranscriptView key={view.session.id} session={view.session} onResume={resumeSession} />
           )}
+
+          {view.kind === 'capabilities' && <CapabilitiesView projects={projects} />}
 
           {tabs.map((tab) => (
             <TerminalPane

@@ -20,6 +20,7 @@ interface SidebarProps {
   onSelect: (session: SessionMeta) => void
   onOpenTranscript: (session: SessionMeta) => void
   onNewTerminal: (source: 'claude' | 'codex') => void
+  onOpenCapabilities: () => void
 }
 
 const INITIAL_VISIBLE = 5
@@ -164,7 +165,8 @@ export function Sidebar({
   onRestoreSession,
   onSelect,
   onOpenTranscript,
-  onNewTerminal
+  onNewTerminal,
+  onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [homeExpanded, setHomeExpanded] = useState(false)
@@ -215,6 +217,13 @@ export function Sidebar({
         </button>
         <button className="new-terminal-button" onClick={() => onNewTerminal('codex')}>
           + Codex
+        </button>
+        <button
+          className="capabilities-button"
+          title="Skills, subagents, instructions & MCP across projects"
+          onClick={onOpenCapabilities}
+        >
+          ⛭
         </button>
       </div>
 

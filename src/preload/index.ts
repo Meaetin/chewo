@@ -61,6 +61,8 @@ const api = {
   },
 
   homeDir: homedir(),
+  scanCapabilities: (projects: Array<{ id: string; name: string; path: string }>) =>
+    ipcRenderer.invoke('capabilities:scan', projects),
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

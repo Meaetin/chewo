@@ -4,6 +4,8 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
 import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
+import { scanCapabilities } from '../shared/capabilities/scan'
+import type { ProjectTarget } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
 import { safeSend } from './safe-send'
@@ -62,6 +64,10 @@ function registerIpc(): void {
     resizeTerminal(id, cols, rows)
   )
   ipcMain.on('terminal:kill', (_e, { id }: { id: number }) => killTerminal(id))
+
+  ipcMain.handle('capabilities:scan', (_e, projects: ProjectTarget[]) =>
+    scanCapabilities(projects)
+  )
 
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
