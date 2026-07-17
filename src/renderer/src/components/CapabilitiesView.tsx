@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type {
   AgentRef,
   CapabilityInventory,
   CopyDestination,
   CopyResult,
+  FileRef,
   SkillRef,
   Tool
 } from '../../../shared/capabilities/types'
@@ -13,9 +16,12 @@ interface CapabilitiesViewProps {
   projects: Project[]
 }
 
+type MemoryKind = 'CLAUDE.md' | 'AGENTS.md'
+
 type CopySubject =
   | { kind: 'skill'; ref: SkillRef }
   | { kind: 'agent'; ref: AgentRef }
+  | { kind: 'memory'; ref: FileRef; file: MemoryKind }
 
 function scopeTitle(inv: CapabilityInventory): string {
   if (inv.scope.kind === 'global') {
@@ -42,6 +48,7 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
   const [pickedTargets, setPickedTargets] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<{ title: string; content: string } | null>(null)
 
   const rescan = useCallback(() => {
     window.api
@@ -61,6 +68,27 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
     setBanner(null)
   }
 
+  const viewMemory = (title: string, path: string): void => {
+    window.api
+      .readMemory(path)
+      .then((content) => setViewing({ title, content }))
+      .catch((err: unknown) =>
+        setBanner(`Could not read file: ${err instanceof Error ? err.message : String(err)}`)
+      )
+  }
+
+  /** Which scopes already have this memory file (disabled in the picker) */
+  const memoryHolders = (file: MemoryKind): Set<string> => {
+    const holders = new Set<string>()
+    for (const inv of inventories ?? []) {
+      const has = file === 'CLAUDE.md' ? inv.memory.claudeMd : inv.memory.agentsMd
+      if (!has) continue
+      if (inv.scope.kind === 'project') holders.add(inv.scope.projectId)
+      else holders.add('personal')
+    }
+    return holders
+  }
+
   const toggle = <T,>(set: Set<T>, value: T): Set<T> => {
     const next = new Set(set)
     if (next.has(value)) next.delete(value)
@@ -70,7 +98,12 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
 
   const buildDestinations = (): CopyDestination[] => {
     if (!copying) return []
-    const tools: Tool[] = copying.kind === 'agent' ? ['claude'] : [...pickedTools]
+    const tools: Tool[] =
+      copying.kind === 'agent'
+        ? ['claude']
+        : copying.kind === 'memory'
+          ? [copying.file === 'CLAUDE.md' ? 'claude' : 'codex']
+          : [...pickedTools]
     const dests: CopyDestination[] = []
     for (const target of pickedTargets) {
       for (const tool of tools) {
@@ -94,12 +127,15 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
       const invoke = (dests: CopyDestination[], overwrite: boolean): Promise<CopyResult[]> =>
         copying.kind === 'skill'
           ? window.api.copySkill({ sourceDir: copying.ref.dir, destinations: dests, overwrite })
-          : window.api.copyAgent({ sourcePath: copying.ref.path, destinations: dests, overwrite })
+          : copying.kind === 'agent'
+            ? window.api.copyAgent({ sourcePath: copying.ref.path, destinations: dests, overwrite })
+            : window.api.copyMemory({ sourcePath: copying.ref.path, destinations: dests })
 
       let results = await invoke(destinations, false)
 
+      // Memory files have no overwrite path by design — skills/agents confirm
       const collisions = results.filter((r) => r.status === 'exists')
-      if (collisions.length > 0) {
+      if (copying.kind !== 'memory' && collisions.length > 0) {
         const list = collisions.map((r) => `${r.dest.label} (${r.dest.tool})`).join(', ')
         if (window.confirm(`Already installed in: ${list}.\n\nOverwrite those copies?`)) {
           const forced = await invoke(collisions.map((r) => r.dest), true)
@@ -112,7 +148,7 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
       const errors = results.filter((r) => r.status === 'error')
       setBanner(
         `Copied to ${copied} destination${copied === 1 ? '' : 's'}` +
-          (skipped ? `, ${skipped} skipped` : '') +
+          (skipped ? `, ${skipped} skipped (already have one)` : '') +
           (errors.length ? ` — ${errors.length} failed: ${errors[0].error}` : '') +
           '. Running sessions pick this up on their next start.'
       )
@@ -149,21 +185,35 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
 
             <div className="capability-group">
               <div className="capability-group-title">Instructions</div>
-              {inv.memory.claudeMd && (
-                <div className="capability-row">
-                  <span className="source-badge source-badge-claude">CC</span>
-                  <span className="capability-name">CLAUDE.md</span>
-                  <span className="capability-detail">{inv.memory.claudeMd.firstLine}</span>
-                  <span className="capability-meta">{kb(inv.memory.claudeMd.bytes)}</span>
-                </div>
-              )}
-              {inv.memory.agentsMd && (
-                <div className="capability-row">
-                  <span className="source-badge source-badge-codex">CX</span>
-                  <span className="capability-name">AGENTS.md</span>
-                  <span className="capability-detail">{inv.memory.agentsMd.firstLine}</span>
-                  <span className="capability-meta">{kb(inv.memory.agentsMd.bytes)}</span>
-                </div>
+              {(
+                [
+                  ['CLAUDE.md', inv.memory.claudeMd, 'claude'],
+                  ['AGENTS.md', inv.memory.agentsMd, 'codex']
+                ] as Array<[MemoryKind, FileRef | undefined, Tool]>
+              ).map(
+                ([file, ref, tool]) =>
+                  ref && (
+                    <div key={file} className="capability-row">
+                      <span className={`source-badge source-badge-${tool}`}>
+                        {tool === 'claude' ? 'CC' : 'CX'}
+                      </span>
+                      <span className="capability-name">{file}</span>
+                      <span className="capability-detail">{ref.firstLine}</span>
+                      <button
+                        className="copy-to-button"
+                        onClick={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
+                      >
+                        View
+                      </button>
+                      <button
+                        className="copy-to-button copy-to-button-second"
+                        onClick={() => startCopy({ kind: 'memory', ref, file })}
+                      >
+                        Copy to…
+                      </button>
+                      <span className="capability-meta">{kb(ref.bytes)}</span>
+                    </div>
+                  )
               )}
               {!inv.memory.claudeMd && !inv.memory.agentsMd && (
                 <div className="capability-empty">none</div>
@@ -228,14 +278,35 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
         ))}
       </div>
 
+      {viewing && (
+        <div className="copy-modal-backdrop" onClick={() => setViewing(null)}>
+          <div className="memory-viewer" onClick={(e) => e.stopPropagation()}>
+            <div className="memory-viewer-header">
+              <h3 className="copy-modal-title">{viewing.title}</h3>
+              <button className="terminal-tab-close" onClick={() => setViewing(null)}>
+                ×
+              </button>
+            </div>
+            <div className="memory-viewer-body message-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewing.content}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
+
       {copying && (
         <div className="copy-modal-backdrop" onClick={() => !busy && setCopying(null)}>
           <div className="copy-modal" onClick={(e) => e.stopPropagation()}>
             <h3 className="copy-modal-title">
-              Copy {copying.kind === 'skill' ? 'skill' : 'subagent'} “{copying.ref.name}”
+              Copy{' '}
+              {copying.kind === 'skill'
+                ? `skill “${copying.ref.name}”`
+                : copying.kind === 'agent'
+                  ? `subagent “${copying.ref.name}”`
+                  : copying.file}
             </h3>
 
-            {copying.kind === 'skill' ? (
+            {copying.kind === 'skill' && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">For which tool</div>
                 {(['claude', 'codex'] as Tool[]).map((t) => (
@@ -249,40 +320,58 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                   </label>
                 ))}
               </div>
-            ) : (
+            )}
+            {copying.kind === 'agent' && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">Subagents are Claude Code only (.claude/agents)</div>
+              </div>
+            )}
+            {copying.kind === 'memory' && (
+              <div className="copy-modal-section">
+                <div className="copy-modal-label">
+                  Whole-file duplicate — only to scopes without one. Existing files are never touched.
+                </div>
               </div>
             )}
 
             <div className="copy-modal-section">
               <div className="copy-modal-label">Into</div>
-              <label className="copy-modal-option">
-                <input
-                  type="checkbox"
-                  checked={pickedTargets.has('personal')}
-                  onChange={() => setPickedTargets((s) => toggle(s, 'personal'))}
-                />
-                Personal (all projects, globally)
-              </label>
-              {projects.map((p) => (
-                <label key={p.id} className="copy-modal-option">
-                  <input
-                    type="checkbox"
-                    checked={pickedTargets.has(p.id)}
-                    onChange={() => setPickedTargets((s) => toggle(s, p.id))}
-                  />
-                  {p.name}
-                </label>
-              ))}
-              {projects.length > 0 && (
-                <button
-                  className="copy-modal-selectall"
-                  onClick={() => setPickedTargets(new Set(projects.map((p) => p.id)))}
-                >
-                  Select all projects
-                </button>
-              )}
+              {(() => {
+                const holders = copying.kind === 'memory' ? memoryHolders(copying.file) : new Set<string>()
+                const option = (key: string, text: string): React.JSX.Element => {
+                  const has = holders.has(key)
+                  return (
+                    <label key={key} className={`copy-modal-option ${has ? 'copy-modal-option-disabled' : ''}`}>
+                      <input
+                        type="checkbox"
+                        disabled={has}
+                        checked={pickedTargets.has(key)}
+                        onChange={() => setPickedTargets((s) => toggle(s, key))}
+                      />
+                      {text}
+                      {has && <span className="copy-modal-has-one">already has one</span>}
+                    </label>
+                  )
+                }
+                return (
+                  <>
+                    {option('personal', 'Personal (all projects, globally)')}
+                    {projects.map((p) => option(p.id, p.name))}
+                    {projects.length > 0 && (
+                      <button
+                        className="copy-modal-selectall"
+                        onClick={() =>
+                          setPickedTargets(
+                            new Set(projects.map((p) => p.id).filter((id) => !holders.has(id)))
+                          )
+                        }
+                      >
+                        Select all projects
+                      </button>
+                    )}
+                  </>
+                )
+              })()}
             </div>
 
             <div className="copy-modal-actions">

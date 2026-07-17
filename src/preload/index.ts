@@ -67,6 +67,9 @@ const api = {
     ipcRenderer.invoke('capabilities:copySkill', args),
   copyAgent: (args: { sourcePath: string; destinations: unknown[]; overwrite: boolean }) =>
     ipcRenderer.invoke('capabilities:copyAgent', args),
+  copyMemory: (args: { sourcePath: string; destinations: unknown[] }) =>
+    ipcRenderer.invoke('capabilities:copyMemory', args),
+  readMemory: (path: string) => ipcRenderer.invoke('capabilities:readMemory', path) as Promise<string>,
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

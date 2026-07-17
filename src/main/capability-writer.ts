@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { CopyDestination, CopyResult } from '../shared/capabilities/types'
@@ -74,6 +74,62 @@ export function copySkill(
       }
     }
   })
+}
+
+const MEMORY_FILES = new Set(['CLAUDE.md', 'AGENTS.md'])
+
+function memoryPathFor(dest: CopyDestination, filename: string, roots: WriterRoots): string {
+  if (dest.kind === 'project') {
+    if (!dest.path) throw new Error('project destination requires a path')
+    return join(dest.path, filename)
+  }
+  // Personal scope: CLAUDE.md lives in ~/.claude, AGENTS.md in ~/.codex
+  return filename === 'CLAUDE.md'
+    ? join(roots.claudeHome ?? join(homedir(), '.claude'), 'CLAUDE.md')
+    : join(roots.codexHome ?? join(homedir(), '.codex'), 'AGENTS.md')
+}
+
+/**
+ * Duplicate a whole instruction file to scopes that DON'T have one.
+ * Deliberately has no overwrite mode — merging/replacing existing memory
+ * files is deferred to a diff-preview UX (SPEC-CAPABILITIES.md §2).
+ */
+export function copyMemoryFile(
+  sourcePath: string,
+  destinations: CopyDestination[],
+  roots: WriterRoots = {}
+): CopyResult[] {
+  const filename = basename(sourcePath)
+  if (!MEMORY_FILES.has(filename)) {
+    throw new Error(`not an instruction file (CLAUDE.md/AGENTS.md): ${sourcePath}`)
+  }
+  const content = readFileSync(sourcePath, 'utf8')
+
+  return destinations.map((dest) => {
+    let targetPath = ''
+    try {
+      targetPath = memoryPathFor(dest, filename, roots)
+      if (existsSync(targetPath)) return { dest, status: 'exists' as const, path: targetPath }
+      mkdirSync(join(targetPath, '..'), { recursive: true })
+      writeFileSync(targetPath, content)
+      return { dest, status: 'copied' as const, path: targetPath }
+    } catch (err) {
+      return {
+        dest,
+        status: 'error' as const,
+        path: targetPath,
+        error: err instanceof Error ? err.message : String(err)
+      }
+    }
+  })
+}
+
+/** Read an instruction file for the viewer — restricted to memory filenames. */
+export function readMemoryFile(path: string): string {
+  if (!MEMORY_FILES.has(basename(path))) {
+    throw new Error(`refusing to read non-instruction file: ${path}`)
+  }
+  return readFileSync(path, 'utf8')
 }
 
 export function copyAgent(

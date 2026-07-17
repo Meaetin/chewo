@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copyAgent, copySkill } from '../src/main/capability-writer'
+import { copyAgent, copyMemoryFile, copySkill, readMemoryFile } from '../src/main/capability-writer'
 import type { CopyDestination } from '../src/shared/capabilities/types'
 
 let tmp: string
@@ -74,6 +74,49 @@ describe('copySkill', () => {
     const results = copySkill(join(tmp, 'src-skills/gsap-core'), mixed, false, roots())
     expect(results[0].status).toBe('copied')
     expect(results[1].status).toBe('error')
+  })
+})
+
+describe('copyMemoryFile', () => {
+  test('duplicates to missing scopes only — never overwrites', () => {
+    writeFileSync(join(tmp, 'projA/CLAUDE.md'), '# source rules')
+    writeFileSync(join(tmp, 'projB/CLAUDE.md'), '# existing local rules')
+
+    const results = copyMemoryFile(
+      join(tmp, 'projA/CLAUDE.md'),
+      [
+        { kind: 'project', path: join(tmp, 'projB'), tool: 'claude', label: 'projB' },
+        { kind: 'global', tool: 'claude', label: 'Personal' }
+      ],
+      roots()
+    )
+    // projB already has one → untouched
+    expect(results[0].status).toBe('exists')
+    expect(readFileSync(join(tmp, 'projB/CLAUDE.md'), 'utf8')).toBe('# existing local rules')
+    // personal was missing → created in ~/.claude
+    expect(results[1].status).toBe('copied')
+    expect(readFileSync(join(tmp, 'claude-home/CLAUDE.md'), 'utf8')).toBe('# source rules')
+  })
+
+  test('AGENTS.md routes to codex home for the Personal scope', () => {
+    writeFileSync(join(tmp, 'projA/AGENTS.md'), '- codex rule')
+    const results = copyMemoryFile(
+      join(tmp, 'projA/AGENTS.md'),
+      [{ kind: 'global', tool: 'codex', label: 'Personal' }],
+      roots()
+    )
+    expect(results[0].status).toBe('copied')
+    expect(readFileSync(join(tmp, 'codex-home/AGENTS.md'), 'utf8')).toBe('- codex rule')
+  })
+
+  test('rejects non-instruction files, viewer read is restricted too', () => {
+    writeFileSync(join(tmp, 'projA/README.md'), 'nope')
+    expect(() =>
+      copyMemoryFile(join(tmp, 'projA/README.md'), [{ kind: 'global', tool: 'claude', label: 'x' }], roots())
+    ).toThrow(/instruction file/)
+    expect(() => readMemoryFile(join(tmp, 'projA/README.md'))).toThrow(/refusing/)
+    writeFileSync(join(tmp, 'projA/CLAUDE.md'), '# ok')
+    expect(readMemoryFile(join(tmp, 'projA/CLAUDE.md'))).toBe('# ok')
   })
 })
 
