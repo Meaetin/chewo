@@ -748,6 +748,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Reading surface — capped so actions stay near the text on wide windows */
+  max-width: 880px;
 }
 
 .capability-card {
@@ -791,8 +793,18 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 0;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
   min-width: 0;
+}
+
+.capability-row:hover {
+  background: var(--bg-hover);
+}
+
+.capability-row-clickable {
+  cursor: pointer;
 }
 
 .capability-name {
@@ -832,7 +844,7 @@ body {
 
 .copy-to-button {
   margin-left: auto;
-  padding: 2px 8px;
+  padding: 4px 10px;
   background: var(--bg-hover);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -840,11 +852,11 @@ body {
   font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
-  visibility: hidden;
+  opacity: 0.55;
 }
 
 .capability-row:hover .copy-to-button {
-  visibility: visible;
+  opacity: 1;
 }
 
 .copy-to-button:hover {

@@ -221,7 +221,12 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
               ).map(
                 ([file, ref, tool]) =>
                   ref && (
-                    <div key={file} className="capability-row">
+                    <div
+                      key={file}
+                      className="capability-row capability-row-clickable"
+                      title="Click to view"
+                      onClick={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
+                    >
                       <span className={`source-badge source-badge-${tool}`}>
                         {tool === 'claude' ? 'CC' : 'CX'}
                       </span>
@@ -229,13 +234,19 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                       <span className="capability-detail">{ref.firstLine}</span>
                       <button
                         className="copy-to-button"
-                        onClick={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)
+                        }}
                       >
                         View
                       </button>
                       <button
                         className="copy-to-button copy-to-button-second"
-                        onClick={() => startCopy({ kind: 'memory', ref, file })}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          startCopy({ kind: 'memory', ref, file })
+                        }}
                       >
                         Copy to…
                       </button>
