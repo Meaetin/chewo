@@ -7,6 +7,7 @@ import type {
   CopyDestination,
   CopyResult,
   FileRef,
+  McpRef,
   SkillRef,
   Tool
 } from '../../../shared/capabilities/types'
@@ -22,6 +23,7 @@ type CopySubject =
   | { kind: 'skill'; ref: SkillRef }
   | { kind: 'agent'; ref: AgentRef }
   | { kind: 'memory'; ref: FileRef; file: MemoryKind }
+  | { kind: 'mcp'; ref: McpRef }
 
 function scopeTitle(inv: CapabilityInventory): string {
   if (inv.scope.kind === 'global') {
@@ -89,6 +91,17 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
     return holders
   }
 
+  /** Scopes already running a server with this name */
+  const mcpHolders = (name: string): Set<string> => {
+    const holders = new Set<string>()
+    for (const inv of inventories ?? []) {
+      if (!inv.mcp.some((m) => m.name === name)) continue
+      if (inv.scope.kind === 'project') holders.add(inv.scope.projectId)
+      else holders.add(inv.scope.tool === 'claude' ? 'personal-claude' : 'personal-codex')
+    }
+    return holders
+  }
+
   const toggle = <T,>(set: Set<T>, value: T): Set<T> => {
     const next = new Set(set)
     if (next.has(value)) next.delete(value)
@@ -98,6 +111,19 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
 
   const buildDestinations = (): CopyDestination[] => {
     if (!copying) return []
+    if (copying.kind === 'mcp') {
+      // MCP targets carry their tool in the key — projects are Claude-only
+      const dests: CopyDestination[] = []
+      for (const target of pickedTargets) {
+        if (target === 'personal-claude') dests.push({ kind: 'global', tool: 'claude', label: 'Personal · Claude' })
+        else if (target === 'personal-codex') dests.push({ kind: 'global', tool: 'codex', label: 'Personal · Codex' })
+        else {
+          const project = projects.find((p) => p.id === target)
+          if (project) dests.push({ kind: 'project', path: project.path, tool: 'claude', label: project.name })
+        }
+      }
+      return dests
+    }
     const tools: Tool[] =
       copying.kind === 'agent'
         ? ['claude']
@@ -129,7 +155,9 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
           ? window.api.copySkill({ sourceDir: copying.ref.dir, destinations: dests, overwrite })
           : copying.kind === 'agent'
             ? window.api.copyAgent({ sourcePath: copying.ref.path, destinations: dests, overwrite })
-            : window.api.copyMemory({ sourcePath: copying.ref.path, destinations: dests })
+            : copying.kind === 'mcp'
+              ? window.api.copyMcp({ ref: copying.ref, destinations: dests, overwrite })
+              : window.api.copyMemory({ sourcePath: copying.ref.path, destinations: dests })
 
       let results = await invoke(destinations, false)
 
@@ -269,6 +297,14 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                   </span>
                   <span className="capability-name">{m.name}</span>
                   <span className="capability-detail">{m.command}</span>
+                  {m.envKeys && m.envKeys.length > 0 && (
+                    <span className="capability-meta" title={`Needs env vars: ${m.envKeys.join(', ')}`}>
+                      🔑{m.envKeys.length}
+                    </span>
+                  )}
+                  <button className="copy-to-button" onClick={() => startCopy({ kind: 'mcp', ref: m })}>
+                    Copy to…
+                  </button>
                   <span className="capability-meta">{m.scope}</span>
                 </div>
               ))}
@@ -303,7 +339,9 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                 ? `skill “${copying.ref.name}”`
                 : copying.kind === 'agent'
                   ? `subagent “${copying.ref.name}”`
-                  : copying.file}
+                  : copying.kind === 'mcp'
+                    ? `MCP server “${copying.ref.name}”`
+                    : copying.file}
             </h3>
 
             {copying.kind === 'skill' && (
@@ -333,24 +371,48 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
                 </div>
               </div>
             )}
+            {copying.kind === 'mcp' && copying.ref.envKeys && copying.ref.envKeys.length > 0 && (
+              <div className="copy-modal-section">
+                <div className="copy-modal-label">
+                  🔑 Secrets are never copied — set these env vars manually at each destination:{' '}
+                  {copying.ref.envKeys.join(', ')}
+                </div>
+              </div>
+            )}
 
             <div className="copy-modal-section">
               <div className="copy-modal-label">Into</div>
               {(() => {
-                const holders = copying.kind === 'memory' ? memoryHolders(copying.file) : new Set<string>()
-                const option = (key: string, text: string): React.JSX.Element => {
-                  const has = holders.has(key)
+                const holders =
+                  copying.kind === 'memory'
+                    ? memoryHolders(copying.file)
+                    : copying.kind === 'mcp'
+                      ? mcpHolders(copying.ref.name)
+                      : new Set<string>()
+                const option = (key: string, text: string, note?: string): React.JSX.Element => {
+                  const disabled = holders.has(key) || !!note
                   return (
-                    <label key={key} className={`copy-modal-option ${has ? 'copy-modal-option-disabled' : ''}`}>
+                    <label key={key} className={`copy-modal-option ${disabled ? 'copy-modal-option-disabled' : ''}`}>
                       <input
                         type="checkbox"
-                        disabled={has}
+                        disabled={disabled}
                         checked={pickedTargets.has(key)}
                         onChange={() => setPickedTargets((s) => toggle(s, key))}
                       />
                       {text}
-                      {has && <span className="copy-modal-has-one">already has one</span>}
+                      {holders.has(key) && <span className="copy-modal-has-one">already has one</span>}
+                      {note && !holders.has(key) && <span className="copy-modal-has-one">{note}</span>}
                     </label>
+                  )
+                }
+                if (copying.kind === 'mcp') {
+                  const urlOnly = !!copying.ref.raw?.url && !copying.ref.raw?.command
+                  return (
+                    <>
+                      {option('personal-claude', 'Personal · Claude Code')}
+                      {option('personal-codex', 'Personal · Codex (global)', urlOnly ? 'URL servers unsupported' : undefined)}
+                      {projects.map((p) => option(p.id, `${p.name} (Claude, .mcp.json)`))}
+                    </>
                   )
                 }
                 return (

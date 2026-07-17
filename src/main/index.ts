@@ -7,6 +7,8 @@ import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../s
 import { scanCapabilities } from '../shared/capabilities/scan'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
 import { copyAgent, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
+import { copyMcp } from './mcp-writer'
+import type { McpRef } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
 import { safeSend } from './safe-send'
@@ -85,6 +87,11 @@ function registerIpc(): void {
       copyMemoryFile(args.sourcePath, args.destinations)
   )
   ipcMain.handle('capabilities:readMemory', (_e, path: string) => readMemoryFile(path))
+  ipcMain.handle(
+    'capabilities:copyMcp',
+    (_e, args: { ref: McpRef; destinations: CopyDestination[]; overwrite: boolean }) =>
+      copyMcp(args.ref, args.destinations, args.overwrite)
+  )
 
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))

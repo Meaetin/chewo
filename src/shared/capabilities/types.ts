@@ -28,6 +28,10 @@ export interface McpRef {
   scope: 'user' | 'project'
   /** Human-readable launch string (command+args or URL). Env/secrets never included. */
   command: string
+  /** Structured launch info for faithful copying — env VALUES never captured */
+  raw?: { command?: string; args?: string[]; url?: string }
+  /** Names of env vars the server needs — values must be re-entered manually */
+  envKeys?: string[]
 }
 
 export type CapabilityScope =

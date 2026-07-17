@@ -51,44 +51,80 @@ export function parseFrontmatter(md: string): Record<string, string> {
   return out
 }
 
-/** `[mcp_servers.<name>]` sections from codex config.toml — name may be quoted. */
+/** `[mcp_servers.<name>]` sections from codex config.toml — name may be quoted.
+ *  `[mcp_servers.<name>.env]` sections contribute env KEY NAMES only. */
 export function parseCodexMcp(toml: string): McpRef[] {
-  const refs: McpRef[] = []
+  const refs = new Map<string, McpRef>()
   let current: McpRef | null = null
+  let inEnvOf: McpRef | null = null
   for (const line of toml.split('\n')) {
+    const envSection = line.match(/^\[mcp_servers\.(?:"([^"]+)"|([^\].]+))\.env\]/)
+    if (envSection) {
+      inEnvOf = refs.get(envSection[1] ?? envSection[2]) ?? null
+      current = null
+      continue
+    }
     const section = line.match(/^\[mcp_servers\.(?:"([^"]+)"|([^\].]+))\]/)
     if (section) {
-      current = { name: section[1] ?? section[2], tool: 'codex', scope: 'user', command: '' }
-      refs.push(current)
+      const name = section[1] ?? section[2]
+      current = { name, tool: 'codex', scope: 'user', command: '', raw: {} }
+      refs.set(name, current)
+      inEnvOf = null
       continue
     }
     if (/^\[/.test(line)) {
       current = null
+      inEnvOf = null
+      continue
+    }
+    if (inEnvOf) {
+      const key = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=/)
+      if (key) (inEnvOf.envKeys ??= []).push(key[1])
       continue
     }
     if (!current) continue
     const cmd = line.match(/^command\s*=\s*"(.*)"/)
-    if (cmd) current.command = cmd[1] + (current.command ? ' ' + current.command : '')
+    if (cmd) {
+      current.raw!.command = cmd[1]
+      current.command = cmd[1] + (current.command ? ' ' + current.command : '')
+    }
     const args = line.match(/^args\s*=\s*\[(.*)\]/)
     if (args) {
-      const joined = args[1].replace(/"/g, '').split(',').map((s) => s.trim()).filter(Boolean).join(' ')
+      const list = args[1].replace(/"/g, '').split(',').map((s) => s.trim()).filter(Boolean)
+      current.raw!.args = list
+      const joined = list.join(' ')
       current.command = current.command ? `${current.command} ${joined}` : joined
     }
     const url = line.match(/^url\s*=\s*"(.*)"/)
-    if (url && !current.command) current.command = url[1]
+    if (url) {
+      current.raw!.url = url[1]
+      if (!current.command) current.command = url[1]
+    }
   }
-  return refs
+  return [...refs.values()]
 }
 
 interface ClaudeMcpEntry {
   command?: string
   args?: string[]
   url?: string
+  env?: Record<string, string>
 }
 
 function claudeMcpCommand(entry: ClaudeMcpEntry): string {
   if (entry.url) return entry.url
   return [entry.command, ...(entry.args ?? [])].filter(Boolean).join(' ')
+}
+
+function claudeMcpRef(name: string, entry: ClaudeMcpEntry, scope: 'user' | 'project'): McpRef {
+  return {
+    name,
+    tool: 'claude',
+    scope,
+    command: claudeMcpCommand(entry),
+    raw: { command: entry.command, args: entry.args, url: entry.url },
+    envKeys: entry.env ? Object.keys(entry.env) : undefined // names only, never values
+  }
 }
 
 // ---------- file helpers ----------
@@ -160,7 +196,7 @@ function readClaudeProjectMcp(projectPath: string): McpRef[] {
   try {
     const cfg = JSON.parse(readFileSync(join(projectPath, '.mcp.json'), 'utf8'))
     return Object.entries((cfg.mcpServers ?? {}) as Record<string, ClaudeMcpEntry>).map(
-      ([name, entry]) => ({ name, tool: 'claude' as Tool, scope: 'project' as const, command: claudeMcpCommand(entry) })
+      ([name, entry]) => claudeMcpRef(name, entry, 'project')
     )
   } catch {
     return []
@@ -184,7 +220,7 @@ export function scanCapabilities(
   try {
     const cfg = JSON.parse(readFileSync(claudeConfig, 'utf8'))
     claudeUserMcp = Object.entries((cfg.mcpServers ?? {}) as Record<string, ClaudeMcpEntry>).map(
-      ([name, entry]) => ({ name, tool: 'claude' as Tool, scope: 'user' as const, command: claudeMcpCommand(entry) })
+      ([name, entry]) => claudeMcpRef(name, entry, 'user')
     )
   } catch {
     /* no config */
