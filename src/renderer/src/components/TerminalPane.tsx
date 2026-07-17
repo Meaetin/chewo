@@ -22,6 +22,29 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
       fontSize: 13,
       theme: { background: '#16161e' }
     })
+
+    // ⌘+/⌘−/⌘0 zoom this pane's font (menu zoom roles are removed app-wide)
+    const DEFAULT_FONT_SIZE = 13
+    const setFontSize = (size: number): void => {
+      term.options.fontSize = Math.min(28, Math.max(8, size))
+      doFit()
+    }
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !(e.metaKey || e.ctrlKey)) return true
+      if (e.key === '=' || e.key === '+') {
+        setFontSize((term.options.fontSize ?? DEFAULT_FONT_SIZE) + 1)
+        return false
+      }
+      if (e.key === '-') {
+        setFontSize((term.options.fontSize ?? DEFAULT_FONT_SIZE) - 1)
+        return false
+      }
+      if (e.key === '0') {
+        setFontSize(DEFAULT_FONT_SIZE)
+        return false
+      }
+      return true
+    })
     const fit = new FitAddon()
     fitRef.current = fit
     termRef.current = term

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -181,7 +181,31 @@ function watchHandoffInbox(): void {
   app.on('before-quit', () => watcher.close())
 }
 
+/**
+ * Custom menu WITHOUT the default zoom roles — ⌘+/− must reach the focused
+ * terminal (per-pane font zoom) instead of zooming the whole app.
+ */
+function buildMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      { role: 'windowMenu' }
+    ])
+  )
+}
+
 app.whenReady().then(() => {
+  buildMenu()
   registerIpc()
   createWindow()
   watchSessionStores()
