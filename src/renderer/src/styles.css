@@ -268,9 +268,8 @@ body {
 }
 
 .new-shell-button {
-  align-self: center;
   width: 26px;
-  height: 24px;
+  height: 26px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -297,11 +296,12 @@ body {
 
 .terminal-tab-bar {
   display: flex;
+  align-items: center;
   gap: 4px;
-  padding: 6px 8px 0;
+  padding: 6px 8px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  min-height: 34px;
+  min-height: 38px;
 }
 
 .terminal-tab {
@@ -311,8 +311,7 @@ body {
   padding: 5px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: 6px;
   cursor: pointer;
   max-width: 220px;
 }
