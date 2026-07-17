@@ -5,8 +5,9 @@ instructions (CLAUDE.md / AGENTS.md), skills, subagents, MCP servers — for
 both Claude Code and Codex, with copy/install across projects
 (one / few / all) and from personal (global) scope.
 
-**Status:** researched & architected 2026-07-17, verified against this
-machine (CC 2.1.211, codex 0.142.5) + current Codex docs. Not built.
+**Status:** BUILT — C1 (inventory) through C4 (MCP copying) shipped
+2026-07-17. Remaining deferred item: memory-file merge with diff preview
+(§2). Verified against this machine (CC 2.1.211, codex 0.142.5).
 
 ---
 
