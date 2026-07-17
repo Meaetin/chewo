@@ -11,6 +11,7 @@ import { copyMcp } from './mcp-writer'
 import type { HookRef, McpRef } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import { loadProjects, saveProjects } from './projects'
+import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
 import { safeSend } from './safe-send'
 import {
   bindPaneSession,
@@ -96,6 +97,23 @@ function registerIpc(): void {
     'capabilities:copyHook',
     (_e, args: { ref: HookRef; destinations: CopyDestination[] }) =>
       copyHook(args.ref, args.destinations)
+  )
+
+  ipcMain.handle('worktree:create', (_e, a: { projectPath: string; taskName: string }) =>
+    createWorktree(a.projectPath, a.taskName)
+  )
+  ipcMain.handle(
+    'worktree:status',
+    (_e, a: { projectPath: string; worktreePath: string; branch: string }) =>
+      worktreeStatus(a.projectPath, a.worktreePath, a.branch)
+  )
+  ipcMain.handle('worktree:merge', (_e, a: { projectPath: string; branch: string }) =>
+    mergeWorktree(a.projectPath, a.branch)
+  )
+  ipcMain.handle(
+    'worktree:remove',
+    (_e, a: { projectPath: string; worktreePath: string; branch: string }) =>
+      removeWorktree(a.projectPath, a.worktreePath, a.branch)
   )
 
   ipcMain.handle('projects:load', () => loadProjects())

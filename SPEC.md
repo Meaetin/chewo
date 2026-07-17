@@ -232,7 +232,7 @@ optionally `get_session()` on the source for depth.
 | **1** | Session Adapter + read-only sidebar + transcript viewer + resume-on-click, terminals via pty | Data layer works; app is already useful |
 | **2** | context-bridge with `search_sessions` + `get_session` + `list_recent_sessions`, registered with both CLIs | **The core bet — cohesion.** Test from a plain terminal before any app integration |
 | **3** | `handoff` + `check_inbox` + inbox-watch nudge in app | Cross-agent workflow |
-| **4** | Worktree isolation option per pane (see Risks) | Safe concurrent editing |
+| **4** | Opt-in isolated terminals: git worktree + branch per agent task, merge-back flow (§10) | Safe concurrent editing |
 | **5 (maybe)** | Custom chat rendering of live panes via Agent SDK / app-server (§9) | Prettier UI, approval handling — only if the terminal UX proves insufficient |
 
 Phase 2 is deliberately buildable and testable **without** Phases 1's UI —
@@ -291,3 +291,70 @@ custom approval dialogs, true agent-to-agent loops. Cost: you own the entire
 interaction surface (approvals, interrupts, slash commands). Deliberately
 deferred — the embedded-terminal + bridge design delivers the cohesion goal
 without it.
+
+---
+
+## 10. Phase 4 — Isolated terminals (worktree per agent task)
+
+**Status:** designed & built 2026-07-17.
+**Design center:** Martin runs multiple agents on the same repo
+concurrently. Isolation must never disturb the main checkout, where the
+long-running dev servers (frontend/api/worker) and their ports live.
+
+### 10.1 Model
+
+A worktree is the same repo — `git worktree add` creates a second checkout
+sharing the main checkout's `.git` (same history, remotes, branches). Each
+isolated terminal gets its own worktree + branch, so concurrent agents never
+touch the same files. "Merging back" is just `git merge <branch>` run in the
+main checkout; dev servers never move, ports never change, HMR shows the
+merged result immediately.
+
+**Worktrees are for headless work** (edit, typecheck, unit tests). Nothing
+is ever *run* in a worktree except the setup command; anything the user
+wants to see running is merged into main first. No port offsetting, no
+per-worktree dev servers (rejected — see KNOWN-ISSUES #16).
+
+### 10.2 Creation UX
+
+Sidebar action `⎇` (enabled when a project is selected) → dialog:
+
+- **Task name** (required, `[a-z0-9][a-z0-9._-]*`) — becomes branch
+  `agent/<task>`, folder `~/.chewo/worktrees/<repo-basename>/<task>`, and
+  the tab label `⎇ <task>`. Forcing a name is a feature: with N concurrent
+  agents, "which tab is which" is the real problem.
+- **Agent** — Claude / Codex.
+- **Setup command** (optional, per-project, persisted as
+  `project.worktreeSetup`) — e.g. `cp <main>/.env . && npm install`. Runs
+  visibly in the pane, chained `(setup) && <agent>`, so a failed setup never
+  launches the agent silently. Needed because gitignored files
+  (`.env`, `node_modules`) don't exist in a fresh worktree.
+
+Branched from the main checkout's current `HEAD`. Worktrees live OUTSIDE the
+repo so main-checkout file watchers (Vite, nodemon) never see them.
+
+### 10.3 Lifecycle
+
+- **Binding/persistence:** worktree sessions bind to panes by cwd as usual;
+  the worktree→project mapping (`projects.json` `worktrees[]`) keeps their
+  sessions and tabs grouped under the owning project. Worktree tabs persist
+  as dormant tabs (wake = resume in the worktree path) and keep their
+  `⎇ <task>` label.
+- **Merge (`⇤` button on worktree tabs):** modal shows dirty state,
+  commits ahead of the main checkout's branch, and diffstat.
+  Merge = `git merge --no-ff --no-edit agent/<task>` in the main checkout.
+  Blocked while the worktree has uncommitted changes (user nudges the agent
+  to commit). Conflicts → automatic `merge --abort`, error shown verbatim,
+  resolution is the user's (or an agent's) job in the main checkout.
+- **Cleanup:** after merge (or to abandon), "Remove worktree" runs
+  `git worktree remove` + `git branch -d`. Unmerged branches survive
+  (`-d` refuses; reported, never `-D`). Live panes in the worktree are
+  killed first; dormant tabs are dropped; the session transcript remains
+  (session stores stay read-only).
+
+### 10.4 Explicitly not built
+
+- Dev servers / port management in worktrees.
+- Auto-detecting "agent is done" — the user decides when to merge.
+- In-app conflict resolution or auto-stash of the main checkout.
+- Auto-copying gitignored files (secret-leak risk; setup command instead).

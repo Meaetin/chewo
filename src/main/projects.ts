@@ -17,7 +17,8 @@ export function loadProjects(): ProjectsFile {
     return {
       ...parsed,
       hiddenSessionIds: parsed.hiddenSessionIds ?? [],
-      homeTerminals: parsed.homeTerminals ?? []
+      homeTerminals: parsed.homeTerminals ?? [],
+      worktrees: parsed.worktrees ?? []
     }
   } catch {
     return EMPTY_PROJECTS_FILE

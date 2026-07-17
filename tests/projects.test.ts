@@ -3,8 +3,10 @@ import {
   assignProject,
   matchSessionToPane,
   sessionInProject,
+  sessionInSection,
   type Project,
-  type UnboundPane
+  type UnboundPane,
+  type Worktree
 } from '../src/shared/projects'
 import type { SessionMeta } from '../src/shared/adapter/types'
 
@@ -40,6 +42,42 @@ describe('assignProject', () => {
     expect(assignProject(s, [parent, nested])?.id).toBe('nested')
     expect(assignProject(meta({ project: '/Users/m/dev/app' }), [parent, nested])?.id).toBe('parent')
     expect(assignProject(meta({ project: '/elsewhere' }), [parent, nested])).toBeNull()
+  })
+})
+
+describe('worktree session mapping', () => {
+  const argo = project('argo', '/Users/m/dev/argo')
+  const other = project('other', '/Users/m/dev/other')
+  const wt: Worktree = {
+    id: 'wt1',
+    projectId: 'argo',
+    taskName: 'auth-fix',
+    branch: 'agent/auth-fix',
+    path: '/Users/m/.chewo/worktrees/argo/auth-fix',
+    baseBranch: 'main',
+    createdAt: '2026-07-17T10:00:00.000Z'
+  }
+
+  test('assignProject maps worktree cwds to the owning project', () => {
+    const s = meta({ project: '/Users/m/.chewo/worktrees/argo/auth-fix' })
+    expect(assignProject(s, [other, argo], [wt])?.id).toBe('argo')
+    // subdirectory inside the worktree still counts
+    const deep = meta({ project: '/Users/m/.chewo/worktrees/argo/auth-fix/src' })
+    expect(assignProject(deep, [other, argo], [wt])?.id).toBe('argo')
+    // without the worktree list, the session is homeless
+    expect(assignProject(s, [other, argo])).toBeNull()
+  })
+
+  test('orphaned worktree (project deleted) assigns nothing', () => {
+    const s = meta({ project: wt.path })
+    expect(assignProject(s, [other], [wt])).toBeNull()
+  })
+
+  test('sessionInSection matches project path or its worktrees only', () => {
+    expect(sessionInSection(wt.path, argo, [wt])).toBe(true)
+    expect(sessionInSection('/Users/m/dev/argo/src', argo, [wt])).toBe(true)
+    expect(sessionInSection(wt.path, other, [wt])).toBe(false)
+    expect(sessionInSection(null, argo, [wt])).toBe(false)
   })
 })
 

@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
+import type {
+  CreateWorktreeResult,
+  MergeWorktreeResult,
+  RemoveWorktreeResult,
+  WorktreeStatusResult
+} from '../main/worktrees'
 
 export interface TermDataEvent {
   id: number
@@ -32,8 +38,12 @@ const api = {
     return () => ipcRenderer.removeListener('sessions:changed', listener)
   },
 
-  createTerminal: (opts: { source: string; sessionId?: string; cwd?: string | null }) =>
-    ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
+  createTerminal: (opts: {
+    source: string
+    sessionId?: string
+    cwd?: string | null
+    setupCommand?: string
+  }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
   termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
   termResize: (id: number, cols: number, rows: number) =>
     ipcRenderer.send('terminal:resize', { id, cols, rows }),
@@ -74,6 +84,14 @@ const api = {
     ipcRenderer.invoke('capabilities:copyMcp', args),
   copyHook: (args: { ref: unknown; destinations: unknown[] }) =>
     ipcRenderer.invoke('capabilities:copyHook', args),
+  createWorktree: (args: { projectPath: string; taskName: string }) =>
+    ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
+  worktreeStatus: (args: { projectPath: string; worktreePath: string; branch: string }) =>
+    ipcRenderer.invoke('worktree:status', args) as Promise<WorktreeStatusResult>,
+  worktreeMerge: (args: { projectPath: string; branch: string }) =>
+    ipcRenderer.invoke('worktree:merge', args) as Promise<MergeWorktreeResult>,
+  worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
+    ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

@@ -15,6 +15,8 @@ export interface CreateTerminalOptions {
   sessionId?: string
   /** Working directory — the session's original project when resuming */
   cwd?: string | null
+  /** Runs visibly before the agent (worktree setup: env copy, install); a failure blocks the agent launch */
+  setupCommand?: string
 }
 
 interface PaneRecord {
@@ -46,12 +48,17 @@ export function buildPtyEnv(base: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 /** null = plain interactive shell, no command */
-function buildCommand(opts: CreateTerminalOptions): string | null {
+export function buildCommand(opts: CreateTerminalOptions): string | null {
   if (opts.source === 'shell') return null
-  if (opts.source === 'claude') {
-    return opts.sessionId ? `claude --resume ${opts.sessionId}` : 'claude'
-  }
-  return opts.sessionId ? `codex resume ${opts.sessionId}` : 'codex'
+  const agent =
+    opts.source === 'claude'
+      ? opts.sessionId
+        ? `claude --resume ${opts.sessionId}`
+        : 'claude'
+      : opts.sessionId
+        ? `codex resume ${opts.sessionId}`
+        : 'codex'
+  return opts.setupCommand ? `(${opts.setupCommand}) && ${agent}` : agent
 }
 
 export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions): number {

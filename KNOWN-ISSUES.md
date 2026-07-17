@@ -4,7 +4,7 @@ Everything flagged during development that is *not* fixed code — open risks,
 deliberate trade-offs, maintenance rituals, and deferred phases. Reference
 before changing architecture or debugging weirdness.
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 ---
 
@@ -18,11 +18,13 @@ point); unknown line types are counted, never fatal.
 **Ritual: run `npm run canary` after every `claude` / `codex` update.** It
 already caught 5 unknown record types on first run (incl. `custom-title`).
 
-### 2. Concurrent edits in one cwd (Phase 4 not built)
-Two agents (Claude + Codex panes) editing the same project directory will
-clobber each other. No protection exists. Planned fix: git-worktree-per-pane
-isolation option. Until then: don't run both agents on the same repo with
-auto-approve on.
+### 2. Concurrent edits in one cwd (mitigated 2026-07-17, opt-in only)
+Two agents editing the same project directory will clobber each other.
+Phase 4 ships an OPT-IN fix: "isolated terminal" spawns the agent in its own
+git worktree + branch (see #16 for the costs). Plain terminals in the same
+cwd remain unprotected — that is Martin's default mode by choice (he runs
+multiple agents in one repo and monitors them himself; a concurrency badge
+was considered and rejected as useless).
 
 ### 3. Prompt-injection exfiltration via the bridge
 The bridge exposes ALL session history to any session that can call its
@@ -112,6 +114,48 @@ Tool results capped at 4,000 chars at parse time; digest 8k; full-transcript
 pagination 8k/page. Raise consciously — these protect model context windows
 and the renderer.
 
+### 16. Worktree isolation — accepted negatives (Phase 4, 2026-07-17)
+Isolated terminals trade fuss for safety. Known costs, all deliberate:
+
+- **Gitignored files don't come along.** A fresh worktree has no `.env`,
+  `.env.local`, or `node_modules`. Fix is the per-project *worktree setup
+  command* (runs visibly in the pane before the agent launches). It is
+  manual on purpose — auto-copying gitignored files risks leaking secrets
+  into a directory the user forgot exists.
+- **`npm install` per worktree is slow on big repos.** Chewo cannot paper
+  over this; the real fix is project-level (pnpm's shared store makes
+  worktree installs near-instant).
+- **No dev servers in worktrees — by design.** Worktrees are for headless
+  agent work (edit, typecheck, unit tests). Anything you want to *see
+  running* merges back into the main checkout, where servers + HMR already
+  live. No port offsetting will be built unless a real side-by-side-compare
+  need appears.
+- **Merge preconditions are git's, surfaced verbatim.** Worktree must be
+  committed (dirty → merge blocked, nudge the agent to commit). A dirty
+  main checkout with overlapping files makes git refuse — Chewo shows the
+  message, never auto-stashes. Conflicts abort the merge cleanly
+  (`merge --abort`) and resolution happens in the main checkout, by the
+  user or an agent — never by Chewo.
+- **Removal can be refused.** `git worktree remove` refuses if the worktree
+  has modified/untracked (non-ignored) files. Chewo surfaces the error;
+  force-removal is a manual decision (`git worktree remove --force`).
+- **Orphans are possible.** Worktrees live under `~/.chewo/worktrees/
+  <repo-basename>/<task>`. Deleting a project from Chewo (or the repo
+  itself) leaves worktrees + `agent/*` branches behind. Cleanup:
+  `git worktree prune` + delete the folder/branches.
+- **Task-name collisions.** Branch `agent/<task>` or the worktree folder
+  already existing → creation fails with the git error. Also: two different
+  repos with the same basename share a parent folder — same task name in
+  both collides. Rename the task; no auto-suffixing.
+- **Sessions outlive their worktree.** After removal, the transcript stays
+  (session store is read-only) but resuming it spawns in `$HOME` (cwd gone
+  → fallback) — the agent will be confused about where its files went.
+  Dormant tabs bound to a removed worktree are cleaned up; sidebar history
+  rows are not.
+- **Setup command is trusted input.** It's chained with `&&` before the
+  agent command and runs with the user's shell. It is per-project,
+  user-authored config — Chewo never generates or edits it on its own.
+
 ---
 
 ## Maintenance rituals
@@ -153,7 +197,8 @@ and the renderer.
 - **Phase 3 remainder — inbox nudge**: app watches
   `~/.context-bridge/inbox/`, types a visible "check your inbox" into the
   target pane for the user to submit. Handoff currently works pull-only.
-- **Phase 4 — worktree isolation**: fixes risk #2.
+- ~~**Phase 4 — worktree isolation**~~ BUILT 2026-07-17 (opt-in isolated
+  terminals; see #16 for accepted negatives).
 - **Phase 5 — app-server/SDK rendering**: custom chat UI over
   `claude --print --output-format stream-json` / Agent SDK and
   `codex app-server`. Triggers: needing custom approval flows or real-time

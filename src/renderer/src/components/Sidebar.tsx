@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import type { SessionMeta } from '../../../shared/adapter/types'
-import { sessionInProject, type Project } from '../../../shared/projects'
+import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
 
 interface SidebarProps {
   sessions: SessionMeta[]
   hiddenSessions: SessionMeta[]
   projects: Project[]
+  /** Isolated checkouts — their sessions group under the owning project */
+  worktrees: Worktree[]
   /** Live terminal count per section (keyed by project id, null = Home) */
   liveCounts: Map<string | null, number>
   /** Sessions that currently have an open terminal */
@@ -20,6 +22,8 @@ interface SidebarProps {
   onSelect: (session: SessionMeta) => void
   onOpenTranscript: (session: SessionMeta) => void
   onNewTerminal: (source: 'claude' | 'codex') => void
+  /** undefined = no project selected → button disabled */
+  onNewIsolated?: () => void
   onOpenCapabilities: () => void
 }
 
@@ -154,6 +158,7 @@ export function Sidebar({
   sessions,
   hiddenSessions,
   projects,
+  worktrees,
   liveCounts,
   liveSessionIds,
   selectedProjectId,
@@ -166,6 +171,7 @@ export function Sidebar({
   onSelect,
   onOpenTranscript,
   onNewTerminal,
+  onNewIsolated,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -199,11 +205,11 @@ export function Sidebar({
     for (const p of projects) {
       map.set(
         p.id,
-        sessions.filter((s) => sessionInProject(s.project, p.path))
+        sessions.filter((s) => sessionInSection(s.project, p, worktrees))
       )
     }
     return map
-  }, [sessions, projects])
+  }, [sessions, projects, worktrees])
 
   const toggleProject = (id: string): void => {
     onSelectProject(selectedProjectId === id ? null : id)
@@ -217,6 +223,18 @@ export function Sidebar({
         </button>
         <button className="new-terminal-button" onClick={() => onNewTerminal('codex')}>
           + Codex
+        </button>
+        <button
+          className="worktree-new-button"
+          title={
+            onNewIsolated
+              ? 'New isolated terminal — agent works on its own branch in a separate worktree'
+              : 'Select a project to start an isolated terminal'
+          }
+          disabled={!onNewIsolated}
+          onClick={onNewIsolated}
+        >
+          ⎇
         </button>
         <button
           className="capabilities-button"

@@ -4,12 +4,14 @@ import {
   assignProject,
   type Project,
   type ProjectsFile,
-  type SavedTerminal
+  type SavedTerminal,
+  type Worktree
 } from '../../shared/projects'
 import { Sidebar } from './components/Sidebar'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
+import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 
 export type PaneSource = Source | 'shell'
 
@@ -19,6 +21,8 @@ export interface TerminalTab {
   source: PaneSource
   label: string
   sessionId?: string
+  /** Pane runs in an isolated worktree — gets the merge button, keeps its ⎇ label */
+  worktreeId?: string
   exited: boolean
 }
 
@@ -38,6 +42,9 @@ export function App(): React.JSX.Element {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [homeTerminals, setHomeTerminals] = useState<SavedTerminal[]>([])
+  const [worktrees, setWorktrees] = useState<Worktree[]>([])
+  const [wtCreateOpen, setWtCreateOpen] = useState(false)
+  const [wtMerge, setWtMerge] = useState<Worktree | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
@@ -63,6 +70,7 @@ export function App(): React.JSX.Element {
       setSelectedProjectId(file.selectedProjectId)
       setHiddenIds(new Set(file.hiddenSessionIds))
       setHomeTerminals(file.homeTerminals)
+      setWorktrees(file.worktrees)
       loaded.current = true
     })
     const offChanged = window.api.onSessionsChanged(() => void refresh())
@@ -72,7 +80,10 @@ export function App(): React.JSX.Element {
     const offBound = window.api.onTermBound(({ id, sessionId, title }) => {
       setTabs((t) =>
         t.map((tab) =>
-          tab.termId === id ? { ...tab, sessionId, label: title.slice(0, 30) } : tab
+          tab.termId === id
+            ? // Worktree tabs keep their ⎇ task label — that's how you tell N agents apart
+              { ...tab, sessionId, label: tab.worktreeId ? tab.label : title.slice(0, 30) }
+            : tab
         )
       )
     })
@@ -103,7 +114,12 @@ export function App(): React.JSX.Element {
           (t): t is TerminalTab & { source: Source; sessionId: string } =>
             t.projectId === projectId && !!t.sessionId && t.source !== 'shell'
         )
-        .map((t) => ({ source: t.source, sessionId: t.sessionId, label: t.label }))
+        .map((t) => ({
+          source: t.source,
+          sessionId: t.sessionId,
+          label: t.label,
+          worktreeId: t.worktreeId
+        }))
       const liveIds = new Set(live.map((t) => t.sessionId))
       return [...live, ...dormant.filter((t) => !liveIds.has(t.sessionId))]
     }
@@ -111,12 +127,16 @@ export function App(): React.JSX.Element {
       projects: projects.map((p) => ({ ...p, terminals: savedFor(p.id, p.terminals) })),
       selectedProjectId,
       hiddenSessionIds: [...hiddenIds],
-      homeTerminals: savedFor(null, homeTerminals)
+      homeTerminals: savedFor(null, homeTerminals),
+      worktrees
     }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals])
+  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, worktrees])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
+  const wtMergeProject = wtMerge
+    ? (projects.find((p) => p.id === wtMerge.projectId) ?? null)
+    : null
 
   // Tab bar shows only the selected section's terminals (Home when nothing
   // is selected). Terminals in other sections keep running — the sidebar
@@ -199,11 +219,14 @@ export function App(): React.JSX.Element {
       cwd?: string | null
       label?: string
       projectId: string | null
+      worktreeId?: string
+      setupCommand?: string
     }) => {
       const termId = await window.api.createTerminal({
         source: opts.source,
         sessionId: opts.sessionId,
-        cwd: opts.cwd
+        cwd: opts.cwd,
+        setupCommand: opts.setupCommand
       })
       setTabs((t) => [
         ...t,
@@ -213,6 +236,7 @@ export function App(): React.JSX.Element {
           source: opts.source,
           label: opts.label ?? `${opts.source} (new)`,
           sessionId: opts.sessionId,
+          worktreeId: opts.worktreeId,
           exited: false
         }
       ])
@@ -235,7 +259,7 @@ export function App(): React.JSX.Element {
 
   const resumeSession = useCallback(
     (s: SessionMeta) => {
-      const home = assignProject(s, projects)
+      const home = assignProject(s, projects, worktrees)
       void openTerminal({
         source: s.source,
         sessionId: s.id,
@@ -244,20 +268,87 @@ export function App(): React.JSX.Element {
         projectId: home?.id ?? selectedProject?.id ?? null
       })
     },
-    [openTerminal, projects, selectedProject]
+    [openTerminal, projects, worktrees, selectedProject]
   )
 
   const wakeDormant = useCallback(
     (t: SavedTerminal) => {
+      const wt = t.worktreeId ? worktrees.find((w) => w.id === t.worktreeId) : undefined
       void openTerminal({
         source: t.source,
         sessionId: t.sessionId,
-        cwd: selectedProject?.path ?? null,
+        cwd: wt?.path ?? selectedProject?.path ?? null,
         label: t.label,
-        projectId: selectedProject?.id ?? null
+        projectId: selectedProject?.id ?? null,
+        worktreeId: wt?.id
       })
     },
-    [openTerminal, selectedProject]
+    [openTerminal, selectedProject, worktrees]
+  )
+
+  /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
+  const createIsolated = useCallback(
+    async (taskName: string, agent: Source, setup: string): Promise<string | null> => {
+      const project = selectedProject
+      if (!project) return 'Select a project first'
+      const res = await window.api.createWorktree({ projectPath: project.path, taskName })
+      if (!res.ok) return res.error
+      const wt: Worktree = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        taskName,
+        branch: res.branch,
+        path: res.path,
+        baseBranch: res.baseBranch,
+        createdAt: new Date().toISOString()
+      }
+      setWorktrees((ws) => [...ws, wt])
+      const trimmedSetup = setup.trim()
+      if (trimmedSetup !== (project.worktreeSetup ?? '')) {
+        setProjects((ps) =>
+          ps.map((p) =>
+            p.id === project.id ? { ...p, worktreeSetup: trimmedSetup || undefined } : p
+          )
+        )
+      }
+      setWtCreateOpen(false)
+      void openTerminal({
+        source: agent,
+        cwd: res.path,
+        projectId: project.id,
+        label: `⎇ ${taskName}`,
+        worktreeId: wt.id,
+        setupCommand: trimmedSetup || undefined
+      })
+      return null
+    },
+    [selectedProject, openTerminal]
+  )
+
+  /** git worktree remove + branch -d, then drop panes/tabs/records. Error string or null. */
+  const removeWorktree = useCallback(
+    async (wt: Worktree): Promise<string | null> => {
+      const project = projects.find((p) => p.id === wt.projectId)
+      if (!project) return 'Project no longer exists'
+      const res = await window.api.worktreeRemove({
+        projectPath: project.path,
+        worktreePath: wt.path,
+        branch: wt.branch
+      })
+      if (!res.ok) return res.error
+      const killed = tabs.filter((t) => t.worktreeId === wt.id).map((t) => t.termId)
+      for (const id of killed) window.api.termKill(id)
+      setTabs((ts) => ts.filter((t) => t.worktreeId !== wt.id))
+      setView((v) => (v.kind === 'terminal' && killed.includes(v.termId) ? { kind: 'empty' } : v))
+      setWorktrees((ws) => ws.filter((w) => w.id !== wt.id))
+      setProjects((ps) =>
+        ps.map((p) => ({ ...p, terminals: p.terminals.filter((t) => t.worktreeId !== wt.id) }))
+      )
+      setWtMerge(null)
+      if (!res.branchDeleted && res.note) showToast(res.note)
+      return null
+    },
+    [projects, tabs, showToast]
   )
 
   const closeTerminal = useCallback((termId: number) => {
@@ -308,6 +399,7 @@ export function App(): React.JSX.Element {
         sessions={visibleSessions}
         hiddenSessions={hiddenSessions}
         projects={projects}
+        worktrees={worktrees}
         liveCounts={liveCounts}
         liveSessionIds={new Set(liveSessionTabs.keys())}
         selectedProjectId={selectedProjectId}
@@ -326,6 +418,7 @@ export function App(): React.JSX.Element {
         onDeleteProject={deleteProject}
         onSelect={openSession}
         onNewTerminal={newTerminal}
+        onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
 
@@ -341,6 +434,18 @@ export function App(): React.JSX.Element {
                 {BADGES[tab.source]}
               </span>
               <span className="terminal-tab-label">{tab.label}</span>
+              {tab.worktreeId && (
+                <button
+                  className="terminal-tab-merge"
+                  title="Review & merge this worktree into the main checkout"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setWtMerge(worktrees.find((w) => w.id === tab.worktreeId) ?? null)
+                  }}
+                >
+                  ⇤
+                </button>
+              )}
               <button
                 className="terminal-tab-close"
                 onClick={(e) => {
@@ -372,6 +477,18 @@ export function App(): React.JSX.Element {
                 {t.source === 'claude' ? 'CC' : 'CX'}
               </span>
               <span className="terminal-tab-label">▶ {t.label}</span>
+              {t.worktreeId && (
+                <button
+                  className="terminal-tab-merge"
+                  title="Review & merge this worktree into the main checkout"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setWtMerge(worktrees.find((w) => w.id === t.worktreeId) ?? null)
+                  }}
+                >
+                  ⇤
+                </button>
+              )}
               <button
                 className="terminal-tab-close"
                 onClick={(e) => {
@@ -418,6 +535,23 @@ export function App(): React.JSX.Element {
           <div className="toast" onClick={() => setToast(null)}>
             {toast}
           </div>
+        )}
+
+        {wtCreateOpen && selectedProject && (
+          <WorktreeCreateModal
+            project={selectedProject}
+            onCancel={() => setWtCreateOpen(false)}
+            onCreate={createIsolated}
+          />
+        )}
+
+        {wtMerge && wtMergeProject && (
+          <WorktreeMergeModal
+            worktree={wtMerge}
+            project={wtMergeProject}
+            onClose={() => setWtMerge(null)}
+            onRemove={() => removeWorktree(wtMerge)}
+          />
         )}
       </main>
     </div>
