@@ -3,7 +3,11 @@ import { homedir } from 'node:os'
 import type { BrowserWindow } from 'electron'
 import * as pty from 'node-pty'
 import type { Source } from '../shared/adapter'
-import type { UnboundPane } from '../shared/projects'
+import {
+  CLAUDE_PERMISSION_MODES,
+  CODEX_APPROVAL_POLICIES,
+  type UnboundPane
+} from '../shared/projects'
 import { safeSend } from './safe-send'
 
 /** What a pane runs: an agent CLI or a plain shell */
@@ -17,6 +21,10 @@ export interface CreateTerminalOptions {
   cwd?: string | null
   /** Runs visibly before the agent (worktree setup: env copy, install); a failure blocks the agent launch */
   setupCommand?: string
+  /** claude --permission-mode; omit for the CLI's own default */
+  permissionMode?: string
+  /** codex --ask-for-approval; omit for the CLI's own default */
+  approvalPolicy?: string
 }
 
 interface PaneRecord {
@@ -47,17 +55,36 @@ export function buildPtyEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   return env
 }
 
+/**
+ * Permission flags reach a shell command line, and projects.json is a
+ * user-editable file — so only ever emit values from the known enums.
+ * Anything else is dropped (the CLI falls back to its own default).
+ */
+function permissionFlag(source: Source, opts: CreateTerminalOptions): string {
+  if (source === 'claude') {
+    const mode = opts.permissionMode
+    return mode && (CLAUDE_PERMISSION_MODES as string[]).includes(mode)
+      ? ` --permission-mode ${mode}`
+      : ''
+  }
+  const policy = opts.approvalPolicy
+  return policy && (CODEX_APPROVAL_POLICIES as string[]).includes(policy)
+    ? ` --ask-for-approval ${policy}`
+    : ''
+}
+
 /** null = plain interactive shell, no command */
 export function buildCommand(opts: CreateTerminalOptions): string | null {
   if (opts.source === 'shell') return null
+  const flags = permissionFlag(opts.source, opts)
   const agent =
     opts.source === 'claude'
       ? opts.sessionId
-        ? `claude --resume ${opts.sessionId}`
-        : 'claude'
+        ? `claude --resume ${opts.sessionId}${flags}`
+        : `claude${flags}`
       : opts.sessionId
-        ? `codex resume ${opts.sessionId}`
-        : 'codex'
+        ? `codex resume ${opts.sessionId}${flags}`
+        : `codex${flags}`
   return opts.setupCommand ? `(${opts.setupCommand}) && ${agent}` : agent
 }
 

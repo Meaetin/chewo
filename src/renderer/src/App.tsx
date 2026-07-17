@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
+  type AgentSettings,
   type Project,
   type ProjectsFile,
   type SavedTerminal,
@@ -12,6 +13,7 @@ import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
+import { SectionSettingsModal } from './components/SectionSettingsModal'
 
 export type PaneSource = Source | 'shell'
 
@@ -42,9 +44,12 @@ export function App(): React.JSX.Element {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [homeTerminals, setHomeTerminals] = useState<SavedTerminal[]>([])
+  const [homeSettings, setHomeSettings] = useState<AgentSettings>({})
   const [worktrees, setWorktrees] = useState<Worktree[]>([])
   const [wtCreateOpen, setWtCreateOpen] = useState(false)
   const [wtMerge, setWtMerge] = useState<Worktree | null>(null)
+  /** Section whose settings modal is open — string id, or null for Home */
+  const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
@@ -70,6 +75,7 @@ export function App(): React.JSX.Element {
       setSelectedProjectId(file.selectedProjectId)
       setHiddenIds(new Set(file.hiddenSessionIds))
       setHomeTerminals(file.homeTerminals)
+      setHomeSettings(file.homeSettings)
       setWorktrees(file.worktrees)
       loaded.current = true
     })
@@ -128,15 +134,26 @@ export function App(): React.JSX.Element {
       selectedProjectId,
       hiddenSessionIds: [...hiddenIds],
       homeTerminals: savedFor(null, homeTerminals),
+      homeSettings,
       worktrees
     }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, worktrees])
+  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
     ? (projects.find((p) => p.id === wtMerge.projectId) ?? null)
     : null
+
+  /**
+   * Launch settings belong to the section the terminal lands in — never the
+   * one that happens to be selected. Home (null) is a section like any other.
+   */
+  const settingsForSection = useCallback(
+    (projectId: string | null): AgentSettings =>
+      projectId === null ? homeSettings : (projects.find((p) => p.id === projectId) ?? {}),
+    [projects, homeSettings]
+  )
 
   // Tab bar shows only the selected section's terminals (Home when nothing
   // is selected). Terminals in other sections keep running — the sidebar
@@ -222,11 +239,14 @@ export function App(): React.JSX.Element {
       worktreeId?: string
       setupCommand?: string
     }) => {
+      const { claudeMode, codexApproval } = settingsForSection(opts.projectId)
       const termId = await window.api.createTerminal({
         source: opts.source,
         sessionId: opts.sessionId,
         cwd: opts.cwd,
-        setupCommand: opts.setupCommand
+        setupCommand: opts.setupCommand,
+        permissionMode: claudeMode,
+        approvalPolicy: codexApproval
       })
       setTabs((t) => [
         ...t,
@@ -242,7 +262,7 @@ export function App(): React.JSX.Element {
       ])
       setView({ kind: 'terminal', termId })
     },
-    []
+    [settingsForSection]
   )
 
   const newTerminal = useCallback(
@@ -259,16 +279,21 @@ export function App(): React.JSX.Element {
 
   const resumeSession = useCallback(
     (s: SessionMeta) => {
-      const home = assignProject(s, projects, worktrees)
+      // A session belongs to the section its cwd lives in — Home included.
+      // Never inherit the selected project, or a Home session resumed while
+      // some project is open would show up as that project's terminal.
+      const owner = assignProject(s, projects, worktrees)
+      const projectId = owner?.id ?? null
+      setSelectedProjectId(projectId) // follow the terminal to its own section
       void openTerminal({
         source: s.source,
         sessionId: s.id,
         cwd: s.project,
         label: s.title.slice(0, 30),
-        projectId: home?.id ?? selectedProject?.id ?? null
+        projectId
       })
     },
-    [openTerminal, projects, worktrees, selectedProject]
+    [openTerminal, projects, worktrees]
   )
 
   const wakeDormant = useCallback(
@@ -374,6 +399,19 @@ export function App(): React.JSX.Element {
     [selectedProject]
   )
 
+  const saveSectionSettings = useCallback(
+    (id: string | null, settings: AgentSettings, worktreeSetup?: string) => {
+      if (id === null) {
+        setHomeSettings(settings)
+        return
+      }
+      setProjects((ps) =>
+        ps.map((p) => (p.id === id ? { ...p, ...settings, worktreeSetup } : p))
+      )
+    },
+    []
+  )
+
   const createProject = useCallback(async () => {
     const path = await window.api.pickFolder()
     if (!path) return
@@ -419,6 +457,7 @@ export function App(): React.JSX.Element {
         onSelect={openSession}
         onNewTerminal={newTerminal}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
+        onOpenSettings={(id) => setSettingsFor({ id })}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
 
@@ -553,6 +592,25 @@ export function App(): React.JSX.Element {
             onRemove={() => removeWorktree(wtMerge)}
           />
         )}
+
+        {settingsFor &&
+          (() => {
+            const target = settingsFor.id
+              ? (projects.find((p) => p.id === settingsFor.id) ?? null)
+              : null
+            if (settingsFor.id && !target) return null
+            return (
+              <SectionSettingsModal
+                name={target?.name ?? 'Home'}
+                path={target?.path ?? window.api.homeDir}
+                settings={settingsForSection(settingsFor.id)}
+                worktreeSetup={target?.worktreeSetup}
+                showWorktreeSetup={!!target}
+                onClose={() => setSettingsFor(null)}
+                onSave={(s, setup) => saveSectionSettings(settingsFor.id, s, setup)}
+              />
+            )
+          })()}
       </main>
     </div>
   )

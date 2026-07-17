@@ -103,6 +103,43 @@ purpose — the escape hatch after removing "All sessions". ⌘F transcript
 find only searches rendered DOM: collapsed tool outputs are excluded until
 expanded.
 
+### 17. Permission modes are re-applied per spawn, not remembered by the CLIs
+Neither CLI persists the permission mode you flip to mid-session — every
+fresh spawn starts at its own default. That is why the app "asks more" than
+a hand-run terminal: you flip to `auto` by habit in iTerm, and long-lived
+sessions keep it, while Chewo starts fresh sessions constantly. Fix shipped:
+per-section `claudeMode` / `codexApproval` in projects.json → `--permission-mode`
+/ `--ask-for-approval` on every spawn (SPEC §10.5).
+
+Consequences to keep in mind:
+- **Chewo-scoped only.** `claude` run from iTerm is unaffected. Making it
+  global means `permissions.defaultMode` in `~/.claude/settings.json` — a
+  deliberate rejection (widens every repo, incl. fresh untrusted clones),
+  and impossible for Codex without hand-writing `config.toml`.
+- **A worktree does not make auto-approval safe.** Isolation bounds file
+  conflicts, not command execution: an auto-mode agent still shares `.git`
+  (force-push), `$HOME`, `.env`, and the network. The modal says so.
+- **Values reach a shell command line.** `projects.json` is user-editable,
+  so `buildCommand` validates against the enums and drops anything else.
+  Any new flag plumbed through must do the same.
+- Running panes keep the mode they launched with; changing the setting only
+  affects future spawns.
+
+### 18. Home is a section, not a project (fixed 2026-07-17)
+`resumeSession` used to fall back to the *selected* project for sessions
+that matched no project (`owner?.id ?? selectedProject?.id`), so resuming a
+Home session while a project was open attributed the tab — and its live
+count — to that project. Sessions now map to their owning section only
+(Home = null), and the view follows the terminal to its section. Home's
+sidebar row is now selection-driven like any project (selected ⟺ expanded
+⟺ its tabs show), rather than having its own expand state.
+
+Note the asymmetry that remains: Home matches `cwd === $HOME` **exactly**,
+not by prefix (otherwise every project under `~` would be inside Home).
+Sessions whose cwd matches no project and isn't `$HOME` (e.g. `/tmp/x`,
+reachable via global search) resume into the Home section's tab bar without
+appearing in Home's session list. Home = "unscoped", by design.
+
 ### 14. ~~Unscoped terminals are not persisted~~ RESOLVED 2026-07-17
 Home is now a full section: its terminals persist in `homeTerminals`
 (projects.json) and wake as dormant tabs in $HOME. Also: live tabs are no

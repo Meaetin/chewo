@@ -24,6 +24,8 @@ interface SidebarProps {
   onNewTerminal: (source: 'claude' | 'codex') => void
   /** undefined = no project selected → button disabled */
   onNewIsolated?: () => void
+  /** null = Home's settings */
+  onOpenSettings: (id: string | null) => void
   onOpenCapabilities: () => void
 }
 
@@ -172,11 +174,13 @@ export function Sidebar({
   onOpenTranscript,
   onNewTerminal,
   onNewIsolated,
+  onOpenSettings,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
-  const [homeExpanded, setHomeExpanded] = useState(false)
   const [hiddenExpanded, setHiddenExpanded] = useState(false)
+  // Home is a section like any project: selected ⟺ expanded ⟺ its tabs show
+  const homeSelected = selectedProjectId === null
 
   const searching = query.trim().length > 0
 
@@ -274,11 +278,11 @@ export function Sidebar({
         <div className="session-list">
           <div className="project-section">
             <div
-              className={`project-row ${homeExpanded ? 'project-row-selected' : ''}`}
-              onClick={() => setHomeExpanded((v) => !v)}
+              className={`project-row ${homeSelected ? 'project-row-selected' : ''}`}
+              onClick={() => onSelectProject(null)}
               title={window.api.homeDir}
             >
-              <span className="project-row-chevron">{homeExpanded ? '▾' : '▸'}</span>
+              <span className="project-row-chevron">{homeSelected ? '▾' : '▸'}</span>
               <span className="project-row-name">Home</span>
               {(liveCounts.get(null) ?? 0) > 0 && (
                 <span className="project-row-live" title="Live terminals in this section">
@@ -286,8 +290,18 @@ export function Sidebar({
                 </span>
               )}
               <span className="project-row-count">{homeSessions.length}</span>
+              <button
+                className="project-settings-button"
+                title="Home settings — how agents launch here"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenSettings(null)
+                }}
+              >
+                ⚙
+              </button>
             </div>
-            {homeExpanded && (
+            {homeSelected && (
               <SessionGroup
                 sessions={homeSessions}
                 selectedSessionId={selectedSessionId}
@@ -325,6 +339,16 @@ export function Sidebar({
                     </span>
                   )}
                   <span className="project-row-count">{projectSessions.length}</span>
+                  <button
+                    className="project-settings-button"
+                    title="Project settings — how agents launch here"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onOpenSettings(p.id)
+                    }}
+                  >
+                    ⚙
+                  </button>
                   <button
                     className="project-delete-button"
                     title="Remove project (sessions are not deleted)"

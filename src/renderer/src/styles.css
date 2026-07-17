@@ -146,6 +146,24 @@ body {
   color: var(--text);
 }
 
+.project-settings-button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  visibility: hidden;
+}
+
+.project-row:hover .project-settings-button {
+  visibility: visible;
+}
+
+.project-settings-button:hover {
+  color: var(--text);
+}
+
 .terminal-tab-dormant {
   opacity: 0.55;
   border-style: dashed;
@@ -677,6 +695,21 @@ body {
   border-color: color-mix(in srgb, var(--accent-live) 40%, transparent);
   background: color-mix(in srgb, var(--accent-live) 10%, transparent);
   color: var(--accent-live);
+}
+
+.wt-banner-neutral {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+}
+
+.wt-banner code {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+}
+
+select.wt-input {
+  cursor: pointer;
 }
 
 /* worktree merge review */

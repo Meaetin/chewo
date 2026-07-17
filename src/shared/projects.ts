@@ -9,8 +9,41 @@ export interface SavedTerminal {
   worktreeId?: string
 }
 
+/**
+ * Claude's `--permission-mode` values (CC 2.1.x). Both CLIs always start a
+ * fresh session at their own default and never remember the mode you flipped
+ * to last time — these settings re-apply your choice on every spawn.
+ */
+export type ClaudePermissionMode =
+  | 'manual'
+  | 'plan'
+  | 'acceptEdits'
+  | 'auto'
+  | 'dontAsk'
+  | 'bypassPermissions'
+
+/** Codex's `--ask-for-approval` policies (codex-cli 0.14x). */
+export type CodexApprovalPolicy = 'untrusted' | 'on-request' | 'never'
+
+export const CLAUDE_PERMISSION_MODES: ClaudePermissionMode[] = [
+  'manual',
+  'plan',
+  'acceptEdits',
+  'auto',
+  'dontAsk',
+  'bypassPermissions'
+]
+
+export const CODEX_APPROVAL_POLICIES: CodexApprovalPolicy[] = ['untrusted', 'on-request', 'never']
+
+/** How agents launch in a section. Unset = the CLI's own default (asks every time). */
+export interface AgentSettings {
+  claudeMode?: ClaudePermissionMode
+  codexApproval?: CodexApprovalPolicy
+}
+
 /** User-created workspace: a named path prefix that sessions auto-assign to. */
-export interface Project {
+export interface Project extends AgentSettings {
   id: string
   name: string
   path: string
@@ -38,6 +71,8 @@ export interface ProjectsFile {
   hiddenSessionIds: string[]
   /** Remembered terminals of the Home section (terminals with no project) */
   homeTerminals: SavedTerminal[]
+  /** Home is a section like any project, so it gets its own launch settings */
+  homeSettings: AgentSettings
   worktrees: Worktree[]
 }
 
@@ -46,6 +81,7 @@ export const EMPTY_PROJECTS_FILE: ProjectsFile = {
   selectedProjectId: null,
   hiddenSessionIds: [],
   homeTerminals: [],
+  homeSettings: {},
   worktrees: []
 }
 

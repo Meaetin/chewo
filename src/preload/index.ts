@@ -43,6 +43,8 @@ const api = {
     sessionId?: string
     cwd?: string | null
     setupCommand?: string
+    permissionMode?: string
+    approvalPolicy?: string
   }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
   termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
   termResize: (id: number, cols: number, rows: number) =>

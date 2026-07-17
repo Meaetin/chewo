@@ -358,3 +358,31 @@ repo so main-checkout file watchers (Vite, nodemon) never see them.
 - Auto-detecting "agent is done" — the user decides when to merge.
 - In-app conflict resolution or auto-stash of the main checkout.
 - Auto-copying gitignored files (secret-leak risk; setup command instead).
+
+### 10.5 Per-section agent launch settings (2026-07-17)
+
+Neither CLI remembers the permission mode you flipped to last session — every
+fresh spawn starts at the CLI's own default, which is why the app felt like it
+"asks more" than a hand-run terminal (where the mode gets flipped by habit and
+then persists for that session only).
+
+Each section (Home and every project) stores how its agents launch:
+
+| Setting | Flag emitted | Values |
+|---|---|---|
+| `claudeMode` | `--permission-mode` | `manual` · `plan` · `acceptEdits` · `auto` · `dontAsk` · `bypassPermissions` |
+| `codexApproval` | `--ask-for-approval` | `untrusted` · `on-request` · `never` |
+
+Unset = no flag = the CLI's own default. Applies to fresh spawns, resumes, woken
+dormant tabs and isolated terminals alike; running panes keep the mode they
+launched with. Settings live in `projects.json` (⚙ on the section row) — the
+CLIs' own config files are never written (see KNOWN-ISSUES).
+
+`projects.json` is user-editable, so values are validated against the enums in
+`buildCommand` before reaching the shell; anything unrecognized is dropped.
+
+**Rejected:** writing `permissions.defaultMode` into `~/.claude/settings.json`.
+That would widen every `claude` on the machine, including fresh clones of
+untrusted repos, to buy the same result. Chewo scopes the widening to the app,
+where agent fleets are a deliberate act — and it's the only option that covers
+Codex, whose `config.toml` we must not hand-write.

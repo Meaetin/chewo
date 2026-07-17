@@ -1,56 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Source } from '../../../shared/adapter/types'
 import type { Project, Worktree } from '../../../shared/projects'
+import { ModalShell } from './ModalShell'
 
 type WorktreeStatus = Awaited<ReturnType<typeof window.api.worktreeStatus>>
 
 const TASK_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i
-
-interface ShellProps {
-  title: React.ReactNode
-  subtitle?: React.ReactNode
-  /** Blocked while a git command is in flight — closing mid-merge would strand the UI */
-  busy: boolean
-  onClose: () => void
-  children: React.ReactNode
-  footer: React.ReactNode
-}
-
-/** Modal chrome shared by both worktree dialogs: header + scrollable body + fixed footer. */
-function WorktreeModalShell({
-  title,
-  subtitle,
-  busy,
-  onClose,
-  children,
-  footer
-}: ShellProps): React.JSX.Element {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !busy) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose])
-
-  return (
-    <div className="wt-modal-backdrop" onClick={busy ? undefined : onClose}>
-      <div className="wt-modal" onClick={(e) => e.stopPropagation()}>
-        <header className="wt-modal-header">
-          <div className="wt-modal-heading">
-            <div className="wt-modal-title">{title}</div>
-            {subtitle && <div className="wt-modal-subtitle">{subtitle}</div>}
-          </div>
-          <button className="wt-modal-close" title="Close (Esc)" disabled={busy} onClick={onClose}>
-            ×
-          </button>
-        </header>
-        <div className="wt-modal-body">{children}</div>
-        <footer className="wt-modal-footer">{footer}</footer>
-      </div>
-    </div>
-  )
-}
 
 interface CreateModalProps {
   project: Project
@@ -84,7 +39,7 @@ export function WorktreeCreateModal({
   }
 
   return (
-    <WorktreeModalShell
+    <ModalShell
       title="New isolated terminal"
       subtitle={
         <>
@@ -178,7 +133,7 @@ export function WorktreeCreateModal({
       </div>
 
       {error && <div className="wt-banner wt-banner-error">{error}</div>}
-    </WorktreeModalShell>
+    </ModalShell>
   )
 }
 
@@ -253,7 +208,7 @@ export function WorktreeMergeModal({
   const canMerge = !!ok && !ok.dirty && ok.commits.length > 0 && !busy
 
   return (
-    <WorktreeModalShell
+    <ModalShell
       title={
         <>
           <span className="wt-modal-glyph">⎇</span> {worktree.taskName}
@@ -365,6 +320,6 @@ export function WorktreeMergeModal({
       )}
 
       {error && <div className="wt-banner wt-banner-error">{error}</div>}
-    </WorktreeModalShell>
+    </ModalShell>
   )
 }

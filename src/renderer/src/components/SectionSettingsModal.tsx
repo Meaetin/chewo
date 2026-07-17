@@ -1,0 +1,167 @@
+import { useState } from 'react'
+import type { AgentSettings, ClaudePermissionMode, CodexApprovalPolicy } from '../../../shared/projects'
+import { ModalShell } from './ModalShell'
+
+/**
+ * Both CLIs start every fresh session at their own default and forget the mode
+ * you flipped to last time. These labels describe what each value actually
+ * does — the blast radius is the user's call, so nothing is preselected.
+ */
+const CLAUDE_MODES: Array<{
+  value: ClaudePermissionMode | ''
+  label: string
+  detail: string
+}> = [
+  { value: '', label: 'Ask every time', detail: 'Claude’s default — prompts on first use of each tool' },
+  { value: 'plan', label: 'Plan', detail: 'Read and explore only, no edits' },
+  { value: 'acceptEdits', label: 'Accept edits', detail: 'Auto-approves file edits and safe shell commands' },
+  { value: 'auto', label: 'Auto', detail: 'Auto-approves, with a background safety classifier' },
+  { value: 'dontAsk', label: 'Don’t ask', detail: 'Denies anything not pre-approved in your allow rules' },
+  {
+    value: 'bypassPermissions',
+    label: 'Bypass permissions',
+    detail: 'Skips all prompts — no classifier, no guard rails'
+  }
+]
+
+const CODEX_POLICIES: Array<{ value: CodexApprovalPolicy | ''; label: string; detail: string }> = [
+  { value: '', label: 'Ask every time', detail: 'Codex’s default' },
+  { value: 'untrusted', label: 'Trusted commands only', detail: 'Runs ls/cat/sed etc., escalates the rest' },
+  { value: 'on-request', label: 'Model decides', detail: 'Codex asks when it judges it necessary' },
+  { value: 'never', label: 'Never ask', detail: 'Runs everything the sandbox allows without asking' }
+]
+
+interface SectionSettingsModalProps {
+  /** Section name — a project's, or "Home" */
+  name: string
+  path: string
+  settings: AgentSettings
+  /** Projects only — Home has no worktrees */
+  worktreeSetup?: string
+  showWorktreeSetup: boolean
+  onClose: () => void
+  onSave: (settings: AgentSettings, worktreeSetup?: string) => void
+}
+
+/** Per-section agent launch settings: permission mode + worktree setup command. */
+export function SectionSettingsModal({
+  name,
+  path,
+  settings,
+  worktreeSetup,
+  showWorktreeSetup,
+  onClose,
+  onSave
+}: SectionSettingsModalProps): React.JSX.Element {
+  const [claudeMode, setClaudeMode] = useState<ClaudePermissionMode | ''>(settings.claudeMode ?? '')
+  const [codexApproval, setCodexApproval] = useState<CodexApprovalPolicy | ''>(
+    settings.codexApproval ?? ''
+  )
+  const [setup, setSetup] = useState(worktreeSetup ?? '')
+
+  const risky = claudeMode === 'bypassPermissions' || codexApproval === 'never'
+
+  const save = (): void => {
+    onSave(
+      {
+        claudeMode: claudeMode || undefined,
+        codexApproval: codexApproval || undefined
+      },
+      showWorktreeSetup ? setup.trim() || undefined : undefined
+    )
+    onClose()
+  }
+
+  return (
+    <ModalShell
+      title={`${name} settings`}
+      subtitle={<code>{path}</code>}
+      onClose={onClose}
+      footer={
+        <>
+          <div className="wt-footer-spacer" />
+          <button className="wt-button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="wt-button wt-button-primary" onClick={save}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="wt-field">
+        <label className="wt-field-label" htmlFor="set-claude">
+          <span className="source-badge source-badge-claude">CC</span> Claude permission mode
+        </label>
+        <select
+          id="set-claude"
+          className="wt-input"
+          value={claudeMode}
+          onChange={(e) => setClaudeMode(e.target.value as ClaudePermissionMode | '')}
+        >
+          {CLAUDE_MODES.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        <div className="wt-field-hint">
+          {CLAUDE_MODES.find((m) => m.value === claudeMode)?.detail}
+        </div>
+      </div>
+
+      <div className="wt-field">
+        <label className="wt-field-label" htmlFor="set-codex">
+          <span className="source-badge source-badge-codex">CX</span> Codex approval policy
+        </label>
+        <select
+          id="set-codex"
+          className="wt-input"
+          value={codexApproval}
+          onChange={(e) => setCodexApproval(e.target.value as CodexApprovalPolicy | '')}
+        >
+          {CODEX_POLICIES.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <div className="wt-field-hint">
+          {CODEX_POLICIES.find((p) => p.value === codexApproval)?.detail}
+        </div>
+      </div>
+
+      {showWorktreeSetup && (
+        <div className="wt-field">
+          <label className="wt-field-label" htmlFor="set-setup">
+            Worktree setup command <span className="wt-field-optional">optional</span>
+          </label>
+          <textarea
+            id="set-setup"
+            className="wt-input wt-input-mono"
+            placeholder={`cp ${path}/.env . && npm install`}
+            value={setup}
+            rows={2}
+            onChange={(e) => setSetup(e.target.value)}
+          />
+          <div className="wt-field-hint">
+            Runs visibly in a fresh worktree before the agent starts
+          </div>
+        </div>
+      )}
+
+      <div className="wt-banner wt-banner-neutral">
+        Applies to terminals started in {name} from now on — running ones keep the mode they
+        launched with.
+      </div>
+
+      {risky && (
+        <div className="wt-banner wt-banner-warning">
+          <strong>No approval prompts.</strong> An agent here can run any command without asking —
+          including outside this folder. A worktree doesn’t contain this: it isolates files, not
+          your shell, your <code>.git</code> remotes, or your network.
+        </div>
+      )}
+    </ModalShell>
+  )
+}

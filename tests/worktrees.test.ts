@@ -49,3 +49,46 @@ describe('buildCommand with setup', () => {
     expect(buildCommand({ source: 'shell', setupCommand: 'npm i' })).toBeNull()
   })
 })
+
+describe('buildCommand permission flags', () => {
+  test('claude gets --permission-mode, fresh and on resume', () => {
+    expect(buildCommand({ source: 'claude', permissionMode: 'auto' })).toBe(
+      'claude --permission-mode auto'
+    )
+    expect(buildCommand({ source: 'claude', sessionId: 'abc', permissionMode: 'plan' })).toBe(
+      'claude --resume abc --permission-mode plan'
+    )
+  })
+
+  test('codex gets --ask-for-approval, fresh and on resume', () => {
+    expect(buildCommand({ source: 'codex', approvalPolicy: 'never' })).toBe(
+      'codex --ask-for-approval never'
+    )
+    expect(buildCommand({ source: 'codex', sessionId: 'xyz', approvalPolicy: 'on-request' })).toBe(
+      'codex resume xyz --ask-for-approval on-request'
+    )
+  })
+
+  test('unset mode leaves the CLI at its own default', () => {
+    expect(buildCommand({ source: 'claude', permissionMode: undefined })).toBe('claude')
+    expect(buildCommand({ source: 'codex', approvalPolicy: undefined })).toBe('codex')
+  })
+
+  test("each CLI ignores the other's setting", () => {
+    expect(buildCommand({ source: 'claude', approvalPolicy: 'never' })).toBe('claude')
+    expect(buildCommand({ source: 'codex', permissionMode: 'auto' })).toBe('codex')
+  })
+
+  test('values outside the known enums never reach the shell', () => {
+    // projects.json is user-editable — a hand-edited mode must not inject
+    expect(buildCommand({ source: 'claude', permissionMode: 'auto; rm -rf /' })).toBe('claude')
+    expect(buildCommand({ source: 'claude', permissionMode: 'bogus' })).toBe('claude')
+    expect(buildCommand({ source: 'codex', approvalPolicy: '$(whoami)' })).toBe('codex')
+  })
+
+  test('setup command and permission flag compose', () => {
+    expect(
+      buildCommand({ source: 'claude', setupCommand: 'npm i', permissionMode: 'acceptEdits' })
+    ).toBe('(npm i) && claude --permission-mode acceptEdits')
+  })
+})
