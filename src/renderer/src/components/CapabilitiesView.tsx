@@ -16,6 +16,7 @@ import type { Project } from '../../../shared/projects'
 
 interface CapabilitiesViewProps {
   projects: Project[]
+  onClose: () => void
 }
 
 type MemoryKind = 'CLAUDE.md' | 'AGENTS.md'
@@ -44,7 +45,7 @@ function scopeSubtitle(inv: CapabilityInventory): string {
 
 const kb = (bytes: number): string => `${Math.max(1, Math.round(bytes / 1024))} KB`
 
-export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX.Element {
+export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): React.JSX.Element {
   const [inventories, setInventories] = useState<CapabilityInventory[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copying, setCopying] = useState<CopySubject | null>(null)
@@ -210,7 +211,12 @@ export function CapabilitiesView({ projects }: CapabilitiesViewProps): React.JSX
   return (
     <div className="capabilities-view">
       <header className="capabilities-header">
-        <h2>Capabilities</h2>
+        <div className="capabilities-header-top">
+          <h2>Capabilities</h2>
+          <button className="capabilities-close-button" title="Close" onClick={onClose}>
+            ×
+          </button>
+        </div>
         <p className="capabilities-subtitle">
           What each scope gives your agents. Copy skills and subagents between projects and your
           personal setup — files are copied, never moved.

@@ -735,6 +735,29 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.capabilities-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 844px;
+}
+
+.capabilities-close-button {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.capabilities-close-button:hover {
+  background: var(--bg-selected);
+}
+
 .capabilities-subtitle {
   color: var(--text-dim);
   font-size: 12px;

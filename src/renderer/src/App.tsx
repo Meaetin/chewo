@@ -401,7 +401,9 @@ export function App(): React.JSX.Element {
             <TranscriptView key={view.session.id} session={view.session} onResume={resumeSession} />
           )}
 
-          {view.kind === 'capabilities' && <CapabilitiesView projects={projects} />}
+          {view.kind === 'capabilities' && (
+            <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
+          )}
 
           {tabs.map((tab) => (
             <TerminalPane
