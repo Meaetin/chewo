@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ChevronDown, ChevronRight, ChevronUp, GitBranch, Play, Slash, X } from 'lucide-react'
 import type { NormalizedMessage, SessionMeta } from '../../../shared/adapter/types'
+import { Badge, Button, IconButton, Input } from './ui'
 
 interface TranscriptViewProps {
   session: SessionMeta
@@ -44,8 +46,12 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
   const [matchCount, setMatchCount] = useState(0)
   const [currentMatch, setCurrentMatch] = useState(0)
   const messagesRef = useRef<HTMLDivElement>(null)
-  const findInputRef = useRef<HTMLInputElement>(null)
+  const findBarRef = useRef<HTMLDivElement>(null)
   const rangesRef = useRef<Range[]>([])
+
+  // The find field lives inside the Input primitive (no forwarded ref); reach
+  // it through the bar container so ⌘F can select its text.
+  const selectFindInput = (): void => findBarRef.current?.querySelector('input')?.select()
 
   const toggleResult = (i: number): void =>
     setExpandedResults((prev) => {
@@ -70,7 +76,7 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault()
         setFindOpen(true)
-        requestAnimationFrame(() => findInputRef.current?.select())
+        requestAnimationFrame(selectFindInput)
       } else if (e.key === 'Escape' && findOpen) {
         setFindOpen(false)
       }
@@ -139,43 +145,51 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
         <div className="transcript-header-info">
           <h2 className="transcript-title">{session.title}</h2>
           <div className="transcript-meta">
-            <span className={`source-badge source-badge-${session.source}`}>
-              {session.source === 'claude' ? 'Claude Code' : 'Codex'}
-            </span>
+            <Badge source={session.source} />
             {session.project && <span className="transcript-project">{session.project}</span>}
-            {session.gitBranch && <span className="transcript-branch">⎇ {session.gitBranch}</span>}
+            {session.gitBranch && (
+              <span className="transcript-branch">
+                <GitBranch size={14} strokeWidth={1.75} />
+                {session.gitBranch}
+              </span>
+            )}
           </div>
         </div>
-        <button className="resume-button" onClick={() => onResume(session)}>
-          ▶ Resume
-        </button>
+        <Button
+          intent="primary"
+          onClick={() => onResume(session)}
+          leadingIcon={<Play size={16} strokeWidth={1.75} />}
+        >
+          Resume
+        </Button>
       </header>
 
       {findOpen && (
-        <div className="find-bar">
-          <input
-            ref={findInputRef}
-            className="find-input"
-            placeholder="Find in transcript…"
-            value={findQuery}
-            autoFocus
-            onChange={(e) => setFindQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') gotoMatch(currentMatch + (e.shiftKey ? -1 : 1))
-            }}
-          />
+        <div className="find-bar" ref={findBarRef}>
+          <div className="find-search">
+            <Input
+              variant="search"
+              placeholder="Find in transcript…"
+              value={findQuery}
+              autoFocus
+              onChange={(e) => setFindQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') gotoMatch(currentMatch + (e.shiftKey ? -1 : 1))
+              }}
+            />
+          </div>
           <span className="find-count">
             {matchCount > 0 ? `${currentMatch + 1}/${matchCount}` : findQuery ? '0/0' : ''}
           </span>
-          <button className="find-nav-button" onClick={() => gotoMatch(currentMatch - 1)}>
-            ↑
-          </button>
-          <button className="find-nav-button" onClick={() => gotoMatch(currentMatch + 1)}>
-            ↓
-          </button>
-          <button className="find-nav-button" onClick={() => setFindOpen(false)}>
-            ✕
-          </button>
+          <IconButton label="Previous match" onClick={() => gotoMatch(currentMatch - 1)}>
+            <ChevronUp size={16} strokeWidth={1.75} />
+          </IconButton>
+          <IconButton label="Next match" onClick={() => gotoMatch(currentMatch + 1)}>
+            <ChevronDown size={16} strokeWidth={1.75} />
+          </IconButton>
+          <IconButton label="Close find" onClick={() => setFindOpen(false)}>
+            <X size={16} strokeWidth={1.75} />
+          </IconButton>
         </div>
       )}
 
@@ -186,7 +200,7 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
           <div key={i} className={`message message-${m.role}`}>
             {m.commandName ? (
               <div className="command-chip" title="Slash command">
-                <span className="command-chip-symbol">⌘</span>
+                <Slash className="command-chip-symbol" size={12} strokeWidth={1.75} />
                 <code>{m.commandName}</code>
               </div>
             ) : m.role === 'tool' ? (
@@ -197,7 +211,13 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
                   title={m.toolResult ? 'Show tool output' : undefined}
                 >
                   {m.toolResult && (
-                    <span className="tool-call-chevron">{expandedResults.has(i) ? '▾' : '▸'}</span>
+                    <span className="tool-call-chevron">
+                      {expandedResults.has(i) ? (
+                        <ChevronDown size={14} strokeWidth={1.75} />
+                      ) : (
+                        <ChevronRight size={14} strokeWidth={1.75} />
+                      )}
+                    </span>
                   )}
                   <span className="tool-call-name">{m.toolName}</span>
                   {m.text && <code className="tool-call-detail">{m.text.slice(0, 160)}</code>}
