@@ -5,6 +5,11 @@ directories:
   output: dist
 files:
   - out/**
+# STT sidecar: `predist` builds it, this drops the executable at
+# Resources/bin/chewo-stt-whisper — where sidecarPath() looks when packaged.
+extraResources:
+  - from: packages/stt-whisper/.build/release/chewo-stt-whisper
+    to: bin/chewo-stt-whisper
 asarUnpack:
   - node_modules/node-pty/**
 npmRebuild: false
