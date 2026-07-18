@@ -2768,3 +2768,17 @@ body {
     animation: none;
   }
 }
+
+/* ============================================================
+   Phase 2b — per-surface migration sections (one owner each)
+   Each agent adds/moves its surface's rules into its own block
+   below to keep parallel edits in disjoint regions.
+   ============================================================ */
+
+/* ===== 2b: Sidebar / Chrome ===== */
+
+/* ===== 2b: Transcript ===== */
+
+/* ===== 2b: Notes ===== */
+
+/* ===== 2b: Capabilities & Modals ===== */
