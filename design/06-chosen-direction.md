@@ -52,6 +52,14 @@ One HSL triplet drives everything (per `04` §1.6). `--accent-h/s/l = 158 / 52% 
 **Accent rule stands:** emerald = "you are here / do this" — selection, focus,
 primary, active. Nothing else is emerald.
 
+**Selection hierarchy (added 2026-07-18, Martin):** the sidebar has two
+concurrent "selected" states that must read as *different colours* — the
+**focused terminal/session** = emerald (`--bg-accent-selected` + emerald bar),
+and the **expanded project/section container** = a distinct **periwinkle**
+`--c-project #948ada` (`--bg-alt-selected` tint + periwinkle bar). Periwinkle
+chosen to avoid colliding with emerald, cyan-live, Codex blue, or amber-warning.
+The `Row` primitive exposes `tone='accent' | 'alt'` for this.
+
 ## Status colors (LOCKED — "green = accent only")
 
 Because the accent is green, running/live and recording move OFF green so the

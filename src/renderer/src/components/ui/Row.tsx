@@ -4,10 +4,10 @@ interface RowProps {
   selected?: boolean
   /**
    * Selection colour. 'accent' (default) = emerald "you are here" for the
-   * focused item (session/terminal); 'neutral' = grey highlight for an
-   * expanded container (project/Home) so the two don't read the same.
+   * focused item (session/terminal); 'alt' = periwinkle for an expanded
+   * container (project/Home) so the two read as distinct colours.
    */
-  tone?: 'accent' | 'neutral'
+  tone?: 'accent' | 'alt'
   /** Adds a --live-bg tint and a cyan live Dot in the leading slot. */
   live?: boolean
   leading?: React.ReactNode
@@ -36,7 +36,7 @@ export function Row({
 }: RowProps): React.JSX.Element {
   const classes = [
     'row',
-    selected ? (tone === 'neutral' ? 'row--selected-neutral' : 'row--selected') : '',
+    selected ? (tone === 'alt' ? 'row--selected-alt' : 'row--selected') : '',
     live ? 'row--live' : '',
     density === 'compact' ? 'row--compact' : '',
     className ?? ''

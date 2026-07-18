@@ -51,6 +51,11 @@
   --c-badge-codex: #6ba4f8; /* Codex vivid blue */
   --c-badge-codex-wash: rgba(107, 164, 248, 0.22);
 
+  /* Secondary selection — the expanded project/section. A distinct periwinkle
+     so it reads apart from the emerald accent (the focused terminal). */
+  --c-project: #948ada;
+  --c-project-wash: rgba(148, 138, 218, 0.16);
+
   --c-rim: rgba(255, 255, 255, 0.05); /* inset top rim-light on overlays */
 
   /* Fonts */
@@ -104,7 +109,9 @@
   --bg-card: var(--c-surface-3);
   --bg-hover: var(--c-surface-4);
   --bg-selected: var(--c-surface-5); /* neutral selected fill (Phase-1); accent bar carries selection */
-  --bg-accent-selected: var(--c-accent-wash); /* Phase-2 Row primitive target */
+  --bg-accent-selected: var(--c-accent-wash); /* focused item (emerald) */
+  --bg-alt-selected: var(--c-project-wash); /* expanded container (periwinkle) */
+  --border-alt-selected: var(--c-project);
 
   --text-primary: var(--c-text-primary);
   --text-secondary: var(--c-text-secondary);
@@ -1970,12 +1977,13 @@ body {
   box-shadow: inset 2px 0 0 var(--border-selected);
 }
 
-/* Neutral selection — an expanded container (project/Home): grey fill + grey
-   bar, so it never competes with the emerald focus of the active session. */
-.row--selected-neutral,
-.row--selected-neutral.row--live {
-  background: var(--bg-neutral-selected);
-  box-shadow: inset 2px 0 0 var(--border-strong);
+/* Alternate selection — an expanded container (project/Home): periwinkle tint
+   + bar, a distinct hue so it never reads the same as the emerald focus of the
+   active session. */
+.row--selected-alt,
+.row--selected-alt.row--live {
+  background: var(--bg-alt-selected);
+  box-shadow: inset 2px 0 0 var(--border-alt-selected);
 }
 
 .row__leading {
