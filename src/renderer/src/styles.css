@@ -5,16 +5,151 @@
 }
 
 :root {
-  --bg: #16161e;
-  --bg-panel: #1c1c26;
-  --bg-hover: #24242f;
-  --bg-selected: #2b2b3a;
-  --border: #2e2e3a;
-  --text: #d8d8e0;
-  --text-dim: #8888a0;
-  --accent-claude: #d97757;
-  --accent-codex: #6ba4f8;
-  --accent-live: #34d399;
+  /* ============================================================
+     PRIMITIVES — the only place raw hex/px live (design/06 + 04 + 05)
+     ============================================================ */
+
+  /* Graphite neutral ramp (design/06) — R≈G≈B, no warm cast */
+  --c-surface-0: #141414; /* window base, behind cards */
+  --c-surface-1: #181818; /* terminal + editor canvas (JS single source) */
+  --c-surface-2: #1e1e1e; /* sidebar, panels, tab rail */
+  --c-surface-3: #252525; /* cards, modals, overlays, raised rows */
+  --c-surface-4: #2c2c2c; /* hover fills */
+  --c-surface-5: #343434; /* pressed / neutral-selected */
+  --c-line-1: #3a3a3a; /* hairlines, dividers */
+  --c-line-2: #484848; /* input/overlay borders, rim source */
+
+  /* Text — cream, never #fff */
+  --c-text-primary: #e9e7e4;
+  --c-text-secondary: #adaaa6;
+  --c-text-tertiary: #807d78;
+  --c-text-faint: #5a5854;
+
+  /* Accent — Emerald. One HSL triplet drives the whole accent scale;
+     change these three lines to re-theme the app (design/06 §accent). */
+  --accent-h: 158;
+  --accent-s: 52%;
+  --accent-l: 48%;
+  --c-accent: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --c-accent-hi: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 7%));
+  --c-accent-deep: hsl(var(--accent-h) calc(var(--accent-s) + 3%) calc(var(--accent-l) - 9%));
+  --c-accent-text: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 10%));
+  --c-accent-wash: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.12);
+  --c-on-accent: hsl(var(--accent-h) 30% 12%); /* dark ink on accent fills — NOT white */
+
+  /* Status — fixed, decoupled from the accent ("green = accent only") */
+  --c-live: #34c9d6; /* cool cyan — running/live */
+  --c-live-wash: rgba(52, 201, 214, 0.12);
+  --c-danger: #e2574b; /* red — destructive + recording */
+  --c-danger-wash: rgba(226, 87, 75, 0.11);
+  --c-warning: #dfa94e; /* honey amber */
+  --c-warning-wash: rgba(223, 169, 78, 0.11);
+
+  /* Source badges — brand identity, decoupled from base + accent */
+  --c-badge-claude: #d97757; /* Claude terracotta */
+  --c-badge-claude-wash: rgba(217, 119, 87, 0.22);
+  --c-badge-codex: #6ba4f8; /* Codex vivid blue */
+  --c-badge-codex-wash: rgba(107, 164, 248, 0.22);
+
+  --c-rim: rgba(255, 255, 255, 0.05); /* inset top rim-light on overlays */
+
+  /* Fonts */
+  --font-ui-stack: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  --font-serif-stack: 'Source Serif 4', Georgia, serif;
+  --font-mono-stack: 'Berkeley Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* Type scale — whole px (design/03) */
+  --fs-2xs: 10px;  --lh-2xs: 14px;
+  --fs-xs: 11px;   --lh-xs: 16px;
+  --fs-sm: 12px;   --lh-sm: 17px;
+  --fs-base: 13px; --lh-base: 20px;
+  --fs-md: 14px;   --lh-md: 22px;
+  --fs-lg: 15px;   --lh-lg: 21px;
+  --fs-xl: 18px;   --lh-xl: 24px;
+  --fs-2xl: 24px;  --lh-2xl: 30px;
+  --fs-mono-sm: 11px; --fs-mono: 12px; --fs-mono-lg: 13px;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;
+  --tracking-caps: 0.06em; --tracking-badge: 0.02em; --tracking-tight: -0.01em;
+
+  /* Space — base 4 (design/03) */
+  --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px;
+  --space-12: 12px; --space-16: 16px; --space-20: 20px; --space-24: 24px; --space-32: 32px;
+
+  /* Radius — four stops + one pill (design/02/03) */
+  --radius-1: 5px; --radius-2: 7px; --radius-3: 10px; --radius-4: 14px; --radius-pill: 999px;
+
+  /* Elevation — light not shadow (design/03 §6) */
+  --rim: inset 0 1px 0 var(--c-rim);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.45);
+
+  /* Motion (design/05) */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-settle: cubic-bezier(0.34, 1.26, 0.64, 1);
+  --ease-breath: cubic-bezier(0.37, 0, 0.63, 1);
+  --dur-instant: 80ms; --dur-fast: 140ms; --dur-base: 200ms; --dur-slow: 320ms; --dur-bloom: 400ms;
+  --period-breath: 2000ms; --period-work: 1400ms;
+
+  /* Z-index scale (design/04 §3) */
+  --z-sticky: 10; --z-tabbar: 20; --z-popover: 800; --z-modal: 900; --z-toast: 1000;
+
+  /* ============================================================
+     SEMANTIC — role aliases; components should consume THESE
+     ============================================================ */
+  --bg-window: var(--c-surface-0);
+  --bg-canvas: var(--c-surface-1);
+  --bg-sidebar: var(--c-surface-2);
+  --bg-card: var(--c-surface-3);
+  --bg-hover: var(--c-surface-4);
+  --bg-selected: var(--c-surface-5); /* neutral selected fill (Phase-1); accent bar carries selection */
+  --bg-accent-selected: var(--c-accent-wash); /* Phase-2 Row primitive target */
+
+  --text-primary: var(--c-text-primary);
+  --text-secondary: var(--c-text-secondary);
+  --text-tertiary: var(--c-text-tertiary);
+  --text-faint: var(--c-text-faint);
+
+  --border-hairline: var(--c-line-1);
+  --border-strong: var(--c-line-2);
+  --border-selected: var(--c-accent);
+  --focus-ring: 0 0 0 3px hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.3);
+
+  --accent: var(--c-accent);
+  --accent-hover: var(--c-accent-hi);
+  --accent-press: var(--c-accent-deep);
+  --accent-text: var(--c-accent-text);
+  --on-accent: var(--c-on-accent);
+
+  --danger: var(--c-danger);   --danger-bg: var(--c-danger-wash);
+  --warning: var(--c-warning); --warning-bg: var(--c-warning-wash);
+  --live: var(--c-live);       --live-bg: var(--c-live-wash);
+
+  --badge-claude: var(--c-badge-claude); --badge-claude-bg: var(--c-badge-claude-wash);
+  --badge-codex: var(--c-badge-codex);   --badge-codex-bg: var(--c-badge-codex-wash);
+
+  --font-ui: var(--font-ui-stack);
+  --font-mono: var(--font-mono-stack);
+  --font-serif: var(--font-serif-stack);
+  --font-display: var(--font-serif); /* serif ON (design/06) */
+
+  --border-hair: 1px solid var(--border-hairline);
+  --border-input: 1px solid var(--border-strong);
+  --shadow-modal: var(--rim), var(--shadow-overlay);
+  --shadow-float: var(--rim), var(--shadow-popover);
+
+  /* ============================================================
+     BRIDGE — old token names → new (delete each as consumers migrate)
+     ============================================================ */
+  --bg: var(--bg-canvas);
+  --bg-panel: var(--bg-sidebar);
+  --border: var(--border-hairline);
+  --text: var(--text-primary);
+  --text-dim: var(--text-tertiary);
+  --accent-claude: var(--accent); /* app accent now emerald; brand terracotta lives in --badge-claude */
+  --accent-codex: var(--accent);  /* app accent now emerald; brand blue lives in --badge-codex */
+  --accent-live: var(--live);
 }
 
 html,
@@ -316,13 +451,13 @@ body {
 }
 
 .source-badge-claude {
-  background: color-mix(in srgb, var(--accent-claude) 25%, transparent);
-  color: var(--accent-claude);
+  background: var(--badge-claude-bg);
+  color: var(--badge-claude);
 }
 
 .source-badge-codex {
-  background: color-mix(in srgb, var(--accent-codex) 25%, transparent);
-  color: var(--accent-codex);
+  background: var(--badge-codex-bg);
+  color: var(--badge-codex);
 }
 
 .source-badge-shell {
@@ -440,7 +575,7 @@ body {
 }
 
 .project-row-live {
-  color: var(--accent-claude);
+  color: var(--live);
   font-size: 10px;
   flex-shrink: 0;
 }
@@ -515,7 +650,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20;
+  z-index: var(--z-modal);
 }
 
 .wt-modal {
@@ -563,7 +698,7 @@ body {
 }
 
 .wt-modal-subtitle code {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text);
   background: var(--bg);
@@ -657,7 +792,7 @@ body {
 }
 
 .wt-input-mono {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   resize: vertical;
 }
@@ -673,12 +808,12 @@ body {
 }
 
 .wt-field-hint code {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   color: var(--text);
 }
 
 .wt-field-hint-error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .wt-agent-choice {
@@ -734,24 +869,24 @@ body {
 .wt-button-primary {
   background: var(--accent-claude);
   border-color: transparent;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
 .wt-button-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-claude) 85%, #fff);
+  background: var(--accent-hover);
 }
 
 /* Destructive actions read as red text; the filled surface only on hover */
 .wt-button-danger {
   background: none;
   border-color: transparent;
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .wt-button-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, #e06c75 14%, transparent);
-  color: #ef7f88;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
 }
 
 /* worktree modal state banners */
@@ -771,15 +906,15 @@ body {
 }
 
 .wt-banner-error {
-  border-color: color-mix(in srgb, #e06c75 40%, transparent);
-  background: color-mix(in srgb, #e06c75 10%, transparent);
-  color: #e88b92;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
 }
 
 .wt-banner-warning {
-  border-color: color-mix(in srgb, #e5c07b 40%, transparent);
-  background: color-mix(in srgb, #e5c07b 10%, transparent);
-  color: #e5c07b;
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning);
 }
 
 .wt-banner-success {
@@ -795,7 +930,7 @@ body {
 }
 
 .wt-banner code {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -849,7 +984,7 @@ body {
 
 .wt-select-menu {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-popover);
   overflow-y: auto;
   padding: 4px;
   background: var(--bg-panel);
@@ -952,7 +1087,7 @@ body {
 
 .wt-commit-sha {
   color: var(--accent-codex);
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   flex-shrink: 0;
   padding-top: 1px;
@@ -970,7 +1105,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-dim);
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   margin: 8px 0 0;
   max-height: 140px;
@@ -1047,7 +1182,7 @@ body {
   background: var(--accent-claude);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
@@ -1115,7 +1250,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .tool-call-chip-expandable {
@@ -1140,7 +1275,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-dim);
@@ -1217,7 +1352,7 @@ body {
   background: var(--bg-selected);
   padding: 1px 5px;
   border-radius: 4px;
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -1295,13 +1430,13 @@ body {
 }
 
 ::highlight(transcript-find) {
-  background-color: rgba(217, 119, 87, 0.35);
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
   color: inherit;
 }
 
 ::highlight(transcript-find-current) {
   background-color: var(--accent-claude);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .session-action-button {
@@ -1337,7 +1472,7 @@ body {
 }
 
 .transcript-error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 /* ---------- capabilities ---------- */
@@ -1529,7 +1664,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 20;
+  z-index: var(--z-modal);
 }
 
 .copy-modal {
@@ -1598,7 +1733,7 @@ body {
   background: var(--accent-claude);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1625,7 +1760,7 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   word-break: break-all;
 }
@@ -1679,7 +1814,7 @@ body {
   line-height: 1.5;
   cursor: pointer;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-  z-index: 10;
+  z-index: var(--z-toast);
 }
 
 /* ---------- terminal ---------- */
@@ -1909,7 +2044,7 @@ body {
 }
 
 .notes-editor-cm .cm-scroller {
-  font-family: 'SF Mono', Menlo, monospace;
+  font-family: var(--font-mono);
   line-height: 1.6;
   padding: 12px 16px;
 }

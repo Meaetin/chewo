@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { WINDOW_BG } from '../shared/colors'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -53,7 +54,7 @@ function createWindow(): void {
     width: 1440,
     height: 900,
     title: 'Chewo',
-    backgroundColor: '#16161e',
+    backgroundColor: WINDOW_BG,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
