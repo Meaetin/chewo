@@ -258,6 +258,7 @@ function SectionRow({
     <div title={title}>
       <Row
         selected={expanded}
+        tone="neutral"
         leading={<Chevron className="section-chevron" size={14} strokeWidth={1.75} />}
         trailing={
           <IconButton label={settingsTitle} dense onClick={(e) => {
