@@ -1,0 +1,16 @@
+appId: so.argo.chewo
+productName: Chewo
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+asarUnpack:
+  - node_modules/node-pty/**
+npmRebuild: false
+mac:
+  target:
+    - dir
+  # Local dogfood builds: skip keychain identity (duplicated cert makes it
+  # ambiguous); ad-hoc signature is enough for an app built on this machine.
+  identity: null

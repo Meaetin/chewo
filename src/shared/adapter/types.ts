@@ -10,8 +10,11 @@ export interface SessionMeta {
   createdAt: string
   updatedAt: string
   filePath: string
-  /** Count of real conversation messages — slash-command chips excluded, so
-   *  command-only sessions (e.g. a lone /clear) count 0 and are hidden */
+  /** Count of real conversation messages across the whole session history —
+   *  slash-command chips excluded, so command-only sessions (e.g. a lone
+   *  /clear) count 0 and are hidden. Counts every main-branch message ever
+   *  written (not just the active branch after rewinds), so it never dips to 0
+   *  mid-write and a live session can't flicker out of the sidebar. */
   messageCount: number
   /** First real user message, truncated — for search and sidebar subtitles */
   preview: string

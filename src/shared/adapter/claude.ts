@@ -208,6 +208,14 @@ export function parseClaudeSession(
 
   const toolResults = collectToolResults(records)
   const messages: NormalizedMessage[] = chain.flatMap((r) => recordToMessages(r, toolResults))
+
+  // Emptiness gate (scan.ts) counts across the whole main timeline, not the
+  // linearized `chain` above. Mid-turn the chain can momentarily hold 0
+  // countable messages — a compaction/summary boundary breaks the parentUuid
+  // walk — which would drop a live, actively-writing session out of the
+  // sidebar until the next scan. Records are only ever appended, so this count
+  // never dips back to 0 once a session has real content.
+  const mainMessages: NormalizedMessage[] = mainRecs.flatMap((r) => recordToMessages(r, toolResults))
   if (opts.includeSidechains) {
     messages.push(
       ...msgRecs.filter((r) => r.isSidechain).flatMap((r) => recordToMessages(r, toolResults))
@@ -251,7 +259,7 @@ export function parseClaudeSession(
       createdAt: timestamps[0] ?? '',
       updatedAt: timestamps[timestamps.length - 1] ?? '',
       filePath,
-      messageCount: messages.filter((m) => !m.commandName).length,
+      messageCount: mainMessages.filter((m) => !m.commandName).length,
       preview
     },
     messages,
