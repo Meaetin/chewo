@@ -49,7 +49,7 @@ function runClaude(cwd: string, prompt: string): Promise<string> {
     // terminals use zsh -il. Prompt goes over stdin, never through argv.
     const child = spawn(
       '/bin/zsh',
-      ['-ilc', 'claude -p --output-format json --allowedTools Read'],
+      ['-ilc', 'claude -p --model sonnet --output-format json --allowedTools Read'],
       { cwd, env: buildPtyEnv(process.env) }
     )
     const timeout = setTimeout(() => {
