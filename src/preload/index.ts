@@ -127,6 +127,14 @@ const api = {
   },
   notesStructure: (args: StructureArgs) =>
     ipcRenderer.invoke('notes:structure', args) as Promise<StructureResult>,
+  notesChatSend: (args: { scopePath: string; message: string; resumeSessionId?: string }) =>
+    ipcRenderer.send('noteschat:send', args),
+  notesChatCancel: () => ipcRenderer.send('noteschat:cancel'),
+  onNotesChatEvent: (cb: (e: Record<string, unknown>) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: Record<string, unknown>): void => cb(payload)
+    ipcRenderer.on('noteschat:event', listener)
+    return () => ipcRenderer.removeListener('noteschat:event', listener)
+  },
 
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),

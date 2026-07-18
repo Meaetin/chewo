@@ -17,6 +17,7 @@ import {
   type PendingAppend,
   type RecordingState
 } from './components/NotesWorkspace'
+import { NotesChat } from './components/NotesChat'
 import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
@@ -65,6 +66,7 @@ export function App(): React.JSX.Element {
   const [notesSel, setNotesSel] = useState<TopicRef | null>(null)
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
   const [recording, setRecording] = useState<RecordingState | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
   const [pendingAppend, setPendingAppend] = useState<PendingAppend | null>(null)
   const appendSeq = useRef(0)
   const recordingRef = useRef<RecordingState | null>(null)
@@ -297,8 +299,15 @@ export function App(): React.JSX.Element {
   const liveCounts = new Map<string | null, number>()
   for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
 
-  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id))
-  const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id))
+  // Notes-chat runs create real Claude sessions with cwd under the notes
+  // root — they're chat plumbing, not coding sessions, so keep them out of
+  // the coding sidebar entirely (SPEC-NOTES.md §9).
+  const inNotesStore = (path: string | null): boolean =>
+    !!path &&
+    !!notesTree &&
+    (path === notesTree.root || path.startsWith(notesTree.root + '/'))
+  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id) && !inNotesStore(s.project))
+  const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id) && !inNotesStore(s.project))
 
   // Remember which terminal was last viewed in each section
   useEffect(() => {
@@ -814,31 +823,49 @@ export function App(): React.JSX.Element {
         )}
 
         <div className="main-content">
-          {workflow === 'notes' &&
-            (currentTopic && notesSel ? (
-              <NotesWorkspace
-                subject={notesSel.subject}
-                topic={currentTopic}
-                selectedNotePath={selectedNotePath}
-                recording={recording}
-                pendingAppend={pendingAppend}
-                onAppendApplied={onAppendApplied}
-                onStartRecording={startRecording}
-                onStopRecording={stopRecording}
-                onSelectNote={setSelectedNotePath}
-                onCreateNote={createNote}
-                onDeleteNote={(p) => void deleteNote(p)}
-              />
-            ) : (
-              <div className="empty-state">
-                <h2>Notes</h2>
-                <p>
-                  Pick a topic in the sidebar — or create a subject (“+” next to Subjects),
-                  then a topic inside it. Notes live as markdown files in{' '}
-                  {notesTree?.root ?? '~/ChewoNotes'}.
-                </p>
+          {workflow === 'notes' && (
+            <div className="notes-main">
+              <div className="notes-main-body">
+                {currentTopic && notesSel ? (
+                  <NotesWorkspace
+                    subject={notesSel.subject}
+                    topic={currentTopic}
+                    selectedNotePath={selectedNotePath}
+                    recording={recording}
+                    pendingAppend={pendingAppend}
+                    onAppendApplied={onAppendApplied}
+                    onToggleChat={() => setChatOpen((o) => !o)}
+                    onStartRecording={startRecording}
+                    onStopRecording={stopRecording}
+                    onSelectNote={setSelectedNotePath}
+                    onCreateNote={createNote}
+                    onDeleteNote={(p) => void deleteNote(p)}
+                  />
+                ) : (
+                  <div className="empty-state">
+                    <h2>Notes</h2>
+                    <p>
+                      Pick a topic in the sidebar — or create a subject (“+” next to
+                      Subjects), then a topic inside it. Lessons live as markdown files in{' '}
+                      {notesTree?.root ?? '~/ChewoNotes'}.
+                    </p>
+                    <button
+                      className="notes-mode-button"
+                      onClick={() => setChatOpen((o) => !o)}
+                    >
+                      ✦ Ask your notes
+                    </button>
+                  </div>
+                )}
               </div>
-            ))}
+              <NotesChat
+                root={notesTree?.root ?? ''}
+                sel={notesSel}
+                open={chatOpen}
+                onClose={() => setChatOpen(false)}
+              />
+            </div>
+          )}
 
           {workflow === 'code' && view.kind === 'empty' && (
             <div className="empty-state">

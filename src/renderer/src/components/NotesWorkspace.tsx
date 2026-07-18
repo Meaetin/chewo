@@ -249,6 +249,7 @@ interface NotesWorkspaceProps {
   recording: RecordingState | null
   pendingAppend: PendingAppend | null
   onAppendApplied: (id: number) => void
+  onToggleChat: () => void
   onStartRecording: () => void
   onStopRecording: () => void
   onSelectNote: (path: string | null) => void
@@ -269,6 +270,7 @@ export function NotesWorkspace({
   recording,
   pendingAppend,
   onAppendApplied,
+  onToggleChat,
   onStartRecording,
   onStopRecording,
   onSelectNote,
@@ -377,6 +379,14 @@ export function NotesWorkspace({
               </button>
             </div>
           )}
+
+          <button
+            className="notes-mode-button"
+            title="Ask questions across your notes"
+            onClick={onToggleChat}
+          >
+            ✦ Ask
+          </button>
 
           {recordingHere ? (
             <div className="notes-rec-indicator">

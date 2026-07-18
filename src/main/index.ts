@@ -23,6 +23,7 @@ import {
   type CreateNoteArgs
 } from './notes'
 import { loadProjects, saveProjects } from './projects'
+import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
 import { disposeSidecar, sttStart, sttStop } from './stt'
 import { structureTranscript, type StructureArgs } from './structure'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
@@ -153,6 +154,11 @@ function registerIpc(): void {
     if (mainWindow) sttStart(mainWindow, model)
   })
   ipcMain.on('stt:stop', () => sttStop())
+
+  ipcMain.on('noteschat:send', (_e, args: NotesChatArgs) => {
+    if (mainWindow) notesChatSend(mainWindow, args)
+  })
+  ipcMain.on('noteschat:cancel', () => notesChatCancel())
 
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
