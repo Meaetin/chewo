@@ -236,103 +236,10 @@ body {
   color: var(--text-dim);
 }
 
-.project-add-button {
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.project-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  cursor: pointer;
-  border-left: 2px solid transparent;
-}
-
-.project-row-chevron {
-  color: var(--text-dim);
-  font-size: 10px;
-  width: 12px;
-  flex-shrink: 0;
-}
-
-.project-row-count {
-  color: var(--text-dim);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
 .project-sessions {
   padding-left: 10px;
   border-left: 1px solid var(--border);
   margin-left: 17px;
-}
-
-.project-row:hover {
-  background: var(--bg-hover);
-}
-
-.project-row-selected {
-  background: var(--bg-selected);
-  border-left-color: var(--accent-codex);
-}
-
-.project-row-name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.project-delete-button {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  visibility: hidden;
-}
-
-.project-row:hover .project-delete-button {
-  visibility: visible;
-}
-
-.project-delete-button:hover {
-  color: var(--text);
-}
-
-.project-settings-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  /* 24px hit target without changing row height */
-  width: 24px;
-  height: 24px;
-  margin: -6px -4px -6px 0;
-  border: none;
-  border-radius: 5px;
-  background: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 13px;
-  visibility: hidden;
-}
-
-.project-row:hover .project-settings-button,
-.project-row-selected .project-settings-button {
-  visibility: visible;
-}
-
-.project-settings-button:hover {
-  background: var(--bg-selected);
-  color: var(--text);
 }
 
 .session-list {
@@ -344,32 +251,6 @@ body {
 .session-list-empty {
   padding: 20px;
   text-align: center;
-  color: var(--text-dim);
-}
-
-/* ---------- badges ---------- */
-
-.source-badge {
-  display: inline-block;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.source-badge-claude {
-  background: var(--badge-claude-bg);
-  color: var(--badge-claude);
-}
-
-.source-badge-codex {
-  background: var(--badge-codex-bg);
-  color: var(--badge-codex);
-}
-
-.source-badge-shell {
-  background: color-mix(in srgb, var(--text-dim) 22%, transparent);
   color: var(--text-dim);
 }
 
@@ -456,19 +337,6 @@ body {
   text-overflow: ellipsis;
   font-size: var(--fs-sm);
   line-height: var(--lh-sm);
-}
-
-.terminal-tab-close {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-}
-
-.terminal-tab-close:hover {
-  color: var(--text);
 }
 
 /* worktree modals: header + scrollable body + fixed footer */
@@ -1162,25 +1030,6 @@ body {
 ::highlight(transcript-find-current) {
   background-color: var(--accent);
   color: var(--on-accent);
-}
-
-.session-action-button {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 0 2px;
-  visibility: hidden;
-  flex-shrink: 0;
-}
-
-.session-item:hover .session-action-button {
-  visibility: visible;
-}
-
-.session-action-button:hover {
-  color: var(--text);
 }
 
 .hidden-section {

@@ -55,6 +55,10 @@ function createWindow(): void {
     height: 900,
     title: 'Chewo',
     backgroundColor: WINDOW_BG,
+    // Frameless-inset: traffic lights float over the sidebar's top drag strip
+    // (the 40px `-webkit-app-region: drag` zone above the workflow switcher).
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 13 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
