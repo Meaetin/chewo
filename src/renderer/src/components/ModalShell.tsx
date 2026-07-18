@@ -1,20 +1,26 @@
 import { useEffect } from 'react'
+import { X } from 'lucide-react'
+import { IconButton } from './ui'
 
 interface ModalShellProps {
   title: React.ReactNode
   subtitle?: React.ReactNode
   /** Blocked while work is in flight — closing mid-command would strand the UI */
   busy?: boolean
+  /** Wider dialog for reading surfaces (e.g. the memory viewer). */
+  size?: 'default' | 'wide'
   onClose: () => void
   children: React.ReactNode
-  footer: React.ReactNode
+  /** Omit for a footerless reading modal. */
+  footer?: React.ReactNode
 }
 
-/** Modal chrome: header + scrollable body + fixed footer, Esc/backdrop to close. */
+/** The one modal: header + scrollable body + optional footer, Esc/backdrop to close. */
 export function ModalShell({
   title,
   subtitle,
   busy = false,
+  size = 'default',
   onClose,
   children,
   footer
@@ -29,18 +35,21 @@ export function ModalShell({
 
   return (
     <div className="wt-modal-backdrop" onClick={busy ? undefined : onClose}>
-      <div className="wt-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`wt-modal ${size === 'wide' ? 'wt-modal--wide' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="wt-modal-header">
           <div className="wt-modal-heading">
             <div className="wt-modal-title">{title}</div>
             {subtitle && <div className="wt-modal-subtitle">{subtitle}</div>}
           </div>
-          <button className="wt-modal-close" title="Close (Esc)" disabled={busy} onClick={onClose}>
-            ×
-          </button>
+          <IconButton label="Close (Esc)" tooltipSide="bottom" disabled={busy} onClick={onClose}>
+            <X size={20} strokeWidth={1.75} />
+          </IconButton>
         </header>
         <div className="wt-modal-body">{children}</div>
-        <footer className="wt-modal-footer">{footer}</footer>
+        {footer && <footer className="wt-modal-footer">{footer}</footer>}
       </div>
     </div>
   )

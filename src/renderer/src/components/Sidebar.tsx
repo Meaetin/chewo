@@ -1,6 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Blocks,
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  Plus,
+  ScrollText,
+  Settings,
+  Undo2
+} from 'lucide-react'
 import type { SessionMeta } from '../../../shared/adapter/types'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
+import { Badge, Button, Dot, IconButton, Input, Row } from './ui'
 
 interface SidebarProps {
   sessions: SessionMeta[]
@@ -44,6 +55,65 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 30)}mo`
 }
 
+/** The quiet unified create control — caret opens the agent menu (design/06). */
+function NewSessionButton({
+  onNewTerminal
+}: {
+  onNewTerminal: (source: 'claude' | 'codex') => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const pick = (source: 'claude' | 'codex'): void => {
+    onNewTerminal(source)
+    setOpen(false)
+  }
+
+  return (
+    <div className="new-session" ref={ref}>
+      <Button
+        intent="secondary"
+        className="new-session__trigger"
+        leadingIcon={<Plus size={16} strokeWidth={1.75} />}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        New session
+        <ChevronDown className="new-session__caret" size={14} strokeWidth={1.75} />
+      </Button>
+      {open && (
+        <div className="new-session__menu" role="menu">
+          <button className="new-session__item" role="menuitem" onClick={() => pick('claude')}>
+            <Badge source="claude" />
+            Claude
+          </button>
+          <button className="new-session__item" role="menuitem" onClick={() => pick('codex')}>
+            <Badge source="codex" />
+            Codex
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SessionRow({
   session,
   selected,
@@ -51,7 +121,7 @@ function SessionRow({
   showProject,
   onSelect,
   onOpenTranscript,
-  actionLabel,
+  actionIcon,
   actionTitle,
   onAction
 }: {
@@ -62,50 +132,53 @@ function SessionRow({
   showProject?: string
   onSelect: (s: SessionMeta) => void
   onOpenTranscript?: (s: SessionMeta) => void
-  actionLabel?: string
+  actionIcon?: React.ReactNode
   actionTitle?: string
   onAction?: (id: string) => void
 }): React.JSX.Element {
+  const trailing = (
+    <>
+      {live && onOpenTranscript && (
+        <IconButton
+          label="View transcript"
+          dense
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenTranscript(session)
+          }}
+        >
+          <ScrollText size={14} strokeWidth={1.75} />
+        </IconButton>
+      )}
+      {onAction && actionIcon && (
+        <IconButton
+          label={actionTitle ?? 'Action'}
+          dense
+          onClick={(e) => {
+            e.stopPropagation()
+            onAction(session.id)
+          }}
+        >
+          {actionIcon}
+        </IconButton>
+      )}
+    </>
+  )
+
   return (
-    <div
-      className={`session-item ${selected ? 'session-item-selected' : ''} ${live ? 'session-item-live' : ''}`}
-      title={live ? 'Terminal open — click to focus it' : undefined}
+    <Row
+      selected={selected}
+      live={live}
+      leading={<Badge source={session.source} />}
+      trailing={trailing}
       onClick={() => onSelect(session)}
     >
-      <div className="session-item-top">
-        <span className={`source-badge source-badge-${session.source}`}>
-          {session.source === 'claude' ? 'CC' : 'CX'}
-        </span>
-        {live && <span className="session-live-dot">●</span>}
-        <span className="session-item-title">{session.title}</span>
-        <span className="session-item-time">{relativeTime(session.updatedAt)}</span>
-        {live && onOpenTranscript && (
-          <button
-            className="session-action-button"
-            title="View transcript"
-            onClick={(e) => {
-              e.stopPropagation()
-              onOpenTranscript(session)
-            }}
-          >
-            ≡
-          </button>
-        )}
-        {onAction && (
-          <button
-            className="session-action-button"
-            title={actionTitle}
-            onClick={(e) => {
-              e.stopPropagation()
-              onAction(session.id)
-            }}
-          >
-            {actionLabel}
-          </button>
-        )}
-      </div>
-      {showProject && <div className="session-item-preview">{showProject}</div>}
-    </div>
+      <span className="session-row-line">
+        <span className="session-row-title">{session.title}</span>
+        <span className="session-row-time">{relativeTime(session.updatedAt)}</span>
+      </span>
+      {showProject && <span className="session-row-sub">{showProject}</span>}
+    </Row>
   )
 }
 
@@ -140,17 +213,74 @@ function SessionGroup({
           live={liveSessionIds.has(s.id)}
           onSelect={onSelect}
           onOpenTranscript={onOpenTranscript}
-          actionLabel="✕"
+          actionIcon={<Undo2 size={14} strokeWidth={1.75} style={{ transform: 'scaleX(-1)' }} />}
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
         />
       ))}
       {sessions.length === 0 && <div className="session-list-empty">{emptyText}</div>}
       {sessions.length > visible && (
-        <button className="show-more-button" onClick={() => setVisible((v) => v + SHOW_MORE_STEP)}>
+        <Button
+          intent="ghost"
+          size="compact"
+          className="show-more-button"
+          onClick={() => setVisible((v) => v + SHOW_MORE_STEP)}
+        >
           Show more ({sessions.length - visible})
-        </button>
+        </Button>
       )}
+    </div>
+  )
+}
+
+/** Section header row (Home / a project) — chevron + name + live/count + settings. */
+function SectionRow({
+  name,
+  title,
+  expanded,
+  liveCount,
+  sessionCount,
+  onToggle,
+  onOpenSettings,
+  settingsTitle
+}: {
+  name: string
+  title?: string
+  expanded: boolean
+  liveCount: number
+  sessionCount: number
+  onToggle: () => void
+  onOpenSettings: () => void
+  settingsTitle: string
+}): React.JSX.Element {
+  const Chevron = expanded ? ChevronDown : ChevronRight
+  return (
+    <div title={title}>
+      <Row
+        selected={expanded}
+        tone="alt"
+        leading={<Chevron className="section-chevron" size={14} strokeWidth={1.75} />}
+        trailing={
+          <IconButton label={settingsTitle} dense onClick={(e) => {
+            e.stopPropagation()
+            onOpenSettings()
+          }}>
+            <Settings size={14} strokeWidth={1.75} />
+          </IconButton>
+        }
+        onClick={onToggle}
+      >
+        <span className="section-row-line">
+          <span className="section-row-name">{name}</span>
+          {liveCount > 0 && (
+            <span className="section-live-count" title="Live terminals in this section">
+              <Dot tone="live" />
+              {liveCount}
+            </span>
+          )}
+          <span className="section-row-count">{sessionCount}</span>
+        </span>
+      </Row>
     </div>
   )
 }
@@ -219,40 +349,37 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-actions">
-        <button className="new-terminal-button" onClick={() => onNewTerminal('claude')}>
-          + Claude
-        </button>
-        <button className="new-terminal-button" onClick={() => onNewTerminal('codex')}>
-          + Codex
-        </button>
-        <button
-          className="worktree-new-button"
-          title={
+      <div className="sidebar-create-row">
+        <NewSessionButton onNewTerminal={onNewTerminal} />
+        <IconButton
+          label={
             onNewIsolated
               ? 'New isolated terminal — agent works on its own branch in a separate worktree'
               : 'Select a project to start an isolated terminal'
           }
+          dense
           disabled={!onNewIsolated}
           onClick={onNewIsolated}
         >
-          ⎇
-        </button>
-        <button
-          className="capabilities-button"
-          title="Skills, subagents, instructions & MCP across projects"
+          <GitBranch size={14} strokeWidth={1.75} />
+        </IconButton>
+        <IconButton
+          label="Skills, subagents, instructions & MCP across projects"
+          dense
           onClick={onOpenCapabilities}
         >
-          ⛭
-        </button>
+          <Blocks size={14} strokeWidth={1.75} />
+        </IconButton>
       </div>
 
-      <input
-        className="session-search-input"
-        placeholder="Search all sessions…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <div className="sidebar-search-row">
+        <Input
+          variant="search"
+          placeholder="Search all sessions…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
 
       {searching ? (
         <div className="session-list">
@@ -265,7 +392,7 @@ export function Sidebar({
               showProject={s.project ?? undefined}
               onSelect={onSelect}
               onOpenTranscript={onOpenTranscript}
-              actionLabel="✕"
+              actionIcon={<Undo2 size={14} strokeWidth={1.75} style={{ transform: 'scaleX(-1)' }} />}
               actionTitle="Hide session"
               onAction={onHideSession}
             />
@@ -275,30 +402,16 @@ export function Sidebar({
       ) : (
         <div className="session-list">
           <div className="project-section">
-            <div
-              className={`project-row ${homeSelected ? 'project-row-selected' : ''}`}
-              onClick={() => onSelectProject(null)}
+            <SectionRow
+              name="Home"
               title={window.api.homeDir}
-            >
-              <span className="project-row-chevron">{homeSelected ? '▾' : '▸'}</span>
-              <span className="project-row-name">Home</span>
-              {(liveCounts.get(null) ?? 0) > 0 && (
-                <span className="project-row-live" title="Live terminals in this section">
-                  ● {liveCounts.get(null)}
-                </span>
-              )}
-              <span className="project-row-count">{homeSessions.length}</span>
-              <button
-                className="project-settings-button"
-                title="Home settings — how agents launch here"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onOpenSettings(null)
-                }}
-              >
-                ⚙
-              </button>
-            </div>
+              expanded={homeSelected}
+              liveCount={liveCounts.get(null) ?? 0}
+              sessionCount={homeSessions.length}
+              onToggle={() => onSelectProject(null)}
+              onOpenSettings={() => onOpenSettings(null)}
+              settingsTitle="Home settings — how agents launch here"
+            />
             {homeSelected && (
               <SessionGroup
                 sessions={homeSessions}
@@ -314,9 +427,9 @@ export function Sidebar({
 
           <div className="project-rail-header">
             <span>Projects</span>
-            <button className="project-add-button" onClick={onCreateProject} title="Add a project folder">
-              +
-            </button>
+            <IconButton label="Add a project folder" dense onClick={onCreateProject}>
+              <Plus size={14} strokeWidth={1.75} />
+            </IconButton>
           </div>
 
           {projects.map((p) => {
@@ -324,30 +437,16 @@ export function Sidebar({
             const projectSessions = sessionsByProject.get(p.id) ?? []
             return (
               <div key={p.id} className="project-section">
-                <div
-                  className={`project-row ${expanded ? 'project-row-selected' : ''}`}
-                  onClick={() => toggleProject(p.id)}
+                <SectionRow
+                  name={p.name}
                   title={p.path}
-                >
-                  <span className="project-row-chevron">{expanded ? '▾' : '▸'}</span>
-                  <span className="project-row-name">{p.name}</span>
-                  {(liveCounts.get(p.id) ?? 0) > 0 && (
-                    <span className="project-row-live" title="Live terminals in this section">
-                      ● {liveCounts.get(p.id)}
-                    </span>
-                  )}
-                  <span className="project-row-count">{projectSessions.length}</span>
-                  <button
-                    className="project-settings-button"
-                    title="Project settings — permissions, worktree setup, remove"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onOpenSettings(p.id)
-                    }}
-                  >
-                    ⚙
-                  </button>
-                </div>
+                  expanded={expanded}
+                  liveCount={liveCounts.get(p.id) ?? 0}
+                  sessionCount={projectSessions.length}
+                  onToggle={() => toggleProject(p.id)}
+                  onOpenSettings={() => onOpenSettings(p.id)}
+                  settingsTitle="Project settings — permissions, worktree setup, remove"
+                />
                 {expanded && (
                   <SessionGroup
                     sessions={projectSessions}
@@ -371,15 +470,22 @@ export function Sidebar({
 
           {hiddenSessions.length > 0 && (
             <div className="project-section hidden-section">
-              <div
-                className="project-row"
+              <Row
+                leading={
+                  hiddenExpanded ? (
+                    <ChevronDown className="section-chevron" size={14} strokeWidth={1.75} />
+                  ) : (
+                    <ChevronRight className="section-chevron" size={14} strokeWidth={1.75} />
+                  )
+                }
                 onClick={() => setHiddenExpanded((v) => !v)}
-                title="Sessions hidden from this app — files are untouched"
+                className="hidden-row"
               >
-                <span className="project-row-chevron">{hiddenExpanded ? '▾' : '▸'}</span>
-                <span className="project-row-name">Hidden</span>
-                <span className="project-row-count">{hiddenSessions.length}</span>
-              </div>
+                <span className="section-row-line">
+                  <span className="section-row-name">Hidden</span>
+                  <span className="section-row-count">{hiddenSessions.length}</span>
+                </span>
+              </Row>
               {hiddenExpanded && (
                 <div className="project-sessions">
                   {hiddenSessions.map((s) => (
@@ -389,7 +495,7 @@ export function Sidebar({
                       selected={false}
                       showProject={s.project ?? undefined}
                       onSelect={onSelect}
-                      actionLabel="↩"
+                      actionIcon={<Undo2 size={14} strokeWidth={1.75} />}
                       actionTitle="Restore session"
                       onAction={onRestoreSession}
                     />

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ArrowUp, RefreshCw, Square, X } from 'lucide-react'
+import { IconButton, WorkingText } from './ui'
+import { Select } from './Select'
 import type { TopicRef } from './NotesSidebar'
 
 type Scope = 'all' | 'subject' | 'topic'
@@ -108,6 +111,16 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
   const scopeLabel =
     scope === 'all' || !sel ? 'all notes' : scope === 'subject' ? sel.subject : `${sel.subject} / ${sel.topic}`
 
+  const scopeOptions = [
+    { value: 'all' as const, label: 'All notes' },
+    ...(sel
+      ? [
+          { value: 'subject' as const, label: sel.subject },
+          { value: 'topic' as const, label: `${sel.subject} / ${sel.topic}` }
+        ]
+      : [])
+  ]
+
   const send = useCallback(() => {
     const message = input.trim()
     if (!message || running || !root) return
@@ -141,22 +154,15 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
     <div className="notes-chat" style={{ display: open ? 'flex' : 'none' }}>
       <div className="notes-chat-header">
         <span className="notes-chat-title">Ask your notes</span>
-        <select
-          className="notes-chat-scope"
-          value={scope}
-          onChange={(e) => changeScope(e.target.value as Scope)}
-          title="Which notes the answer may draw from"
-        >
-          <option value="all">All notes</option>
-          {sel && <option value="subject">{sel.subject}</option>}
-          {sel && <option value="topic">{`${sel.subject} / ${sel.topic}`}</option>}
-        </select>
-        <button className="session-action-button" title="New conversation" onClick={newChat}>
-          ⟳
-        </button>
-        <button className="session-action-button" title="Hide chat" onClick={onClose}>
-          ✕
-        </button>
+        <div className="notes-chat-scope-field">
+          <Select value={scope} options={scopeOptions} onChange={(v) => changeScope(v)} />
+        </div>
+        <IconButton label="New conversation" dense onClick={newChat}>
+          <RefreshCw />
+        </IconButton>
+        <IconButton label="Hide chat" dense onClick={onClose}>
+          <X />
+        </IconButton>
       </div>
 
       <div className="notes-chat-messages" ref={scrollRef}>
@@ -177,7 +183,7 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
             )}
           </div>
         ))}
-        {status && <div className="notes-chat-status">{status}</div>}
+        {status && <WorkingText className="notes-chat-status">{status}</WorkingText>}
       </div>
 
       <div className="notes-chat-input-row">
@@ -195,21 +201,20 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
           }}
         />
         {running ? (
-          <button
-            className="notes-chat-send"
-            title="Stop the answer"
+          <IconButton
+            label="Stop the answer"
             onClick={() => {
               window.api.notesChatCancel()
               setRunning(false)
               setStatus(null)
             }}
           >
-            ■
-          </button>
+            <Square />
+          </IconButton>
         ) : (
-          <button className="notes-chat-send" title="Send (Enter)" onClick={send} disabled={!input.trim()}>
-            ↑
-          </button>
+          <IconButton label="Send (Enter)" onClick={send} disabled={!input.trim()}>
+            <ArrowUp />
+          </IconButton>
         )}
       </div>
     </div>

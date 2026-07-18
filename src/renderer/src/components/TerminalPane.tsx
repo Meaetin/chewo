@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { TERMINAL_THEME, MONO_STACK } from '../theme/terminalTheme'
 
 interface TerminalPaneProps {
   termId: number
@@ -18,9 +19,9 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
     if (!container) return
 
     const term = new Terminal({
-      fontFamily: 'SF Mono, Menlo, monospace',
+      fontFamily: MONO_STACK,
       fontSize: 13,
-      theme: { background: '#16161e' }
+      theme: TERMINAL_THEME
     })
 
     // ⌘+/⌘−/⌘0 zoom this pane's font (menu zoom roles are removed app-wide)

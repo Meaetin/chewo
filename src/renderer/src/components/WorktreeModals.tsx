@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { ArrowRight, GitBranch, RotateCw } from 'lucide-react'
 import type { Source } from '../../../shared/adapter/types'
 import type { Project, Worktree } from '../../../shared/projects'
 import { ModalShell } from './ModalShell'
+import { Badge, Button, IconButton, Input } from './ui'
 
 type WorktreeStatus = Awaited<ReturnType<typeof window.api.worktreeStatus>>
 
@@ -51,16 +53,19 @@ export function WorktreeCreateModal({
       onClose={onCancel}
       footer={
         <>
-          <button className="wt-button" disabled={busy} onClick={onCancel}>
+          <div className="wt-footer-spacer" />
+          <Button intent="secondary" disabled={busy} onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            className="wt-button wt-button-primary"
-            disabled={!nameValid || busy}
+          </Button>
+          <Button
+            intent="primary"
+            loading={busy}
+            loadingText="Creating…"
+            disabled={!nameValid}
             onClick={() => void create()}
           >
-            {busy ? 'Creating…' : 'Create'}
-          </button>
+            Create
+          </Button>
         </>
       }
     >
@@ -68,9 +73,8 @@ export function WorktreeCreateModal({
         <label className="wt-field-label" htmlFor="wt-task">
           Task name
         </label>
-        <input
+        <Input
           id="wt-task"
-          className="wt-input"
           placeholder="auth-fix"
           value={taskName}
           autoFocus
@@ -103,13 +107,13 @@ export function WorktreeCreateModal({
             className={`wt-agent-option ${agent === 'claude' ? 'wt-agent-option-active' : ''}`}
             onClick={() => setAgent('claude')}
           >
-            <span className="source-badge source-badge-claude">CC</span> Claude
+            <Badge source="claude" /> Claude
           </button>
           <button
             className={`wt-agent-option ${agent === 'codex' ? 'wt-agent-option-active' : ''}`}
             onClick={() => setAgent('codex')}
           >
-            <span className="source-badge source-badge-codex">CX</span> Codex
+            <Badge source="codex" /> Codex
           </button>
         </div>
       </div>
@@ -118,9 +122,10 @@ export function WorktreeCreateModal({
         <label className="wt-field-label" htmlFor="wt-setup">
           Setup command <span className="wt-field-optional">optional · saved for this project</span>
         </label>
-        <textarea
+        <Input
           id="wt-setup"
-          className="wt-input wt-input-mono"
+          variant="textarea"
+          mono
           placeholder={`cp ${project.path}/.env . && npm install`}
           value={setup}
           rows={2}
@@ -211,14 +216,14 @@ export function WorktreeMergeModal({
     <ModalShell
       title={
         <>
-          <span className="wt-modal-glyph">⎇</span> {worktree.taskName}
+          <GitBranch className="wt-modal-glyph" size={16} strokeWidth={1.75} /> {worktree.taskName}
         </>
       }
       subtitle={
         ok ? (
           <>
             <code>{worktree.branch}</code>
-            <span className="wt-arrow">→</span>
+            <ArrowRight className="wt-arrow" size={14} strokeWidth={1.75} aria-hidden="true" />
             <code>{ok.targetBranch}</code>
             <span className="wt-subtitle-note">your main checkout</span>
           </>
@@ -230,17 +235,19 @@ export function WorktreeMergeModal({
       onClose={onClose}
       footer={
         <>
-          <button
-            className="wt-button wt-button-danger"
+          <Button
+            intent="danger"
             disabled={busy || !status}
             title="git worktree remove + branch -d — refuses if work is uncommitted or unmerged"
             onClick={() => void remove()}
           >
             Remove worktree…
-          </button>
+          </Button>
           <div className="wt-footer-spacer" />
-          <button
-            className="wt-button wt-button-primary"
+          <Button
+            intent="primary"
+            loading={busy}
+            loadingText="Merging…"
             disabled={!canMerge}
             title={
               !ok
@@ -253,8 +260,8 @@ export function WorktreeMergeModal({
             }
             onClick={() => void merge()}
           >
-            {busy ? 'Merging…' : `Merge into ${ok?.targetBranch ?? 'main'}`}
-          </button>
+            {`Merge into ${ok?.targetBranch ?? 'main'}`}
+          </Button>
         </>
       }
     >
@@ -284,9 +291,13 @@ export function WorktreeMergeModal({
                   {ok.commits.length} commit{ok.commits.length === 1 ? '' : 's'} ahead of{' '}
                   {ok.targetBranch}
                 </span>
-                <button className="wt-refresh" title="Re-check the worktree" onClick={() => void refresh()}>
-                  ↻
-                </button>
+                <IconButton
+                  label="Re-check the worktree"
+                  dense
+                  onClick={() => void refresh()}
+                >
+                  <RotateCw size={14} strokeWidth={1.75} />
+                </IconButton>
               </div>
               <ul className="wt-commit-list">
                 {ok.commits.map((c) => {
@@ -310,9 +321,14 @@ export function WorktreeMergeModal({
                     ? 'The agent has changes but hasn’t committed them.'
                     : `No commits on this branch yet — the agent hasn’t written anything.`}
                 </p>
-                <button className="wt-button wt-refresh-wide" onClick={() => void refresh()}>
-                  ↻ Refresh
-                </button>
+                <Button
+                  intent="secondary"
+                  className="wt-refresh-wide"
+                  leadingIcon={<RotateCw size={16} strokeWidth={1.75} />}
+                  onClick={() => void refresh()}
+                >
+                  Refresh
+                </Button>
               </div>
             )
           )}

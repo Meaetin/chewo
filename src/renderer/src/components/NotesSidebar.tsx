@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { IconButton, Row } from './ui'
 import type { NotesTree } from '../../../shared/notes'
 
 export interface TopicRef {
@@ -90,13 +92,13 @@ export function NotesSidebar({
     <aside className="sidebar notes-sidebar">
       <div className="project-rail-header">
         <span>Subjects</span>
-        <button
-          className="project-add-button"
-          title="New subject (e.g. Cooking class, Maths)"
+        <IconButton
+          label="New subject (e.g. Cooking class, Maths)"
+          dense
           onClick={() => setAdding({ kind: 'subject' })}
         >
-          +
-        </button>
+          <Plus />
+        </IconButton>
       </div>
 
       <div className="session-list">
@@ -120,26 +122,33 @@ export function NotesSidebar({
           const noteCount = s.topics.reduce((n, t) => n + t.notes.length, 0)
           return (
             <div key={s.path} className="project-section">
-              <div
-                className={`project-row ${selected?.subject === s.name ? 'project-row-selected' : ''}`}
-                title={s.path}
+              <Row
+                selected={selected?.subject === s.name}
                 onClick={() => toggleSubject(s.name)}
+                leading={
+                  <span className="notes-row-chevron">
+                    {isExpanded ? <ChevronDown /> : <ChevronRight />}
+                  </span>
+                }
+                trailing={
+                  <IconButton
+                    label="New topic in this subject (e.g. Lesson 1, Algebra)"
+                    dense
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setExpanded((prev) => new Set(prev).add(s.name))
+                      setAdding({ kind: 'topic', subject: s.name })
+                    }}
+                  >
+                    <Plus />
+                  </IconButton>
+                }
               >
-                <span className="project-row-chevron">{isExpanded ? '▾' : '▸'}</span>
-                <span className="project-row-name">{s.name}</span>
-                <span className="project-row-count">{noteCount}</span>
-                <button
-                  className="project-settings-button"
-                  title="New topic in this subject (e.g. Lesson 1, Algebra)"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setExpanded((prev) => new Set(prev).add(s.name))
-                    setAdding({ kind: 'topic', subject: s.name })
-                  }}
-                >
-                  +
-                </button>
-              </div>
+                <span className="notes-row-line" title={s.path}>
+                  <span className="notes-row-name">{s.name}</span>
+                  <span className="notes-row-count">{noteCount}</span>
+                </span>
+              </Row>
 
               {isExpanded && (
                 <div className="project-sessions">
@@ -161,18 +170,21 @@ export function NotesSidebar({
                     const isSelected =
                       selected?.subject === s.name && selected?.topic === t.name
                     return (
-                      <div
+                      <Row
                         key={t.path}
-                        className={`notes-topic-row ${isSelected ? 'notes-topic-row-selected' : ''}`}
+                        density="compact"
+                        selected={isSelected}
                         onClick={() => onSelectTopic({ subject: s.name, topic: t.name })}
                       >
-                        <span className="notes-topic-name">{t.name}</span>
-                        <span className="project-row-count">{t.notes.length}</span>
-                      </div>
+                        <span className="notes-row-line">
+                          <span className="notes-row-name">{t.name}</span>
+                          <span className="notes-row-count">{t.notes.length}</span>
+                        </span>
+                      </Row>
                     )
                   })}
                   {s.topics.length === 0 && adding?.kind !== 'topic' && (
-                    <div className="session-list-empty">No topics yet — add one with +</div>
+                    <div className="session-list-empty">No topics yet — add one with the + button.</div>
                   )}
                 </div>
               )}
@@ -182,8 +194,8 @@ export function NotesSidebar({
 
         {subjects.length === 0 && adding?.kind !== 'subject' && (
           <div className="session-list-empty">
-            No subjects yet — create one with “+” above. Subjects hold topics; topics hold
-            your notes.
+            No subjects yet — create one with the + button above. Subjects hold topics; topics
+            hold your notes.
           </div>
         )}
       </div>

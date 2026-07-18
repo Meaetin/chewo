@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chewo — Sidebar-top layout variants</title>
+<style>
+/* ============================================================================
+   KILN TOKENS — lifted verbatim from design/mockups/kiln.html :root
+   Only the sidebar-top region varies across the 6 frames below; everything
+   else here is scaffolding for a designer's comparison board.
+   ========================================================================== */
+:root {
+  /* ---- Slate neutral ramp — PLACEHOLDER (cool base, under active exploration) ---- */
+  --c-surface-0: #0F1216;  --c-surface-1: #13161B;  --c-surface-2: #181C22;
+  --c-surface-3: #1E232B;  --c-surface-4: #262C35;  --c-surface-5: #2F3742;
+  --c-line-1:    #333B45;  --c-line-2:    #414B57;
+
+  /* ---- Text ramp — cool grey placeholder ---- */
+  --c-text-primary:   #E6E9EE;  --c-text-secondary: #A9B0BB;
+  --c-text-tertiary:  #7A828E;  --c-text-faint:     #565D67;
+
+  /* ---- Clay primitives kept only for source-badge identity ---- */
+  --c-clay-wash: rgba(217, 119, 87, 0.10);
+  --c-clay-hi:   #E08A66;
+
+  /* ---- Semantic status hues ---- */
+  --c-danger:  #E2574B;  --c-warning: #DFA94E;  --c-live: #8FBC72;
+  --c-live-wash: rgba(143, 188, 114, 0.11);
+
+  /* ---- Source-badge hues — the ONLY per-source color (AD §3.5) ---- */
+  --c-denim: #8FA9C9;  --c-denim-wash: rgba(143, 169, 201, 0.10);
+
+  /* ---- Rim primitive (AD §5) ---- */
+  --c-rim: rgba(255, 240, 225, 0.05);
+
+  /* ---- Font stacks (VD §1) ---- */
+  --font-ui-stack:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  --font-mono-stack:  'Berkeley Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* ---- Type scale (VD §1) — whole px only ---- */
+  --fs-2xs: 10px;  --lh-2xs: 14px;
+  --fs-xs:  11px;  --lh-xs:  16px;
+  --fs-sm:  12px;  --lh-sm:  17px;
+  --fs-base:13px;  --lh-base:20px;
+  --fs-md:  14px;  --lh-md:  22px;
+  --fs-lg:  15px;  --lh-lg:  21px;
+
+  /* ---- Weights (AD §4 — 400/500/600, no 700) ---- */
+  --weight-regular: 400;  --weight-medium: 500;  --weight-semibold: 600;
+
+  /* ---- Tracking ---- */
+  --tracking-caps: 0.06em;  --tracking-badge: 0.02em;
+
+  /* ---- Space scale (VD §2) — base 4, omits 10/14/18/28 ---- */
+  --space-2: 2px;  --space-4: 4px;  --space-6: 6px;  --space-8: 8px;
+  --space-12:12px; --space-16:16px; --space-20:20px; --space-24:24px; --space-32:32px;
+
+  /* ---- Radius (AD §5 / VD §3) ---- */
+  --radius-1: 5px;  --radius-2: 7px;  --radius-3: 10px;  --radius-4: 14px;
+  --radius-pill: 999px;
+
+  /* ---- Elevation (VD §6) — light not shadow ---- */
+  --rim:            inset 0 1px 0 var(--c-rim);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.40);
+
+  /* ---- Motion primitives ---- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-instant: 80ms;  --dur-fast: 140ms;  --dur-base: 200ms;
+  --motion-hover:  var(--dur-fast) var(--ease-standard);
+  --motion-focus:  var(--dur-instant) var(--ease-standard);
+
+  /* ---- SEMANTIC aliases — components consume ONLY these (§1.3) ---- */
+  --bg-window:   var(--c-surface-0);
+  --bg-canvas:   var(--c-surface-1);
+  --bg-sidebar:  var(--c-surface-2);
+  --bg-card:     var(--c-surface-3);
+  --bg-hover:    var(--c-surface-4);
+  --bg-neutral-selected: var(--c-surface-5);
+  --text-primary:   var(--c-text-primary);
+  --text-secondary: var(--c-text-secondary);
+  --text-tertiary:  var(--c-text-tertiary);
+  --text-faint:     var(--c-text-faint);
+  --border-hairline: var(--c-line-1);
+  --border-strong:   var(--c-line-2);
+  --live:    var(--c-live);     --live-bg: var(--c-live-wash);
+  --font-ui:    var(--font-ui-stack);
+  --font-mono:  var(--font-mono-stack);
+  --border-hair:  1px solid var(--border-hairline);
+  --border-input: 1px solid var(--border-strong);
+
+  /* ---- ACCENT — single HSL source of truth (PLACEHOLDER: Azure 210 70% 58%) ----
+     The layouts are what's being evaluated, not this color. Swap the triplet
+     when the accent is decided; every selected/primary/focus state re-colors. */
+  --accent-h: 210;  --accent-s: 70%;  --accent-l: 58%;
+  --accent:       hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --accent-hover: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 7%));
+  --accent-press: hsl(var(--accent-h) calc(var(--accent-s) + 3%) calc(var(--accent-l) - 9%));
+  --accent-text:  hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 10%));
+  --accent-wash:  hsla(var(--accent-h) var(--accent-s) var(--accent-l) / 0.12);
+  --on-accent:    hsl(var(--accent-h) 30% 12%);
+  --bg-selected:      var(--accent-wash);
+  --border-selected:  var(--accent);
+  --focus-ring:       0 0 0 3px hsla(var(--accent-h) var(--accent-s) var(--accent-l) / 0.30);
+
+  /* ---- Board scaffolding (deliberately cool/neutral, NOT app tokens) ---- */
+  --mock-dim:  #7a8091;
+  --mock-text: #c3c8d4;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-window);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  padding: var(--space-32);
+}
+
+.icon { width: 16px; height: 16px; stroke: currentColor; fill: none;
+  stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+  flex: none; display: inline-block; vertical-align: middle; }
+.icon--14 { width: 14px; height: 14px; }
+
+/* ============================================================================
+   BOARD SCAFFOLDING
+   ========================================================================== */
+.board-head { max-width: 1080px; margin: 0 auto var(--space-32); }
+.board-title {
+  font-size: 22px; font-weight: var(--weight-semibold); letter-spacing: -0.01em;
+  color: var(--text-primary); margin-bottom: var(--space-8);
+}
+.board-intro {
+  font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-secondary);
+  max-width: 760px;
+}
+.board-intro b { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.accent-note {
+  display: inline-flex; align-items: center; gap: var(--space-8);
+  margin-top: var(--space-16); padding: var(--space-8) var(--space-12);
+  border: var(--border-hair); border-radius: var(--radius-2);
+  background: var(--bg-card); font-size: var(--fs-sm); color: var(--text-secondary);
+}
+.accent-swatch { width: 14px; height: 14px; border-radius: 4px; background: var(--accent);
+  box-shadow: var(--rim); flex: none; }
+.accent-note code { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--accent-text); }
+
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 336px));
+  gap: var(--space-32) var(--space-24); justify-content: center;
+  max-width: 1120px; margin: 0 auto;
+}
+.cell { display: flex; flex-direction: column; }
+.cell__name {
+  font-size: var(--fs-md); font-weight: var(--weight-semibold); color: var(--text-primary);
+  display: flex; align-items: baseline; gap: var(--space-8);
+}
+.cell__name .num {
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--accent-text);
+  font-weight: var(--weight-medium);
+}
+.cell__caption {
+  font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-tertiary);
+  margin: 4px 0 var(--space-12); min-height: 34px;
+}
+
+/* ============================================================================
+   SIDEBAR FRAME — the honest 300px column. Nothing may spill past 300px.
+   ========================================================================== */
+.frame {
+  width: 300px; flex: none; background: var(--bg-sidebar);
+  border: var(--border-hair); border-radius: var(--radius-3);
+  overflow: hidden; position: relative; isolation: isolate;
+  box-shadow: var(--rim), 0 12px 32px rgba(0,0,0,0.35);
+  font-size: var(--fs-base); line-height: var(--lh-base);
+}
+
+/* ---- Traffic-light / drag zone (always present, ~44px, clears ~72px) ---- */
+.hdr { height: 44px; flex: none; display: flex; align-items: center;
+  padding-left: 76px; padding-right: var(--space-8); }
+.hdr--barelights { padding-left: 14px; }   /* variant 5: lights own the strip */
+.tl { position: absolute; top: 15px; left: 14px; display: flex; gap: 8px; z-index: 3; }
+.tld { width: 12px; height: 12px; border-radius: 50%; }
+.tld--r { background: var(--c-danger); }
+.tld--a { background: var(--c-warning); }
+.tld--g { background: var(--c-live); }
+
+/* ---- Workflow switcher (Code / Notes) ---- */
+.wswitch { display: inline-flex; gap: var(--space-4); min-width: 0; }
+.wswitch--full { width: 100%; }
+.wswitch--full .wbtn { flex: 1 1 0; justify-content: center; }
+.wbtn {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  font: inherit; font-size: var(--fs-sm); font-weight: var(--weight-medium);
+  color: var(--text-secondary); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-2); padding: var(--space-6) var(--space-12); cursor: pointer;
+  transition: background var(--motion-hover), color var(--motion-hover), border-color var(--motion-hover);
+}
+.wbtn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.wbtn.is-active { background: var(--bg-neutral-selected); border-color: var(--border-hairline); color: var(--text-primary); }
+.wbtn.is-active .icon { color: var(--accent); }
+.wbtn .icon { color: var(--text-tertiary); }
+
+/* ---- Action rows ---- */
+.row-actions { display: flex; align-items: center; gap: var(--space-6);
+  padding: var(--space-8) var(--space-12); }
+.row-actions--tight { padding-top: var(--space-4); padding-bottom: var(--space-4); }
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; font: inherit; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: var(--weight-medium); border-radius: var(--radius-2);
+  padding: var(--space-6) var(--space-12); border: var(--border-hair);
+  background: var(--bg-card); color: var(--text-primary);
+  transition: background var(--motion-hover), border-color var(--motion-hover);
+}
+.btn:hover { background: var(--bg-hover); }
+.btn .icon { color: var(--text-tertiary); }
+.btn__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn--equal { flex: 1 1 0; }
+.btn--grow  { flex: 1 1 auto; }
+.btn--primary { background: var(--accent); color: var(--on-accent); border-color: transparent;
+  font-weight: var(--weight-semibold); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--primary .icon { color: var(--on-accent); }
+
+/* Source tinting on create buttons — brand identity, minimal hue */
+.btn .icon.src-cc { color: var(--c-clay-hi); }
+.btn .icon.src-cx { color: var(--c-denim); }
+.mini-badge { font-size: var(--fs-2xs); line-height: 1; font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-badge); padding: 3px 4px; border-radius: var(--radius-1); flex: none; }
+.mini-badge--cc { color: var(--c-clay-hi); background: var(--c-clay-wash); }
+.mini-badge--cx { color: var(--c-denim); background: var(--c-denim-wash); }
+
+/* ---- Icon-only buttons + tooltips ---- */
+.icon-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-2); background: transparent; border: 1px solid transparent;
+  color: var(--text-tertiary); cursor: pointer; flex: none; position: relative;
+  transition: background var(--motion-hover), color var(--motion-hover), border-color var(--motion-hover);
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.icon-btn--boxed { background: var(--bg-card); border: var(--border-hair); }
+.icon-btn .icon.src-cc { color: var(--c-clay-hi); }
+.icon-btn .icon.src-cx { color: var(--c-denim); }
+.icon-btn[data-tip]::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-1); padding: 4px 8px; font-size: var(--fs-xs);
+  box-shadow: var(--rim), var(--shadow-popover); opacity: 0; transition: opacity var(--motion-hover); z-index: 5;
+}
+.icon-btn:hover[data-tip]::after { opacity: 1; }
+.spacer { flex: 1; }
+
+/* ---- Search ---- */
+.search-wrap { padding: var(--space-8) var(--space-12) var(--space-12); }
+.input-search { display: flex; align-items: center; gap: 8px; background: var(--bg-canvas);
+  border: var(--border-input); border-radius: var(--radius-2); padding: 0 var(--space-12); }
+.input-search .icon { color: var(--text-tertiary); }
+.input-search .field { flex: 1; min-width: 0; font: inherit; font-size: var(--fs-base);
+  color: var(--text-faint); background: transparent; border: 0; padding: var(--space-8) 0; }
+.input-search--omni { padding: 2px var(--space-8) 2px var(--space-12);
+  border-color: var(--accent); box-shadow: var(--focus-ring); }
+.input-search--omni .field { padding: var(--space-8) 0; }
+.kbd { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-tertiary);
+  background: var(--bg-card); border: var(--border-hair); border-radius: var(--radius-1);
+  padding: 2px 5px; flex: none; }
+
+/* ---- Section microlabel + divider (variant 6) ---- */
+.microlabel { font-size: var(--fs-xs); font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-tertiary);
+  padding: var(--space-8) var(--space-12) var(--space-6); }
+.hairline { height: 1px; background: var(--border-hairline); margin: var(--space-8) var(--space-12); }
+
+/* ---- Switcher-on-own-row wrapper (variant 5) ---- */
+.switch-row { padding: var(--space-4) var(--space-12) var(--space-8); }
+
+/* ---- Faded list hint (context only — never the focus) ---- */
+.hint { padding: var(--space-8) 0 var(--space-16); opacity: 0.4;
+  -webkit-mask-image: linear-gradient(var(--bg-window), transparent);
+  mask-image: linear-gradient(var(--bg-window), transparent); pointer-events: none; }
+.hint__head { font-size: var(--fs-xs); font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-tertiary);
+  padding: var(--space-6) var(--space-12); }
+.hint__row { display: flex; align-items: center; gap: var(--space-8);
+  padding: var(--space-6) var(--space-12); }
+.hint__row .icon { color: var(--text-tertiary); }
+.hint__title { flex: 1; font-size: var(--fs-base); color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hint__badge { font-size: var(--fs-2xs); font-weight: var(--weight-semibold);
+  color: var(--c-clay-hi); background: var(--c-clay-wash); padding: 2px 4px; border-radius: var(--radius-1); }
+.hint__badge--cx { color: var(--c-denim); background: var(--c-denim-wash); }
+.hint__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); flex: none; }
+</style>
+</head>
+<body>
+
+<!-- ===================== ICON SPRITE (Lucide, stroke 1.75) ===================== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-git-branch" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-blocks" viewBox="0 0 24 24"><rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-more-horizontal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+</svg>
+
+<header class="board-head">
+  <div class="board-title">Chewo — Sidebar-top layout variants</div>
+  <p class="board-intro">
+    Six layouts for the <b>top of the sidebar</b> — the traffic-light strip, the Code/Notes
+    switcher, the session-create actions, the secondary icon tools, and the search field.
+    Only that region varies; below the search each frame just fades a session-list hint for
+    context. Every frame is an honest <b>300px</b> column on the cool-slate sidebar surface.
+  </p>
+  <div class="accent-note">
+    <span class="accent-swatch"></span>
+    Base palette (cool slate) and accent — Azure <code>hsl(210 70% 58%)</code> — are
+    <b>placeholders under active exploration</b>. This board is for comparing <b>layouts</b> only.
+  </div>
+</header>
+
+<main class="grid">
+
+  <!-- ============ 1 · BASELINE (TWO-BUTTON) ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">01</span> Baseline (two-button)</h3>
+    <p class="cell__caption">Explicit per-source CTAs; costs two rows of header height.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr">
+        <div class="wswitch">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cc"><use href="#i-plus"/></svg><span class="btn__label">Claude</span></button>
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cx"><use href="#i-plus"/></svg><span class="btn__label">Codex</span></button>
+      </div>
+      <div class="row-actions row-actions--tight">
+        <button class="icon-btn icon-btn--boxed" data-tip="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+      </div>
+      <div class="search-wrap">
+        <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input class="field" placeholder="Search sessions"></div>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge">CC</span></div>
+        <div class="hint__head">Projects</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-folder"/></svg><span class="hint__title">chewo</span><span class="hint__dot"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 2 · UNIFIED SPLIT-BUTTON ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">02</span> Unified split-button</h3>
+    <p class="cell__caption">One clear CTA + a menu; frees a whole row, hides source choice.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr">
+        <div class="wswitch">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn--primary btn--grow">
+          <svg class="icon icon--14"><use href="#i-plus"/></svg><span class="btn__label">New session</span>
+          <svg class="icon icon--14"><use href="#i-chevron-down"/></svg>
+        </button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+      </div>
+      <div class="search-wrap">
+        <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input class="field" placeholder="Search sessions"></div>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge hint__badge--cx">CX</span></div>
+        <div class="hint__head">Projects</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-folder"/></svg><span class="hint__title">chewo</span><span class="hint__dot"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3 · ICON TOOLBAR ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">03</span> Icon toolbar</h3>
+    <p class="cell__caption">Max density, one row of tools; relies on tooltips to teach.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr">
+        <div class="wswitch">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="icon-btn icon-btn--boxed" data-tip="New Claude session"><svg class="icon icon--14 src-cc"><use href="#i-plus"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New Codex session"><svg class="icon icon--14 src-cx"><use href="#i-plus"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New shell"><svg class="icon icon--14"><use href="#i-terminal"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+        <span class="spacer"></span>
+        <button class="icon-btn icon-btn--boxed" data-tip="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+      </div>
+      <div class="search-wrap">
+        <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input class="field" placeholder="Search sessions"></div>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge">CC</span></div>
+        <div class="hint__head">Projects</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-folder"/></svg><span class="hint__title">chewo</span><span class="hint__dot"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4 · SEARCH-FIRST (OMNIBOX) ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">04</span> Search-first (omnibox)</h3>
+    <p class="cell__caption">Find over create; a command bar up top, create demoted below.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr">
+        <div class="wswitch">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <div class="input-search input-search--omni">
+          <svg class="icon icon--14"><use href="#i-search"/></svg>
+          <input class="field" placeholder="Search or jump to…">
+          <span class="kbd">⌘K</span>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn--primary btn--grow"><svg class="icon icon--14"><use href="#i-plus"/></svg><span class="btn__label">New</span></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="More: Codex · shell · worktree · capabilities"><svg class="icon icon--14"><use href="#i-more-horizontal"/></svg></button>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge">CC</span></div>
+        <div class="hint__head">Projects</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-folder"/></svg><span class="hint__title">chewo</span><span class="hint__dot"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5 · SWITCHER-AS-OWN-ROW ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">05</span> Switcher-as-own-row</h3>
+    <p class="cell__caption">Clean lights strip + full-width workflow toggle; tallest header.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr hdr--barelights"></div>
+      <div class="switch-row">
+        <div class="wswitch wswitch--full">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cc"><use href="#i-plus"/></svg><span class="btn__label">Claude</span></button>
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cx"><use href="#i-plus"/></svg><span class="btn__label">Codex</span></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+      </div>
+      <div class="search-wrap">
+        <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input class="field" placeholder="Search sessions"></div>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge">CC</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6 · SECTIONED / LABELED ============ -->
+  <section class="cell">
+    <h3 class="cell__name"><span class="num">06</span> Sectioned / labeled</h3>
+    <p class="cell__caption">Editorial small-caps header; reads as a titled panel, costs height.</p>
+    <div class="frame">
+      <div class="tl"><span class="tld tld--r"></span><span class="tld tld--a"></span><span class="tld tld--g"></span></div>
+      <div class="hdr">
+        <div class="wswitch">
+          <button class="wbtn is-active"><svg class="icon icon--14"><use href="#i-code"/></svg>Code</button>
+          <button class="wbtn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+        </div>
+      </div>
+      <div class="microlabel">Workspace</div>
+      <div class="row-actions row-actions--tight">
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cc"><use href="#i-plus"/></svg><span class="btn__label">Claude</span></button>
+        <button class="btn btn--equal"><svg class="icon icon--14 src-cx"><use href="#i-plus"/></svg><span class="btn__label">Codex</span></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+        <button class="icon-btn icon-btn--boxed" data-tip="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+      </div>
+      <div class="hairline"></div>
+      <div class="search-wrap">
+        <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input class="field" placeholder="Search sessions"></div>
+      </div>
+      <div class="hint">
+        <div class="hint__head">Home</div>
+        <div class="hint__row"><svg class="icon icon--14"><use href="#i-home"/></svg><span class="hint__title">main terminal</span><span class="hint__badge">CC</span></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

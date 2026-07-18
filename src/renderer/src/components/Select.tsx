@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Check, ChevronDown } from 'lucide-react'
 
 export interface SelectOption<T extends string> {
   value: T
@@ -117,16 +118,7 @@ export function Select<T extends string>({
         onKeyDown={onKeyDown}
       >
         <span className="wt-select-value">{selected?.label}</span>
-        <svg className="wt-select-chevron" viewBox="0 0 12 12" aria-hidden="true">
-          <path
-            d="M2.5 4.5L6 8l3.5-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <ChevronDown className="wt-select-chevron" strokeWidth={1.75} aria-hidden="true" />
       </button>
 
       {open &&
@@ -152,7 +144,9 @@ export function Select<T extends string>({
                 onMouseEnter={() => setActiveIndex(i)}
                 onClick={() => commit(o.value)}
               >
-                <span className="wt-select-check">{o.value === value ? '✓' : ''}</span>
+                <span className="wt-select-check">
+                  {o.value === value && <Check size={14} strokeWidth={2} aria-hidden="true" />}
+                </span>
                 <span className="wt-select-option-text">
                   <span className="wt-select-option-label">{o.label}</span>
                   {o.detail && <span className="wt-select-option-detail">{o.detail}</span>}

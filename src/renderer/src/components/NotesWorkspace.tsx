@@ -3,6 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
+import { ClipboardPaste, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
+import { Button, Dot, IconButton, Row, WorkingText } from './ui'
+import { editorTheme } from '../theme/editorTheme'
 import {
   parseNote,
   serializeNote,
@@ -152,7 +155,7 @@ function NoteEditor({
           <CodeMirror
             className="notes-editor-cm"
             value={body}
-            theme="dark"
+            theme={editorTheme}
             height="100%"
             extensions={[markdown()]}
             basicSetup={{
@@ -305,51 +308,51 @@ export function NotesWorkspace({
           <span className="notes-pages-title" title={`${subject} / ${topic.name}`}>
             {topic.name}
           </span>
-          <button
-            className="project-add-button"
-            title="Paste clipboard as a new lesson"
+          <IconButton
+            label="Paste clipboard as a new lesson"
+            dense
             onClick={() => void pasteNote()}
           >
-            ⎘
-          </button>
-          <button
-            className="project-add-button"
-            title="New lesson"
-            onClick={() => void onCreateNote('Untitled')}
-          >
-            +
-          </button>
+            <ClipboardPaste />
+          </IconButton>
+          <IconButton label="New lesson" dense onClick={() => void onCreateNote('Untitled')}>
+            <Plus />
+          </IconButton>
         </div>
 
         <div className="notes-pages-list">
           {topic.notes.map((n) => (
-            <div
+            <Row
               key={n.path}
-              className={`note-page-row ${n.path === selectedNotePath ? 'note-page-row-selected' : ''}`}
+              selected={n.path === selectedNotePath}
               onClick={() => onSelectNote(n.path)}
-            >
-              <div className="note-page-top">
-                <span className="note-page-title">{n.title}</span>
-                <button
-                  className="session-action-button"
-                  title="Move lesson to Trash"
+              className="note-page-item"
+              trailing={
+                <IconButton
+                  label="Move lesson to Trash"
+                  dense
                   onClick={(e) => {
                     e.stopPropagation()
                     onDeleteNote(n.path)
                   }}
                 >
-                  ✕
-                </button>
-              </div>
-              <div className="note-page-date">
-                {noteDate(n.date)}
-                {n.source !== 'typed' && ` · ${n.source}`}
-              </div>
-            </div>
+                  <X />
+                </IconButton>
+              }
+            >
+              <span className="note-page-body">
+                <span className="note-page-title">{n.title}</span>
+                <span className="note-page-date">
+                  {noteDate(n.date)}
+                  {n.source !== 'typed' && ` · ${n.source}`}
+                </span>
+              </span>
+            </Row>
           ))}
           {topic.notes.length === 0 && (
             <div className="session-list-empty">
-              No lessons in this topic yet — “+” to start one, “⎘” to paste one.
+              No lessons in this topic yet — add one with the New lesson button, or paste one
+              from the clipboard.
             </div>
           )}
         </div>
@@ -380,34 +383,40 @@ export function NotesWorkspace({
             </div>
           )}
 
-          <button
-            className="notes-mode-button"
+          <Button
+            intent="ghost"
+            size="compact"
+            leadingIcon={<Sparkles />}
             title="Ask questions across your notes"
             onClick={onToggleChat}
           >
-            ✦ Ask
-          </button>
+            Ask
+          </Button>
 
           {recordingHere ? (
             <div className="notes-rec-indicator">
               {recordingHere.phase === 'recording' && (
                 <>
-                  <span className="recording-dot">●</span>
+                  <Dot tone="danger" pulse />
                   <RecordingClock startedAt={recordingHere.startedAt} />
                 </>
               )}
               {recordingHere.phase === 'structuring' ? (
-                <span className="recording-status">Structuring…</span>
+                <WorkingText>Structuring…</WorkingText>
               ) : (
-                <button className="recording-stop-button" onClick={onStopRecording}>
-                  ■ Stop
-                </button>
+                <Button
+                  intent="danger"
+                  size="compact"
+                  leadingIcon={<Square />}
+                  onClick={onStopRecording}
+                >
+                  Stop
+                </Button>
               )}
             </div>
           ) : (
-            <button
-              className="notes-record-lesson-button"
-              title={
+            <IconButton
+              label={
                 recording
                   ? 'A recording is already in progress in another topic'
                   : selectedNotePath
@@ -417,8 +426,8 @@ export function NotesWorkspace({
               disabled={!!recording || !selectedNotePath}
               onClick={onStartRecording}
             >
-              ● Record
-            </button>
+              <Mic />
+            </IconButton>
           )}
         </div>
 
@@ -437,7 +446,7 @@ export function NotesWorkspace({
               <h2>
                 {subject} / {topic.name}
               </h2>
-              <p>Select a lesson on the left, or create one with “+” — then type or record.</p>
+              <p>Select a lesson on the left, or create one with the New lesson button — then type or record.</p>
             </div>
           )}
         </div>
