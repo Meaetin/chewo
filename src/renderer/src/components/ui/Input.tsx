@@ -1,3 +1,5 @@
+import { forwardRef } from 'react'
+
 type InputVariant = 'text' | 'search' | 'textarea'
 
 interface InputOwnProps {
@@ -28,43 +30,53 @@ function SearchIcon(): React.JSX.Element {
   )
 }
 
-/** One input recipe. Accent border + wash glow on focus (design/04 §2.2). */
-export function Input(props: InputProps): React.JSX.Element {
-  const { variant = 'text', mono = false, leadingIcon, className, ...rest } = props
+/**
+ * One input recipe. Accent border + wash glow on focus (design/04 §2.2).
+ * Forwards a ref to the underlying input/textarea (e.g. for ⌘F focus).
+ */
+export const Input = forwardRef<HTMLInputElement | HTMLTextAreaElement, InputProps>(
+  function Input(props, ref): React.JSX.Element {
+    const { variant = 'text', mono = false, leadingIcon, className, ...rest } = props
 
-  const icon = variant === 'search' ? <SearchIcon /> : leadingIcon
-  const showIcon = variant !== 'textarea' && Boolean(icon)
+    const icon = variant === 'search' ? <SearchIcon /> : leadingIcon
+    const showIcon = variant !== 'textarea' && Boolean(icon)
 
-  const classes = [
-    'input',
-    mono ? 'input--mono' : '',
-    variant === 'textarea' ? 'input--textarea' : '',
-    showIcon ? 'input--with-leading' : '',
-    className ?? ''
-  ]
-    .filter(Boolean)
-    .join(' ')
+    const classes = [
+      'input',
+      mono ? 'input--mono' : '',
+      variant === 'textarea' ? 'input--textarea' : '',
+      showIcon ? 'input--with-leading' : '',
+      className ?? ''
+    ]
+      .filter(Boolean)
+      .join(' ')
 
-  if (variant === 'textarea') {
+    if (variant === 'textarea') {
+      return (
+        <textarea
+          ref={ref as React.Ref<HTMLTextAreaElement>}
+          className={classes}
+          {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+        />
+      )
+    }
+
+    const field = (
+      <input
+        ref={ref as React.Ref<HTMLInputElement>}
+        type={variant === 'search' ? 'search' : 'text'}
+        className={classes}
+        {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
+      />
+    )
+
+    if (!showIcon) return field
+
     return (
-      <textarea className={classes} {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)} />
+      <span className="input-field">
+        <span className="input-field__icon">{icon}</span>
+        {field}
+      </span>
     )
   }
-
-  const field = (
-    <input
-      type={variant === 'search' ? 'search' : 'text'}
-      className={classes}
-      {...(rest as React.InputHTMLAttributes<HTMLInputElement>)}
-    />
-  )
-
-  if (!showIcon) return field
-
-  return (
-    <span className="input-field">
-      <span className="input-field__icon">{icon}</span>
-      {field}
-    </span>
-  )
-}
+)

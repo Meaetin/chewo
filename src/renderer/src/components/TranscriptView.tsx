@@ -46,12 +46,11 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
   const [matchCount, setMatchCount] = useState(0)
   const [currentMatch, setCurrentMatch] = useState(0)
   const messagesRef = useRef<HTMLDivElement>(null)
-  const findBarRef = useRef<HTMLDivElement>(null)
+  const findInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const rangesRef = useRef<Range[]>([])
 
-  // The find field lives inside the Input primitive (no forwarded ref); reach
-  // it through the bar container so ⌘F can select its text.
-  const selectFindInput = (): void => findBarRef.current?.querySelector('input')?.select()
+  // Input forwards a ref, so ⌘F selects the field directly.
+  const selectFindInput = (): void => findInputRef.current?.select()
 
   const toggleResult = (i: number): void =>
     setExpandedResults((prev) => {
@@ -165,9 +164,10 @@ export function TranscriptView({ session, onResume }: TranscriptViewProps): Reac
       </header>
 
       {findOpen && (
-        <div className="find-bar" ref={findBarRef}>
+        <div className="find-bar">
           <div className="find-search">
             <Input
+              ref={findInputRef}
               variant="search"
               placeholder="Find in transcript…"
               value={findQuery}

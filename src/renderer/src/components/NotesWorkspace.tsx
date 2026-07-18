@@ -4,7 +4,8 @@ import remarkGfm from 'remark-gfm'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { ClipboardPaste, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
-import { Button, IconButton, Row, WorkingText } from './ui'
+import { Button, Dot, IconButton, Row, WorkingText } from './ui'
+import { editorTheme } from '../theme/editorTheme'
 import {
   parseNote,
   serializeNote,
@@ -154,7 +155,7 @@ function NoteEditor({
           <CodeMirror
             className="notes-editor-cm"
             value={body}
-            theme="dark"
+            theme={editorTheme}
             height="100%"
             extensions={[markdown()]}
             basicSetup={{
@@ -396,7 +397,7 @@ export function NotesWorkspace({
             <div className="notes-rec-indicator">
               {recordingHere.phase === 'recording' && (
                 <>
-                  <span className="recording-dot" aria-hidden="true" />
+                  <Dot tone="danger" pulse />
                   <RecordingClock startedAt={recordingHere.startedAt} />
                 </>
               )}

@@ -1434,15 +1434,6 @@ body {
   color: var(--text-dim);
 }
 
-.recording-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--danger);
-  animation: notes-record-breath var(--period-breath) var(--ease-breath) infinite;
-  will-change: transform, opacity;
-}
-
 .recording-elapsed {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -1861,8 +1852,8 @@ body {
 }
 
 .icon-btn svg {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-size, 16px);
+  height: var(--icon-size, 16px);
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -1931,6 +1922,14 @@ body {
 }
 .dot--idle {
   background: var(--text-tertiary);
+}
+.dot--danger {
+  background: var(--danger);
+}
+/* The one sanctioned rest-loop — the recording dot (design/05 §4d). */
+.dot--pulse {
+  animation: notes-record-breath var(--period-breath) var(--ease-breath) infinite;
+  will-change: transform, opacity;
 }
 
 /* ---------- Row / ListItem ---------- */
@@ -2295,7 +2294,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .recording-dot {
+  .dot--pulse {
     animation: none;
   }
 }
