@@ -109,30 +109,60 @@ actor DictationEngine {
 
         let unconfirmedSegments = confirm(freshSegments)
 
+        // Paragraphs only in confirmed text: it is append-only, so breaks are
+        // stable. The tail is re-decoded every pass and Whisper re-segments
+        // inconsistently — structure shown there would flicker and vanish.
         return Update(
-            confirmedText: joinedText(of: confirmedSegments),
-            tailText: joinedText(of: unconfirmedSegments),
+            confirmedText: paragraphedText(of: confirmedSegments),
+            tailText: plainText(of: unconfirmedSegments),
             durationSeconds: Double(samples.count) / Double(WhisperKit.sampleRate)
         )
     }
 
-    /// A silence gap between segments longer than this starts a new paragraph —
-    /// keeps long lectures readable without any model involvement.
+    /// A silence gap between segments longer than this starts a new paragraph.
     private let paragraphGapSeconds: Float = 1.75
+    /// Continuous speakers rarely pause that long — fall back to breaking
+    /// after this many sentences, at a sentence boundary.
+    private let maxSentencesPerParagraph = 4
 
-    private func joinedText(of segments: [TranscriptionSegment]) -> String {
+    private func plainText(of segments: [TranscriptionSegment]) -> String {
+        segments
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// Deterministic over an append-only segment list, so breaks never move:
+    /// a break lands on a real pause, or after `maxSentencesPerParagraph`
+    /// sentences once the previous segment ended a sentence.
+    private func paragraphedText(of segments: [TranscriptionSegment]) -> String {
         var text = ""
         var previousEnd: Float?
+        var sentencesSinceBreak = 0
         for segment in segments {
             let piece = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !piece.isEmpty else { continue }
             if let previousEnd {
-                text += segment.start - previousEnd > paragraphGapSeconds ? "\n\n" : " "
+                let longPause = segment.start - previousEnd > paragraphGapSeconds
+                let sentenceBudgetSpent =
+                    sentencesSinceBreak >= maxSentencesPerParagraph && endsSentence(text)
+                if longPause || sentenceBudgetSpent {
+                    text += "\n\n"
+                    sentencesSinceBreak = 0
+                } else {
+                    text += " "
+                }
             }
             text += piece
+            sentencesSinceBreak += piece.filter { ".!?".contains($0) }.count
             previousEnd = segment.end
         }
         return text
+    }
+
+    private func endsSentence(_ text: String) -> Bool {
+        guard let last = text.last else { return false }
+        return ".!?".contains(last)
     }
 
     /// Promotes all but the trailing `requiredSegmentsForConfirmation` segments

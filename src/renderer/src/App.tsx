@@ -516,6 +516,22 @@ export function App(): React.JSX.Element {
       window.api.termKill(termId)
       const closing = tabs.find((tab) => tab.termId === termId)
       setTabs((t) => t.filter((tab) => tab.termId !== termId))
+      // Closing a tab forgets the session for good — otherwise it would be
+      // re-persisted as a resumable dormant tab and reappear on the next load.
+      if (closing?.sessionId) {
+        const sid = closing.sessionId
+        if (closing.projectId === null) {
+          setHomeTerminals((ts) => ts.filter((t) => t.sessionId !== sid))
+        } else {
+          setProjects((ps) =>
+            ps.map((p) =>
+              p.id === closing.projectId
+                ? { ...p, terminals: p.terminals.filter((t) => t.sessionId !== sid) }
+                : p
+            )
+          )
+        }
+      }
       // Closing the focused tab hands focus to its left neighbour in the same
       // section (falling back to the right, then the empty state). Closing a
       // background tab leaves focus where it is.
@@ -751,14 +767,6 @@ export function App(): React.JSX.Element {
             </div>
           ))}
 
-          <button
-            className="new-shell-button"
-            title={`New shell in ${selectedProject?.name ?? 'Home'}`}
-            onClick={() => newTerminal('shell')}
-          >
-            +
-          </button>
-
           {dormantTerminals.map((t) => (
             <div
               key={`dormant-${t.sessionId}`}
@@ -793,6 +801,15 @@ export function App(): React.JSX.Element {
               </button>
             </div>
           ))}
+
+          {/* Parked at the far right, past every live + ghost tab */}
+          <button
+            className="new-shell-button"
+            title={`New shell in ${selectedProject?.name ?? 'Home'}`}
+            onClick={() => newTerminal('shell')}
+          >
+            +
+          </button>
         </div>
         )}
 

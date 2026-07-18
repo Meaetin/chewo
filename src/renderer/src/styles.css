@@ -211,8 +211,7 @@ body {
 }
 
 .terminal-tab-dormant {
-  opacity: 0.55;
-  border-style: dashed;
+  opacity: 0.5;
 }
 
 .terminal-tab-dormant:hover {
@@ -332,17 +331,20 @@ body {
 }
 
 .new-shell-button {
-  width: 26px;
-  height: 26px;
-  /* Sits apart from the session tabs — it's a distinct "new" action, not a tab.
-     margin-bottom matches the tabs' float so it lines up centred with them. */
-  margin-left: 8px;
-  margin-bottom: 6px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  /* Parked at the far right, past every tab (live + ghost) — a distinct action,
+     not a tab. Borderless like Chrome's new-tab button. */
+  margin-left: auto;
+  margin-bottom: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
@@ -364,11 +366,10 @@ body {
 
 .terminal-tab-bar {
   display: flex;
-  /* Items bottom-align on the rail, then float up via their own margin-bottom
-     so at rest they read as centred chips. Bottom-anchoring is what lets the
-     focused tab's bridge reach a known distance down into the terminal. */
+  /* Chrome-style: tabs bottom-align on the rail and pack together (dividers,
+     not gaps). The focused tab fills down into the terminal to merge. */
   align-items: flex-end;
-  gap: 4px;
+  gap: 0;
   padding: 6px 8px 0;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
@@ -379,40 +380,52 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
-  /* Floats 6px above the seam → reads as a centred chip. The focused tab keeps
-     this exact same position and only extends its bottom edge downward. */
-  margin-bottom: 6px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 6px 12px;
+  /* Borderless and same height whether focused or not, so content never shifts
+     and every tab's text stays on the same baseline. */
+  background: transparent;
+  border: none;
+  border-radius: 8px 8px 0 0;
   cursor: pointer;
   max-width: 220px;
+  color: var(--text-dim);
   position: relative;
-  transition: background-color 0.12s ease;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
 }
 
-/* Focused session: stays in place (no downward shift). It recolours to the
-   terminal surface (--bg), squares its bottom corners, and grows a bridge
-   (::after) straight down through the 6px float gap and the bar's 1px border
-   into the terminal — so tab + terminal read as one continuous piece. No tab
-   carries this class unless a terminal is focused, so at rest nothing connects. */
-.terminal-tab-active {
-  background: var(--bg);
-  border-bottom-color: var(--bg);
-  border-radius: 6px 6px 0 0;
+.terminal-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
-.terminal-tab-active::after {
+/* Thin divider on the left of each tab (Chrome separators). Hidden on both
+   sides of the active or hovered tab so it reads as a clean solid shape. */
+.terminal-tab:not(:first-child)::before {
   content: '';
   position: absolute;
-  left: -1px;
-  right: -1px;
-  top: 100%;
-  height: 7px; /* 6px float gap + 1px bar border */
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 1px;
+  background: var(--border);
+}
+
+.terminal-tab-active::before,
+.terminal-tab:hover::before,
+.terminal-tab-active + .terminal-tab::before,
+.terminal-tab:hover + .terminal-tab::before {
+  opacity: 0;
+}
+
+/* Focused session: filled with the terminal surface (--bg), rounded top, and
+   dropped 1px over the bar's border so it merges into the terminal below.
+   Same box as at rest — only the fill changes, so text doesn't move. */
+.terminal-tab-active {
   background: var(--bg);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  color: var(--text);
+  margin-bottom: -1px;
 }
 
 .terminal-tab-exited {
