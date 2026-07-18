@@ -23,6 +23,8 @@ import {
   type CreateNoteArgs
 } from './notes'
 import { loadProjects, saveProjects } from './projects'
+import { disposeSidecar, sttStart, sttStop } from './stt'
+import { structureTranscript, type StructureArgs } from './structure'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
 import { safeSend } from './safe-send'
 import {
@@ -145,6 +147,12 @@ function registerIpc(): void {
   )
   ipcMain.handle('notes:createNote', (_e, args: CreateNoteArgs) => createNote(args))
   ipcMain.handle('notes:delete', (_e, path: string) => deleteNoteItem(path))
+  ipcMain.handle('notes:structure', (_e, args: StructureArgs) => structureTranscript(args))
+
+  ipcMain.on('stt:start', (_e, { model }: { model: string }) => {
+    if (mainWindow) sttStart(mainWindow, model)
+  })
+  ipcMain.on('stt:stop', () => sttStop())
 
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
@@ -282,5 +290,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   disposeAllTerminals()
+  disposeSidecar()
   app.quit()
 })

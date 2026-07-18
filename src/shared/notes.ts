@@ -49,6 +49,20 @@ export interface ParsedNote extends Partial<NoteFrontmatter> {
   body: string
 }
 
+/** Spec default (SPEC-NOTES.md §2): base.en misheard accents; turbo fixes it. */
+export const DEFAULT_STT_MODEL = 'openai_whisper-large-v3-v20240930_turbo'
+
+/** One JSON line from the STT sidecar (SPEC-NOTES.md §6.1). */
+export interface SttEvent {
+  event: 'loading' | 'ready' | 'level' | 'partial' | 'final' | 'error'
+  rms?: number
+  confirmed?: string
+  tail?: string
+  text?: string
+  duration_s?: number
+  message?: string
+}
+
 const FRONTMATTER = /^---\n([\s\S]*?)\n---\n?/
 
 /** Tolerant frontmatter parse — files without frontmatter are all body. */

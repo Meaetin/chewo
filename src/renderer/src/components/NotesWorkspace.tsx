@@ -10,8 +10,22 @@ import {
   type NoteSource,
   type NotesTopic
 } from '../../../shared/notes'
+import type { TopicRef } from './NotesSidebar'
 
 const AUTOSAVE_MS = 800
+
+/** App-wide dictation state — one recording at a time, owned by App. */
+export type RecordingState =
+  | { phase: 'loading'; ref: TopicRef }
+  | {
+      phase: 'recording'
+      ref: TopicRef
+      confirmed: string
+      tail: string
+      level: number
+      startedAt: number
+    }
+  | { phase: 'structuring'; ref: TopicRef }
 
 function noteDate(iso: string): string {
   if (!iso) return ''
@@ -132,10 +146,87 @@ function NoteEditor({ path }: { path: string }): React.JSX.Element {
   )
 }
 
+function formatElapsed(startedAt: number): string {
+  const secs = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+}
+
+/** Live dictation view: level meter, elapsed, confirmed text solid + in-flight tail dimmed. */
+function RecordingPanel({
+  rec,
+  onStop
+}: {
+  rec: RecordingState
+  onStop: () => void
+}): React.JSX.Element {
+  const [, forceTick] = useState(0)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const timer = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  })
+
+  return (
+    <div className="recording-panel">
+      <div className="recording-status-row">
+        {rec.phase === 'loading' && (
+          <span className="recording-status">
+            Loading Whisper model… first run downloads it (~630 MB), later runs are instant.
+          </span>
+        )}
+        {rec.phase === 'recording' && (
+          <>
+            <span className="recording-dot">●</span>
+            <span className="recording-elapsed">{formatElapsed(rec.startedAt)}</span>
+            <div className="level-meter">
+              <div
+                className="level-meter-fill"
+                style={{ width: `${Math.min(100, Math.round(rec.level * 100))}%` }}
+              />
+            </div>
+            <button className="recording-stop-button" onClick={onStop}>
+              ■ Stop
+            </button>
+          </>
+        )}
+        {rec.phase === 'structuring' && (
+          <span className="recording-status">Structuring the transcript with Claude…</span>
+        )}
+      </div>
+
+      {rec.phase !== 'loading' && (
+        <div className="recording-transcript" ref={scrollRef}>
+          {rec.phase === 'recording' && !rec.confirmed && !rec.tail ? (
+            <span className="transcript-tail">Listening…</span>
+          ) : (
+            <>
+              {rec.phase === 'recording' && (
+                <>
+                  <span>{rec.confirmed}</span>{' '}
+                  <span className="transcript-tail">{rec.tail}</span>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface NotesWorkspaceProps {
   subject: string
   topic: NotesTopic
   selectedNotePath: string | null
+  recording: RecordingState | null
+  onStartRecording: () => void
+  onStopRecording: () => void
   onSelectNote: (path: string | null) => void
   onCreateNote: (title: string, body?: string, source?: NoteSource) => Promise<void>
   onDeleteNote: (path: string) => void
@@ -150,10 +241,17 @@ export function NotesWorkspace({
   subject,
   topic,
   selectedNotePath,
+  recording,
+  onStartRecording,
+  onStopRecording,
   onSelectNote,
   onCreateNote,
   onDeleteNote
 }: NotesWorkspaceProps): React.JSX.Element {
+  const recordingHere =
+    recording && recording.ref.subject === subject && recording.ref.topic === topic.name
+      ? recording
+      : null
   const pasteNote = async (): Promise<void> => {
     const text = (await navigator.clipboard.readText()).trim()
     if (!text) return
@@ -170,8 +268,13 @@ export function NotesWorkspace({
           </span>
           <button
             className="notes-record-button"
-            title="Record a lesson — dictation arrives in phase N2"
-            disabled
+            title={
+              recording
+                ? 'A recording is already in progress'
+                : 'Record a lesson — live transcript, structured note on stop'
+            }
+            disabled={!!recording}
+            onClick={onStartRecording}
           >
             ●
           </button>
@@ -226,14 +329,16 @@ export function NotesWorkspace({
       </div>
 
       <div className="notes-editor">
-        {selectedNotePath ? (
+        {recordingHere ? (
+          <RecordingPanel rec={recordingHere} onStop={onStopRecording} />
+        ) : selectedNotePath ? (
           <NoteEditor key={selectedNotePath} path={selectedNotePath} />
         ) : (
           <div className="empty-state">
             <h2>
               {subject} / {topic.name}
             </h2>
-            <p>Select a note on the left, or create one with “+”.</p>
+            <p>Select a note on the left, create one with “+”, or hit ● to dictate a lesson.</p>
           </div>
         )}
       </div>

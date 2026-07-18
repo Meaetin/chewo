@@ -9,10 +9,10 @@ import {
   type Workflow,
   type Worktree
 } from '../../shared/projects'
-import type { NoteSource, NotesTree } from '../../shared/notes'
+import { DEFAULT_STT_MODEL, type NoteSource, type NotesTree } from '../../shared/notes'
 import { Sidebar } from './components/Sidebar'
 import { NotesSidebar, type TopicRef } from './components/NotesSidebar'
-import { NotesWorkspace } from './components/NotesWorkspace'
+import { NotesWorkspace, type RecordingState } from './components/NotesWorkspace'
 import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
@@ -60,6 +60,9 @@ export function App(): React.JSX.Element {
   const [notesTree, setNotesTree] = useState<NotesTree | null>(null)
   const [notesSel, setNotesSel] = useState<TopicRef | null>(null)
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
+  const [recording, setRecording] = useState<RecordingState | null>(null)
+  const recordingRef = useRef<RecordingState | null>(null)
+  recordingRef.current = recording
   const notesRoot = useRef<string | undefined>(undefined)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
@@ -82,6 +85,40 @@ export function App(): React.JSX.Element {
     setNotesTree(await window.api.notesScan())
   }, [])
 
+  /** stt 'final' → write raw twin, run the claude -p structuring pass, open the note. */
+  const finalizeRecording = useCallback(
+    async (text: string, durationS: number) => {
+      const rec = recordingRef.current
+      if (!rec) return
+      const transcript = text.trim()
+      if (!transcript) {
+        showToast('Dictation stopped — no speech captured.')
+        setRecording(null)
+        return
+      }
+      setRecording({ phase: 'structuring', ref: rec.ref })
+      const res = await window.api.notesStructure({
+        subject: rec.ref.subject,
+        topic: rec.ref.topic,
+        transcript,
+        durationS,
+        sttModel: DEFAULT_STT_MODEL
+      })
+      setRecording(null)
+      await refreshNotes()
+      if (res.path) {
+        setNotesSel(rec.ref)
+        setSelectedNotePath(res.path)
+      }
+      if (!res.ok) {
+        showToast(
+          `Structuring failed: ${res.error ?? 'unknown'} — the raw transcript was saved as a note instead.`
+        )
+      }
+    },
+    [refreshNotes, showToast]
+  )
+
   useEffect(() => {
     void refresh()
     void refreshNotes()
@@ -97,6 +134,34 @@ export function App(): React.JSX.Element {
       loaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
+    const offStt = window.api.onSttEvent((ev) => {
+      switch (ev.event) {
+        case 'ready':
+          setRecording((r) =>
+            r && r.phase === 'loading'
+              ? { phase: 'recording', ref: r.ref, confirmed: '', tail: '', level: 0, startedAt: Date.now() }
+              : r
+          )
+          break
+        case 'level':
+          setRecording((r) => (r && r.phase === 'recording' ? { ...r, level: ev.rms ?? 0 } : r))
+          break
+        case 'partial':
+          setRecording((r) =>
+            r && r.phase === 'recording'
+              ? { ...r, confirmed: ev.confirmed ?? '', tail: ev.tail ?? '' }
+              : r
+          )
+          break
+        case 'final':
+          void finalizeRecording(ev.text ?? '', ev.duration_s ?? 0)
+          break
+        case 'error':
+          showToast(`Dictation: ${ev.message ?? 'unknown error'}`)
+          setRecording((r) => (r && r.phase === 'structuring' ? r : null))
+          break
+      }
+    })
     const offChanged = window.api.onSessionsChanged(() => void refresh())
     const offExit = window.api.onTermExit(({ id }) => {
       setTabs((t) => t.map((tab) => (tab.termId === id ? { ...tab, exited: true } : tab)))
@@ -121,12 +186,13 @@ export function App(): React.JSX.Element {
     })
     return () => {
       offNotes()
+      offStt()
       offChanged()
       offExit()
       offBound()
       offHandoff()
     }
-  }, [refresh, refreshNotes, showToast])
+  }, [refresh, refreshNotes, finalizeRecording, showToast])
 
   // Persist projects + remembered terminals whenever state settles.
   // A section's saved list = its live bound tabs + dormant leftovers.
@@ -513,6 +579,16 @@ export function App(): React.JSX.Element {
     [notesSel, refreshNotes, showToast]
   )
 
+  const startRecording = useCallback(() => {
+    if (!notesSel || recordingRef.current) return
+    setRecording({ phase: 'loading', ref: notesSel })
+    window.api.sttStart(DEFAULT_STT_MODEL)
+  }, [notesSel])
+
+  const stopRecording = useCallback(() => {
+    window.api.sttStop()
+  }, [])
+
   const deleteNote = useCallback(
     async (path: string) => {
       const res = await window.api.notesDelete(path)
@@ -673,6 +749,9 @@ export function App(): React.JSX.Element {
                 subject={notesSel.subject}
                 topic={currentTopic}
                 selectedNotePath={selectedNotePath}
+                recording={recording}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
                 onSelectNote={setSelectedNotePath}
                 onCreateNote={createNote}
                 onDeleteNote={(p) => void deleteNote(p)}
