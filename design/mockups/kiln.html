@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chewo — Kiln mockups</title>
+<style>
+/* ============================================================================
+   KILN — design-system token sheet (doc 04 §1, verbatim) + motion (doc 05 §2)
+   Layering law: primitive -> semantic -> components consume semantic only.
+   ========================================================================== */
+:root {
+  /* ---- Warm-dark neutral ramp (AD §3.1) — R > G > B always ---- */
+  --c-surface-0: #171310;  /* Kiln floor — window base, behind cards */
+  --c-surface-1: #1B1714;  /* Char — terminal + editor canvas */
+  --c-surface-2: #211C17;  /* Roast — sidebar, panels, tab rail */
+  --c-surface-3: #272119;  /* Umber — cards, modals, overlays, raised rows */
+  --c-surface-4: #2E2720;  /* Bark — hover fills */
+  --c-surface-5: #362E25;  /* Walnut — pressed / neutral-selected */
+  --c-line-1:    #3A322A;  /* Seam — default hairlines, dividers */
+  --c-line-2:    #4A4036;  /* Grain — input borders, overlay borders, rim src */
+
+  /* ---- Text ramp (AD §3.2) — cream, never #fff ---- */
+  --c-text-primary:   #EDE6DD;  /* Cream */
+  --c-text-secondary: #B9AE9F;  /* Oat */
+  --c-text-tertiary:  #8A7F70;  /* Ash (4.5:1 floor) */
+  --c-text-faint:     #625A4F;  /* Smoke */
+
+  /* ---- Clay — the one brand accent (AD §3.3) ---- */
+  --c-clay-wash: rgba(217, 119, 87, 0.10);
+  --c-clay-hi:   #E08A66;  /* Glow */
+  --c-clay:      #D97757;  /* Clay — THE accent */
+  --c-clay-deep: #C05F3E;  /* Fired */
+  --c-on-clay:   #241610;  /* warm ink ON clay fills — NOT white */
+
+  /* ---- Semantic status hues (LOCKED — "green = accent only") ---- */
+  --c-danger:       #E2574B;  --c-danger-wash:  rgba(226, 87, 75, 0.11);
+  --c-warning:      #DFA94E;  --c-warning-wash: rgba(223, 169, 78, 0.11);
+  /* live/running = FIXED cool cyan, decoupled from the accent so emerald-accent
+     never blurs with a running dot. NOT derived from any accent triplet. */
+  --c-live:         #34C9D6;  --c-live-wash:    rgba(52, 201, 214, 0.12);
+
+  /* ---- Source-badge hues — the ONLY per-source color (AD §3.5) ---- */
+  --c-denim:      #8FA9C9;  --c-denim-wash: rgba(143, 169, 201, 0.10);
+  --c-codex-vivid: #6ba4f8;
+
+  /* ---- Rim primitive (AD §5) ---- */
+  --c-rim: rgba(255, 240, 225, 0.05);
+
+  /* ---- ANSI (doc 03 §8 / 02 §7.3) — derived from app tokens where possible -- */
+  --ansi-black: #241E19;   --ansi-br-black: #5C5248;
+  /* ANSI green is its own yellow-green, kept DISTINCT from the emerald cursor
+     (which is --accent) so sample output never blurs into the caret. */
+  --ansi-red: var(--c-danger);   --ansi-green: #79B36A;
+  --ansi-yellow: var(--c-warning);
+  --ansi-blue: var(--c-denim);   /* variant-driven, §1.6 */
+  --ansi-magenta: #C98AA9;       --ansi-cyan: #83B5A4;
+  --ansi-white: #D8CEC2;         --ansi-br-white: #F4EDE4;
+
+  /* ---- Font stacks (VD §1) ---- */
+  --font-ui-stack:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  --font-serif-stack: 'Source Serif 4', Georgia, serif;
+  --font-mono-stack:  'Berkeley Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* ---- Type scale (VD §1) — whole px only ---- */
+  --fs-2xs: 10px;  --lh-2xs: 14px;
+  --fs-xs:  11px;  --lh-xs:  16px;
+  --fs-sm:  12px;  --lh-sm:  17px;
+  --fs-base:13px;  --lh-base:20px;
+  --fs-md:  14px;  --lh-md:  22px;
+  --fs-lg:  15px;  --lh-lg:  21px;
+  --fs-xl:  18px;  --lh-xl:  24px;
+  --fs-2xl: 24px;  --lh-2xl: 30px;
+  --fs-mono-sm: 11px;  --fs-mono: 12px;  --fs-mono-lg: 13px;
+
+  /* ---- Weights (AD §4 — 400/500/600, no 700) ---- */
+  --weight-regular: 400;  --weight-medium: 500;  --weight-semibold: 600;
+
+  /* ---- Tracking ---- */
+  --tracking-caps: 0.06em;  --tracking-badge: 0.02em;  --tracking-tight: -0.01em;
+
+  /* ---- Space scale (VD §2) — base 4, omits 10/14/18/28 ---- */
+  --space-2: 2px;  --space-4: 4px;  --space-6: 6px;  --space-8: 8px;
+  --space-12:12px; --space-16:16px; --space-20:20px; --space-24:24px; --space-32:32px;
+
+  /* ---- Radius (AD §5 / VD §3) ---- */
+  --radius-1: 5px;  --radius-2: 7px;  --radius-3: 10px;  --radius-4: 14px;
+  --radius-pill: 999px;
+
+  /* ---- Elevation (VD §6) — light not shadow ---- */
+  --rim:            inset 0 1px 0 var(--c-rim);
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.40);
+  --shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.45);
+
+  /* ---- Motion primitives (doc 05 §2) ---- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:      cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in:       cubic-bezier(0.4, 0, 1, 1);
+  --ease-settle:   cubic-bezier(0.34, 1.26, 0.64, 1);
+  --ease-breath:   cubic-bezier(0.37, 0, 0.63, 1);
+  --dur-instant: 80ms;  --dur-fast: 140ms;  --dur-base: 200ms;
+  --dur-slow: 320ms;    --dur-bloom: 400ms;
+  --period-breath: 2000ms;  --period-work: 1400ms;
+  --motion-hover:  var(--dur-fast) var(--ease-standard);
+  --motion-press:  var(--dur-instant) var(--ease-standard);
+  --motion-focus:  var(--dur-instant) var(--ease-standard);
+  --motion-select: var(--dur-fast) var(--ease-standard);
+  --motion-overlay-in:  var(--dur-base) var(--ease-out);
+  --motion-content: var(--dur-base) var(--ease-out);
+
+  /* ---- SEMANTIC tokens — components consume ONLY these (§1.3) ---- */
+  --bg-window:   var(--c-surface-0);
+  --bg-canvas:   var(--c-surface-1);
+  --bg-sidebar:  var(--c-surface-2);
+  --bg-card:     var(--c-surface-3);
+  --bg-hover:    var(--c-surface-4);
+  --bg-selected: var(--c-clay-wash);
+  --bg-neutral-selected: var(--c-surface-5);
+  --text-primary:   var(--c-text-primary);
+  --text-secondary: var(--c-text-secondary);
+  --text-tertiary:  var(--c-text-tertiary);
+  --text-faint:     var(--c-text-faint);
+  --border-hairline: var(--c-line-1);
+  --border-strong:   var(--c-line-2);
+  --border-selected: var(--c-clay);
+  --focus-ring:      0 0 0 3px var(--c-clay-wash);
+  --accent:       var(--c-clay);
+  --accent-hover: var(--c-clay-hi);
+  --accent-press: var(--c-clay-deep);
+  --accent-text:  var(--c-clay-hi);
+  --on-accent:    var(--c-on-clay);
+  --danger:  var(--c-danger);   --danger-bg:  var(--c-danger-wash);
+  --warning: var(--c-warning);  --warning-bg: var(--c-warning-wash);
+  --live:    var(--c-live);     --live-bg:    var(--c-live-wash);
+  --live-wash: var(--c-live-wash);
+  --font-ui:    var(--font-ui-stack);
+  --font-mono:  var(--font-mono-stack);
+  --font-serif: var(--font-serif-stack);
+  --border-hair:  1px solid var(--border-hairline);
+  --border-input: 1px solid var(--border-strong);
+  --shadow-modal: var(--rim), var(--shadow-overlay);
+  --shadow-float: var(--rim), var(--shadow-popover);
+
+  /* ---- VARIANT axes (§1.6) — defaults; toggles repoint these ---- */
+  --font-display:   var(--font-serif);     /* (A) serif on */
+  --weight-display: var(--weight-medium);
+  --badge-codex:    var(--c-denim);        /* (B) denim */
+  --badge-codex-bg: var(--c-denim-wash);
+  --grain-opacity:  0.028;                 /* (C) grain on */
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='90' height='90' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* ---- Scaffolding tokens (mockup chrome only — deliberately cool/neutral) -- */
+  --mock-bg:     #14151a;
+  --mock-panel:  #1d1f27;
+  --mock-panel2: #262933;
+  --mock-border: #34384552;
+  --mock-text:   #c3c8d4;
+  --mock-dim:    #7a8091;
+  --mock-accent: #7c93c9;
+}
+
+/* ---- (A) Serif OFF ---- */
+[data-serif="off"] { --font-display: var(--font-ui); --weight-display: var(--weight-semibold); }
+/* ---- (B) Codex blue vivid ---- */
+[data-codex="vivid"] { --badge-codex: var(--c-codex-vivid); --badge-codex-bg: rgba(107,164,248,0.10); --ansi-blue: var(--c-codex-vivid); }
+/* ---- (C) Grain flat ---- */
+[data-grain="off"] { --grain-opacity: 0; }
+
+/* ============================================================================
+   RESET + PAGE BACKDROP (neutral desktop, not a webpage)
+   ========================================================================== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-ui);
+  background:
+    radial-gradient(1200px 700px at 50% -10%, #20222b 0%, var(--mock-bg) 60%);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  padding: var(--space-16);
+  min-height: 100vh;
+}
+.icon { width: 16px; height: 16px; stroke: currentColor; fill: none;
+  stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+  flex: none; display: inline-block; vertical-align: middle; }
+.icon--14 { width: 14px; height: 14px; }
+.icon--20 { width: 20px; height: 20px; stroke-width: 1.5; }
+.icon--18 { width: 18px; height: 18px; }
+
+/* ============================================================================
+   CONTROL STRIP — mockup scaffolding (clearly not part of the app)
+   ========================================================================== */
+.control-strip {
+  position: sticky; top: calc(-1 * var(--space-16)); z-index: 50;
+  margin: calc(-1 * var(--space-16)) calc(-1 * var(--space-16)) var(--space-16);
+  padding: 10px var(--space-16);
+  display: flex; align-items: center; gap: var(--space-16); flex-wrap: wrap;
+  background: color-mix(in srgb, var(--mock-panel) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--mock-border);
+  font-family: var(--font-ui-stack);
+}
+.control-strip__brand {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--mock-dim);
+  padding-right: var(--space-16); border-right: 1px solid var(--mock-border);
+  display: flex; align-items: center; gap: 8px;
+}
+.control-strip__brand b { color: var(--mock-text); letter-spacing: 0.02em; text-transform: none; font-size: 13px; }
+.control-strip__group { display: flex; align-items: center; gap: 6px; }
+.control-strip__label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mock-dim); margin-right: 2px; }
+
+/* Segmented screen switcher */
+.seg { display: inline-flex; background: var(--mock-bg); border: 1px solid var(--mock-border); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg__btn {
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--mock-dim);
+  background: transparent; border: 0; border-radius: 6px; padding: 5px 11px; cursor: pointer;
+  transition: background var(--motion-hover), color var(--motion-hover);
+}
+.seg__btn:hover { color: var(--mock-text); }
+.seg__btn.is-active { background: var(--mock-panel2); color: #fff; box-shadow: inset 0 0 0 1px var(--mock-border); }
+
+/* Variant toggle switches */
+.tog { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--mock-dim); user-select: none; }
+.tog__sw {
+  --on: 0; position: relative; width: 34px; height: 19px; border-radius: 999px;
+  background: var(--mock-bg); border: 1px solid var(--mock-border); cursor: pointer; padding: 0; flex: none;
+  transition: background var(--motion-hover);
+}
+.tog__sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--mock-dim); transition: transform var(--dur-fast) var(--ease-standard), background var(--motion-hover);
+}
+.tog__sw[aria-pressed="true"] { background: color-mix(in srgb, var(--mock-accent) 40%, var(--mock-bg)); }
+.tog__sw[aria-pressed="true"]::after { transform: translateX(15px); background: var(--mock-accent); }
+.tog__val { min-width: 38px; font-variant-numeric: tabular-nums; color: var(--mock-text); font-weight: 500; }
+
+/* ---- Accent Explorer (scaffolding chrome — uses --mock-* tokens, not app tokens) ---- */
+.accent-explorer { flex-wrap: wrap; gap: 10px; }
+.swatch-groups { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.swatch-set { display: flex; align-items: center; gap: 5px; }
+.swatch-set__label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mock-dim); margin-right: 1px; }
+.swatch {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--mock-text);
+  background: var(--mock-panel2); border: 1px solid var(--mock-border);
+  border-radius: 6px; padding: 3px 7px 3px 4px;
+  transition: border-color var(--motion-hover), background var(--motion-hover);
+}
+.swatch:hover { border-color: var(--mock-dim); }
+.swatch__chip { width: 13px; height: 13px; border-radius: 4px; flex: none;
+  background: hsl(var(--sw-h) var(--sw-s) var(--sw-l)); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
+.swatch.is-active { border-color: hsl(var(--sw-h) var(--sw-s) var(--sw-l)); background: var(--mock-bg);
+  box-shadow: 0 0 0 1px hsl(var(--sw-h) var(--sw-s) var(--sw-l)); }
+
+.hue-slider-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.hue-slider {
+  -webkit-appearance: none; appearance: none; width: 150px; height: 8px; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(to right,
+    hsl(0 65% 55%), hsl(45 78% 56%), hsl(90 55% 52%), hsl(140 55% 50%),
+    hsl(190 60% 52%), hsl(240 60% 60%), hsl(290 55% 60%), hsl(340 60% 60%), hsl(360 65% 55%));
+  border: 1px solid var(--mock-border);
+}
+.hue-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%;
+  background: hsl(var(--accent-h, 44) var(--accent-s, 58%) var(--accent-l, 57%)); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; }
+.hue-slider::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%;
+  background: hsl(var(--accent-h, 44) var(--accent-s, 58%) var(--accent-l, 57%)); border: 2px solid #fff; cursor: pointer; }
+
+.accent-readout { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--mock-dim);
+  padding: 3px 8px; background: var(--mock-bg); border: 1px solid var(--mock-border); border-radius: 6px; }
+.accent-readout__chip { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.accent-readout b { color: var(--mock-text); font-weight: 600; }
+.accent-readout .mono { font-family: var(--font-mono-stack); color: var(--mock-text); font-variant-numeric: tabular-nums; text-transform: uppercase; }
+.control-strip__note { font-size: 10px; color: var(--mock-dim); font-style: italic; opacity: 0.85; }
+
+/* ---- Base-palette selector (scaffolding chrome) ---- */
+.base-picker { display: inline-flex; align-items: center; gap: 5px; }
+.base-sw {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--mock-text);
+  background: var(--mock-panel2); border: 1px solid var(--mock-border);
+  border-radius: 6px; padding: 3px 8px 3px 4px;
+  transition: border-color var(--motion-hover), box-shadow var(--motion-hover);
+}
+.base-sw:hover { border-color: var(--mock-dim); }
+.base-sw__chip { width: 13px; height: 13px; border-radius: 4px; flex: none;
+  background: var(--sw); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10); }
+.base-sw.is-active { border-color: var(--mock-text); box-shadow: 0 0 0 1px var(--mock-text); background: var(--mock-bg); }
+
+/* ============================================================================
+   STAGE + APP WINDOW FRAME (emulated hiddenInset macOS window)
+   ========================================================================== */
+.stage {
+  display: flex; justify-content: center;
+
+  /* ---- ACCENT — single HSL source of truth (default: Gold 44 78% 56%) ----
+     Every accent token below derives from --accent-h/s/l so the whole app
+     recolors from one triplet. The primitive->semantic->component law holds:
+     components still consume --accent* only; we only change what they resolve to. */
+  --accent-h: 44;  --accent-s: 78%;  --accent-l: 56%;
+  --accent:       hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --accent-hover: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 7%));
+  --accent-press: hsl(var(--accent-h) calc(var(--accent-s) + 3%) calc(var(--accent-l) - 9%));
+  --accent-text:  hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 10%));
+  --accent-wash:  hsla(var(--accent-h) var(--accent-s) var(--accent-l) / 0.12);
+  --on-accent:    hsl(var(--accent-h) 30% 12%);   /* warm dark ink ON accent fills */
+  --bg-selected:      var(--accent-wash);
+  --border-selected:  var(--accent);
+  --focus-ring:       0 0 0 3px hsla(var(--accent-h) var(--accent-s) var(--accent-l) / 0.30);
+
+  /* ---- LIVE — FIXED cool cyan, never derived from the accent (locked). ---- */
+  --live:      var(--c-live);
+  --live-bg:   var(--c-live-wash);
+  --live-wash: var(--c-live-wash);
+
+  /* ---- ROOM — semantic surfaces/text/lines re-declared here so the room
+     override (which repoints the primitives on THIS same element) propagates. ---- */
+  --bg-window:   var(--c-surface-0);
+  --bg-canvas:   var(--c-surface-1);
+  --bg-sidebar:  var(--c-surface-2);
+  --bg-card:     var(--c-surface-3);
+  --bg-hover:    var(--c-surface-4);
+  --bg-neutral-selected: var(--c-surface-5);
+  --text-primary:   var(--c-text-primary);
+  --text-secondary: var(--c-text-secondary);
+  --text-tertiary:  var(--c-text-tertiary);
+  --text-faint:     var(--c-text-faint);
+  --border-hairline: var(--c-line-1);
+  --border-strong:   var(--c-line-2);
+  --border-hair:  1px solid var(--c-line-1);
+  --border-input: 1px solid var(--c-line-2);
+}
+
+/* BASE PALETTE — 5 dark foundations. Each repoints the neutral ramp + lines +
+   text PRIMITIVES on the stage element; the semantic tokens declared in .stage
+   above re-resolve against these, and direct primitive consumers (app-window
+   border, terminal fg, badge--sh, tab rims) follow too. Accent is untouched —
+   it lives in its own HSL vars, so base × accent combine freely. */
+.stage[data-base="warm"] {      /* Kiln clay-warm (original) */
+  --c-surface-0: #171310;  --c-surface-1: #1B1714;  --c-surface-2: #211C17;
+  --c-surface-3: #272119;  --c-surface-4: #2E2720;  --c-surface-5: #362E25;
+  --c-line-1: #3A322A;     --c-line-2: #4A4036;
+  --c-text-primary: #EDE6DD;   --c-text-secondary: #B9AE9F;
+  --c-text-tertiary: #8A7F70;  --c-text-faint: #625A4F;
+}
+.stage[data-base="graphite"] {  /* true neutral gray */
+  --c-surface-0: #141414;  --c-surface-1: #181818;  --c-surface-2: #1E1E1E;
+  --c-surface-3: #252525;  --c-surface-4: #2C2C2C;  --c-surface-5: #343434;
+  --c-line-1: #3A3A3A;     --c-line-2: #484848;
+  --c-text-primary: #E9E7E4;   --c-text-secondary: #ADAAA6;
+  --c-text-tertiary: #807D78;  --c-text-faint: #5A5854;
+}
+.stage[data-base="slate"] {     /* cool blue-gray (Linear-ish) */
+  --c-surface-0: #0F1216;  --c-surface-1: #13161B;  --c-surface-2: #181C22;
+  --c-surface-3: #1E232B;  --c-surface-4: #262C35;  --c-surface-5: #2F3742;
+  --c-line-1: #333B45;     --c-line-2: #414B57;
+  --c-text-primary: #E6E9EE;   --c-text-secondary: #A9B0BB;
+  --c-text-tertiary: #7A828E;  --c-text-faint: #565D67;
+}
+.stage[data-base="ink"] {       /* near-black neutral, high contrast */
+  --c-surface-0: #0A0A0B;  --c-surface-1: #0F0F10;  --c-surface-2: #141416;
+  --c-surface-3: #1B1B1E;  --c-surface-4: #232327;  --c-surface-5: #2C2C31;
+  --c-line-1: #303035;     --c-line-2: #3D3D43;
+  --c-text-primary: #ECECEE;   --c-text-secondary: #ABABB2;
+  --c-text-tertiary: #78787F;  --c-text-faint: #545459;
+}
+.stage[data-base="taupe"] {     /* warm low-sat greige, NOT brown */
+  --c-surface-0: #141312;  --c-surface-1: #1A1918;  --c-surface-2: #201E1D;
+  --c-surface-3: #272523;  --c-surface-4: #2E2B29;  --c-surface-5: #363330;
+  --c-line-1: #3B3835;     --c-line-2: #4A4642;
+  --c-text-primary: #ECEAE7;   --c-text-secondary: #B4AFAA;
+  --c-text-tertiary: #847F79;  --c-text-faint: #5C574F;
+}
+
+/* Calm color fade on recolor / room switch — structural surfaces + accent/live
+   marks only (interactive elements keep their own snappier hover transitions). */
+.app-window, .sidebar, .notes-pages, .notes-chat, .main-panel,
+.term-stage, .term-canvas, .sheet, .notes-editor, .tabbar,
+.trans-header, .trans-body, .rec-status-bar, .rec-transcript,
+.editor-head, .editor-body, .workspace-bar, .chat-head, .chat-body,
+.chat-scope-row, .chat-input-row, .empty-wrap, .modal, .modal__head, .modal__foot,
+.cursor-block, .dot, .level-meter, .level-meter__fill, .row--live,
+.settings-page, .settings-header, .set-toggle-list, .set-base-tile, .set-preview,
+.set-preview__mini, .app-readout, .split-btn, .wswitch--full {
+  transition: background-color var(--dur-base) var(--ease-standard),
+              border-color var(--dur-base) var(--ease-standard),
+              color var(--dur-base) var(--ease-standard);
+}
+
+.screen { display: none; width: 100%; }
+.screen.is-active { display: block; }
+
+.app-window {
+  width: 1264px; max-width: 100%; height: 792px; margin: 0 auto;
+  background: var(--bg-window);
+  border: 1px solid var(--c-line-1);
+  border-radius: 12px; overflow: hidden;
+  display: flex; position: relative; isolation: isolate;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 2px 0 rgba(255,240,225,0.03) inset;
+  font-size: var(--fs-base); line-height: var(--lh-base);
+  animation: contentIn var(--dur-base) var(--ease-out);
+}
+@keyframes contentIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Traffic lights + drag zone */
+.titlebar-lights { position: absolute; top: 14px; left: 14px; display: flex; gap: 8px; z-index: 30; }
+.tl-dot { width: 12px; height: 12px; border-radius: 50%; }
+.tl-dot--close { background: #E2574B; }
+.tl-dot--min { background: #DFA94E; }
+.tl-dot--max { background: #8FBC72; }
+
+/* ---- Sidebar (Roast) ---- */
+.sidebar {
+  width: 300px; flex: none; background: var(--bg-sidebar);
+  border-right: var(--border-hair); overflow-x: hidden;
+  display: flex; flex-direction: column; position: relative; isolation: isolate;
+}
+.sidebar::before, .main-panel::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--grain-image); background-size: 90px 90px;
+  opacity: var(--grain-opacity); transition: opacity var(--dur-slow) var(--ease-standard);
+}
+.drag-zone {
+  height: 44px; flex: none; padding-left: 76px; padding-right: var(--space-8);
+  display: flex; align-items: center;
+}
+
+/* WorkflowSwitcher (segmented control) */
+.wswitch { display: inline-flex; gap: var(--space-4); }
+.wswitch__btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: var(--fs-sm); font-weight: var(--weight-medium);
+  color: var(--text-secondary); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-2); padding: var(--space-6) var(--space-12); cursor: pointer;
+  transition: background var(--motion-hover), color var(--motion-hover), border-color var(--motion-hover);
+}
+.wswitch__btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.wswitch__btn.is-active {
+  background: var(--bg-neutral-selected); border-color: var(--border-hairline); color: var(--text-primary);
+}
+.wswitch__btn.is-active .icon { color: var(--accent); }
+.wswitch__btn .icon { color: var(--text-tertiary); }
+
+/* Full-width segmented control on its own row (locked sidebar-top Row 1) */
+.side-row { padding: var(--space-8) var(--space-12); }
+.side-row--switch { padding-bottom: var(--space-6); }
+.wswitch--full {
+  display: flex; width: 100%; background: var(--bg-window);
+  border: var(--border-hair); border-radius: var(--radius-2); padding: 2px; gap: 2px;
+}
+.wswitch--full .wswitch__btn {
+  flex: 1 1 0; min-width: 0; justify-content: center;
+  border-radius: var(--radius-1); border: 1px solid transparent;
+}
+.wswitch--full .wswitch__btn.is-active {
+  background: var(--bg-card); border-color: var(--border-hairline); color: var(--text-primary);
+}
+
+/* Row 2 — create action: SECONDARY split-button + inline icon tools.
+   Deliberately subtle: bordered on a neutral surface, NO accent fill (locked). */
+.side-row--create { display: flex; align-items: center; gap: var(--space-8);
+  padding: var(--space-4) var(--space-12) var(--space-8); }
+.split-btn {
+  display: inline-flex; align-items: stretch; flex: 1 1 auto; min-width: 0;
+  background: var(--c-surface-3); border: var(--border-hair);
+  border-radius: var(--radius-2); overflow: hidden;
+}
+.split-btn__main {
+  flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; font: inherit; font-size: var(--fs-sm); font-weight: var(--weight-medium);
+  color: var(--text-primary); background: transparent; border: 0;
+  padding: var(--space-6) var(--space-12); cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; transition: background var(--motion-hover);
+}
+.split-btn__main .icon { color: var(--text-tertiary); }
+.split-btn__caret {
+  flex: none; width: 26px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-left: var(--border-hair);
+  color: var(--text-tertiary); cursor: pointer; transition: background var(--motion-hover);
+}
+.split-btn__main:hover, .split-btn__caret:hover { background: var(--bg-hover); }
+.split-btn__caret:hover { color: var(--text-primary); }
+
+/* Sidebar action rows — split into two so nothing overflows the 300px column:
+   Row 1 = two equal-width session buttons; Row 2 = icon-only tools. */
+.side-actions { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-8) var(--space-12); }
+.side-actions--primary { gap: var(--space-6); padding: var(--space-8) var(--space-12) var(--space-4); }
+.side-actions--primary .btn { flex: 1 1 0; min-width: 0; justify-content: center; overflow: hidden; }
+.side-actions--primary .btn .tab__title, .side-actions--primary .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-actions--tools { gap: var(--space-8); padding: var(--space-4) var(--space-12) var(--space-8); }
+.icon-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-2); background: transparent; border: 1px solid transparent;
+  color: var(--text-tertiary); cursor: pointer; flex: none;
+  transition: background var(--motion-hover), color var(--motion-hover);
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.icon-btn--boxed { background: var(--bg-card); border: var(--border-hair); }
+.side-actions__spacer { flex: 1; }
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: var(--weight-medium); border-radius: var(--radius-2);
+  padding: var(--space-6) var(--space-12); border: var(--border-hair);
+  background: var(--bg-card); color: var(--text-primary);
+  transition: background var(--motion-hover), color var(--motion-hover), border-color var(--motion-hover), transform var(--motion-press);
+}
+.btn:hover { background: var(--bg-hover); }
+.btn:active { background: var(--bg-neutral-selected); }
+.btn .icon { color: var(--text-tertiary); }
+.btn--primary { background: var(--accent); color: var(--on-accent); border-color: transparent; padding: var(--space-8) var(--space-16); font-weight: var(--weight-semibold); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--primary:active { background: var(--accent-press); transform: translateY(1px); }
+.btn--primary .icon { color: var(--on-accent); }
+.btn--default { padding: var(--space-8) var(--space-16); }
+.btn--ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.btn--ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn--danger { background: transparent; border-color: transparent; color: var(--danger); }
+.btn--danger:hover { background: var(--danger-bg); }
+.btn--danger .icon { color: var(--danger); }
+
+/* Search input */
+.search-wrap { padding: 0 var(--space-12) var(--space-12); }
+.input {
+  width: 100%; font: inherit; font-size: var(--fs-base); color: var(--text-primary);
+  background: var(--bg-canvas); border: var(--border-input); border-radius: var(--radius-2);
+  padding: var(--space-8) var(--space-12);
+  transition: border-color var(--motion-focus), box-shadow var(--motion-focus);
+}
+.input::placeholder { color: var(--text-faint); }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.input-search { display: flex; align-items: center; gap: 8px; background: var(--bg-canvas);
+  border: var(--border-input); border-radius: var(--radius-2); padding: 0 var(--space-12);
+  transition: border-color var(--motion-focus), box-shadow var(--motion-focus); }
+.input-search:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.input-search .icon { color: var(--text-tertiary); }
+.input-search input { flex: 1; font: inherit; font-size: var(--fs-base); color: var(--text-primary);
+  background: transparent; border: 0; padding: var(--space-8) 0; }
+.input-search input::placeholder { color: var(--text-faint); }
+.input-search input:focus { outline: none; }
+
+/* Sidebar sections */
+.side-scroll { flex: 1; overflow-y: auto; padding-bottom: var(--space-16); }
+.rail-header {
+  display: flex; align-items: center; gap: 6px; padding: var(--space-8) var(--space-12) var(--space-6);
+  font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary);
+}
+.rail-header .chev { color: var(--text-tertiary); }
+.rail-header__count { margin-left: auto; font-size: var(--fs-2xs); color: var(--text-tertiary); font-weight: var(--weight-medium); }
+
+/* Row / list item */
+.row {
+  position: relative; display: flex; align-items: center; gap: var(--space-6);
+  padding: var(--space-6) var(--space-12); margin: 1px var(--space-8); border-radius: var(--radius-2);
+  cursor: pointer; color: var(--text-primary);
+  transition: background var(--motion-select);
+}
+.row:hover { background: var(--bg-hover); }
+.row--selected { background: var(--bg-selected); }
+.row--selected::before {
+  content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px;
+  border-radius: 2px; background: var(--border-selected);
+}
+.row--project { font-weight: var(--weight-medium); }
+.row__chev { color: var(--text-tertiary); }
+.row__title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row__meta { font-size: var(--fs-xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.row--live .row__title { color: color-mix(in srgb, var(--text-primary) 85%, var(--live)); }
+.row--live { background: var(--live-bg); }
+.row--live.row--selected { background: var(--bg-selected); }
+.row__sub { padding-left: var(--space-16); }
+
+.badge {
+  font-size: var(--fs-2xs); line-height: 1; font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-badge); text-transform: uppercase;
+  padding: 3px 5px; border-radius: var(--radius-1); flex: none;
+}
+/* Source badges = BRAND identity, NOT the app accent. CC stays Claude-terracotta
+   and CX stays Codex denim/vivid regardless of whatever the accent is set to. */
+.badge--cc { color: var(--c-clay-hi); background: var(--c-clay-wash); }
+.badge--cx { color: var(--badge-codex); background: var(--badge-codex-bg); }
+.badge--sh { color: var(--text-tertiary); background: var(--c-surface-4); }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot--live { background: var(--live); }
+.dot--idle { background: var(--text-tertiary); }
+.dot--record { background: var(--danger); }
+
+/* ---- Main panel ---- */
+.main-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; isolation: isolate; background: var(--bg-window); }
+
+/* Terminal tab bar */
+.tabbar {
+  display: flex; align-items: flex-end; gap: 0; height: 40px; flex: none;
+  padding: 0 var(--space-8); border-bottom: var(--border-hair);
+  position: relative; z-index: 2;
+}
+[data-terminal="bleed"] .tabbar { background: var(--bg-sidebar); }
+[data-terminal="bleed"] .tabbar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -13px; height: 12px; pointer-events: none;
+  background: linear-gradient(var(--c-surface-2), transparent);
+}
+.tab {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-12);
+  margin-bottom: -1px; border-radius: var(--radius-2) var(--radius-2) 0 0;
+  font-size: var(--fs-sm); color: var(--text-secondary); cursor: pointer; max-width: 220px;
+  border: 1px solid transparent; border-bottom: 0;
+  transition: background var(--motion-hover), color var(--motion-hover);
+}
+.tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tab__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab--active {
+  background: var(--bg-canvas); color: var(--text-primary);
+  border-color: var(--c-line-1); border-bottom-color: var(--bg-canvas);
+}
+[data-terminal="inset"] .tab--active { border-bottom-color: var(--bg-canvas); }
+.tab--ghost { color: var(--text-tertiary); font-style: italic; }
+.tab--ghost .icon { color: var(--text-tertiary); }
+.tab__close { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; color: var(--text-tertiary); }
+.tab__close:hover { background: var(--bg-neutral-selected); color: var(--text-primary); }
+.tabbar__spacer { flex: 1; }
+.tab-newbtn { align-self: center; margin-bottom: 4px; }
+
+/* Terminal canvas — A (inset) vs B (bleed) */
+.term-stage { flex: 1; min-height: 0; display: flex; }
+[data-terminal="inset"] .term-stage { padding: 0 10px 10px; background: var(--bg-window); }
+.term-canvas {
+  flex: 1; min-width: 0; background: var(--bg-canvas); overflow: auto;
+  font-family: var(--font-mono); font-size: var(--fs-mono-lg); line-height: 1.55;
+  color: var(--c-text-primary); white-space: pre-wrap;
+}
+[data-terminal="inset"] .term-canvas {
+  border: var(--border-hair); border-top: 0;
+  border-radius: 0 0 var(--radius-3) var(--radius-3); padding: 14px 16px;
+}
+[data-terminal="bleed"] .term-canvas { padding: 16px 18px; }
+.term-canvas .a-green { color: var(--ansi-green); }
+.term-canvas .a-red { color: var(--ansi-red); }
+.term-canvas .a-yellow { color: var(--ansi-yellow); }
+.term-canvas .a-blue { color: var(--ansi-blue); }
+.term-canvas .a-cyan { color: var(--ansi-cyan); }
+.term-canvas .a-mag { color: var(--ansi-magenta); }
+.term-canvas .a-dim { color: var(--ansi-br-black); }
+.term-canvas .a-bold { font-weight: 600; color: var(--ansi-br-white); }
+.cursor-block {
+  display: inline-block; width: 8px; height: 15px; vertical-align: text-bottom;
+  background: var(--accent); border-radius: 1px; margin-left: 1px;
+}
+/* Terminal text-selection follows the app accent (the ANSI 16 palette does not). */
+.term-canvas ::selection { background: var(--accent-wash); }
+.term-canvas ::-moz-selection { background: var(--accent-wash); }
+
+/* ============================================================================
+   TRANSCRIPT VIEW
+   ========================================================================== */
+.sheet {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-canvas);
+}
+[data-terminal="inset"] .sheet.is-inset { margin: 0 10px 10px; border: var(--border-hair);
+  border-radius: 0 0 var(--radius-3) var(--radius-3); border-top: 0; }
+.trans-header {
+  padding: var(--space-16) var(--space-20); border-bottom: var(--border-hair);
+  display: flex; align-items: flex-start; gap: var(--space-12);
+}
+.trans-header__main { flex: 1; min-width: 0; }
+.trans-title { font-size: var(--fs-lg); font-weight: var(--weight-semibold); color: var(--text-primary); display: flex; align-items: center; gap: var(--space-8); }
+.trans-meta { margin-top: 6px; display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap;
+  font-size: var(--fs-xs); color: var(--text-tertiary); }
+.trans-meta .mono { font-family: var(--font-mono); }
+.trans-meta .meta-item { display: inline-flex; align-items: center; gap: 5px; }
+.trans-body { flex: 1; overflow-y: auto; padding: var(--space-20); }
+.measure { max-width: 740px; }
+.msg { margin-bottom: var(--space-16); }
+.role-label { font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px; }
+.msg--user .bubble {
+  background: var(--bg-card); border-radius: var(--radius-3); padding: var(--space-12) var(--space-16);
+  font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-primary);
+}
+.msg--assistant .md { font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-primary); }
+.md p { margin-bottom: var(--space-12); }
+.md h2 { font-size: var(--fs-lg); font-weight: var(--weight-semibold); margin-bottom: var(--space-8); }
+.md code { font-family: var(--font-mono); font-size: var(--fs-mono); background: var(--bg-card);
+  padding: 1px 5px; border-radius: var(--radius-1); }
+.md ul { margin: 0 0 var(--space-12) var(--space-16); }
+.md li { margin-bottom: 4px; }
+.md strong { font-weight: var(--weight-semibold); }
+.tool-chip {
+  display: inline-flex; flex-direction: column; gap: 4px; width: 100%;
+  background: var(--bg-card); border: var(--border-hair); border-radius: var(--radius-2);
+  padding: var(--space-6) var(--space-12); margin-bottom: var(--space-12); cursor: pointer;
+  transition: background var(--motion-hover);
+}
+.tool-chip:hover { background: var(--bg-hover); }
+.tool-chip__head { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs);
+  font-weight: var(--weight-semibold); color: var(--text-secondary); }
+.tool-chip__head .chev { color: var(--text-tertiary); margin-left: auto; }
+.tool-chip__detail { font-family: var(--font-mono); font-size: var(--fs-mono-sm); color: var(--text-tertiary); }
+.cmd-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1px dashed var(--border-hairline); border-radius: var(--radius-1);
+  padding: 3px 10px; font-size: var(--fs-xs); color: var(--text-tertiary); margin-bottom: var(--space-12);
+}
+.cmd-chip__sym { font-family: var(--font-mono); color: var(--accent-text); font-size: var(--fs-2xs); }
+
+/* ============================================================================
+   NOTES WORKFLOW
+   ========================================================================== */
+.notes-pages {
+  width: 240px; flex: none; background: var(--bg-sidebar); border-right: var(--border-hair);
+  display: flex; flex-direction: column; position: relative; isolation: isolate;
+}
+.pages-head { display: flex; align-items: center; padding: 10px var(--space-12) var(--space-6); }
+.pages-title { font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary); flex: 1; }
+.note-page-row { flex-direction: column; align-items: flex-start; gap: 3px; }
+.note-page-row .np-title { font-size: var(--fs-base); color: var(--text-primary); }
+.note-page-row .np-date { font-size: var(--fs-xs); color: var(--text-tertiary); }
+
+.notes-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-canvas); }
+.editor-head {
+  display: flex; align-items: center; gap: var(--space-12); padding: 10px var(--space-16);
+  border-bottom: var(--border-hair);
+}
+.lesson-title {
+  flex: 1; font-family: var(--font-display); font-weight: var(--weight-display);
+  font-size: var(--fs-xl); line-height: var(--lh-xl); letter-spacing: -0.005em;
+  color: var(--text-primary); background: transparent; border: 0; padding: 4px 2px;
+}
+.lesson-title:focus { outline: none; }
+.edit-toggle { display: inline-flex; background: var(--bg-window); border: var(--border-hair);
+  border-radius: var(--radius-2); padding: 2px; gap: 2px; }
+.edit-toggle button { font: inherit; font-size: var(--fs-sm); color: var(--text-secondary);
+  background: transparent; border: 0; border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.edit-toggle button.is-active { background: var(--bg-neutral-selected); color: var(--text-primary); }
+
+.editor-body { flex: 1; overflow-y: auto; padding: var(--space-12) var(--space-16);
+  font-family: var(--font-mono); font-size: var(--fs-mono-lg); line-height: 1.7; color: var(--text-primary); }
+.editor-body .md-h { color: var(--text-primary); font-weight: 600; }
+.editor-body .md-mark { color: var(--text-tertiary); }
+.editor-body .md-blank { display: block; height: 10px; }
+
+.workspace-bar {
+  display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-16);
+  border-top: var(--border-hair); background: var(--bg-sidebar);
+}
+.breadcrumb { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+.breadcrumb .cur { overflow: hidden; text-overflow: ellipsis; }
+.breadcrumb .sep { color: var(--text-faint); }
+.breadcrumb .cur { color: var(--text-secondary); }
+
+/* Notes chat rail */
+.notes-chat {
+  width: 340px; flex: none; background: var(--bg-sidebar); border-left: var(--border-hair);
+  display: flex; flex-direction: column;
+  animation: railIn var(--dur-base) var(--ease-out);
+}
+@keyframes railIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+.chat-head { display: flex; align-items: center; gap: 8px; padding: 10px var(--space-12); border-bottom: var(--border-hair); }
+.chat-title { font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary); flex: 1; }
+.select-trigger {
+  display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: var(--fs-sm);
+  color: var(--text-primary); background: var(--bg-canvas); border: var(--border-input);
+  border-radius: var(--radius-2); padding: var(--space-6) var(--space-8); cursor: pointer;
+}
+.select-trigger .chev { color: var(--text-tertiary); margin-left: 2px; }
+.chat-scope-row { padding: var(--space-8) var(--space-12); border-bottom: var(--border-hair); }
+.chat-scope-row .select-trigger { width: 100%; justify-content: space-between; }
+.chat-body { flex: 1; overflow-y: auto; padding: var(--space-12); display: flex; flex-direction: column; gap: var(--space-12); }
+.chat-msg { font-size: var(--fs-base); line-height: 1.55; }
+.chat-msg--user .cbubble { background: var(--bg-card); border-radius: var(--radius-3);
+  padding: var(--space-8) var(--space-12); color: var(--text-primary); }
+.chat-msg--assistant .cbubble { background: var(--bg-canvas); border: var(--border-hair);
+  border-radius: var(--radius-3); padding: var(--space-8) var(--space-12); color: var(--text-primary); }
+.chat-msg .crole { font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+.chat-input-row { padding: var(--space-8) var(--space-12) var(--space-12); border-top: var(--border-hair); }
+.chat-input { display: flex; align-items: flex-end; gap: 8px; background: var(--bg-canvas);
+  border: var(--border-input); border-radius: var(--radius-2); padding: var(--space-6) var(--space-8) var(--space-6) var(--space-12);
+  transition: border-color var(--motion-focus), box-shadow var(--motion-focus); }
+.chat-input:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.chat-input textarea { flex: 1; font: inherit; font-size: var(--fs-base); color: var(--text-primary);
+  background: transparent; border: 0; resize: none; padding: 3px 0; height: 20px; }
+.chat-input textarea:focus { outline: none; }
+.chat-input textarea::placeholder { color: var(--text-faint); }
+.send-btn { width: 28px; height: 28px; border-radius: var(--radius-2); background: var(--accent);
+  color: var(--on-accent); border: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+.send-btn:hover { background: var(--accent-hover); }
+
+/* Notes subject/topic sidebar */
+.subj-group { margin-bottom: var(--space-4); }
+
+/* ============================================================================
+   RECORDING STATE
+   ========================================================================== */
+.rec-tabs { display: flex; gap: var(--space-4); padding: var(--space-8) var(--space-16) 0; }
+.rec-tab { font-size: var(--fs-sm); font-weight: var(--weight-medium); color: var(--text-secondary);
+  padding: var(--space-6) var(--space-12); border-radius: var(--radius-2) var(--radius-2) 0 0; cursor: pointer; }
+.rec-tab.is-active { background: var(--bg-card); color: var(--text-primary); }
+.rec-status-bar {
+  display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-16);
+  border-bottom: var(--border-hair);
+}
+.rec-indicator { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-base); font-weight: var(--weight-medium); }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger);
+  animation: breath var(--period-breath) var(--ease-breath) infinite; will-change: transform, opacity; }
+@keyframes breath { 0%{opacity:1;transform:scale(1);} 50%{opacity:.55;transform:scale(1.12);} 100%{opacity:1;transform:scale(1);} }
+.rec-elapsed { font-variant-numeric: tabular-nums; font-weight: var(--weight-semibold); color: var(--text-primary); }
+.level-meter { flex: 1; max-width: 220px; height: 6px; border-radius: var(--radius-2);
+  background: var(--bg-card); overflow: hidden; }
+.level-meter__fill { height: 100%; width: 62%; background: var(--live); border-radius: var(--radius-2); }
+.rec-spacer { flex: 1; }
+.rec-transcript { flex: 1; overflow-y: auto; padding: var(--space-16) var(--space-20);
+  font-size: var(--fs-md); line-height: 1.7; color: var(--text-primary); }
+.rec-transcript .interim { color: var(--text-tertiary); }
+.working-line {
+  display: flex; align-items: center; gap: 8px; padding: var(--space-12) var(--space-16);
+  border-top: var(--border-hair); font-family: var(--font-mono); font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.working-line .pulse { animation: workpulse var(--period-work) var(--ease-breath) infinite; }
+@keyframes workpulse { 0%{opacity:1;} 50%{opacity:.55;} 100%{opacity:1;} }
+
+/* ============================================================================
+   EMPTY STATE + MODAL
+   ========================================================================== */
+.empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-16); text-align: center; padding: var(--space-32);
+  animation: emptyIn var(--dur-slow) var(--ease-settle); }
+.empty-wrap--top { justify-content: flex-start; padding-top: 110px; }
+@keyframes emptyIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.empty-glyph { color: var(--text-tertiary); }
+.empty-title { font-family: var(--font-display); font-weight: var(--weight-display);
+  font-size: var(--fs-2xl); line-height: var(--lh-2xl); letter-spacing: var(--tracking-tight); color: var(--text-primary); }
+.empty-sub { font-size: var(--fs-md); color: var(--text-secondary); }
+
+.modal-overlay {
+  position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(1px);
+  animation: fadeIn var(--dur-base) var(--ease-out);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  width: 440px; max-width: calc(100% - 48px); background: var(--bg-card);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4);
+  box-shadow: var(--shadow-modal);
+  animation: modalIn var(--dur-base) var(--ease-out);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.modal__head { display: flex; align-items: center; padding: var(--space-16) var(--space-20); border-bottom: var(--border-hair); }
+.modal__title { flex: 1; font-size: var(--fs-lg); font-weight: var(--weight-semibold); color: var(--text-primary); }
+.modal__body { padding: var(--space-16) var(--space-20); display: flex; flex-direction: column; gap: var(--space-16); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: var(--fs-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--text-tertiary); }
+.modal__foot { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-12) var(--space-20);
+  border-top: var(--border-hair); justify-content: flex-end; }
+.modal__foot .spacer { flex: 1; }
+
+/* ============================================================================
+   MISC
+   ========================================================================== */
+.chev-r { transform: none; }
+.hairline-sep { height: 1px; background: var(--border-hairline); margin: var(--space-8) var(--space-12); }
+
+/* ============================================================================
+   APPEARANCE — in-app Settings surface (REAL app UI, app tokens only)
+   Its controls are live: they call the same applyBase / applyAccent / setVariant
+   the mockup control-strip uses, so changing them recolors the whole mock.
+   ========================================================================== */
+.settings-page { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-window); }
+.settings-header { padding: var(--space-20) var(--space-24) var(--space-16); border-bottom: var(--border-hair); }
+.settings-title { font-family: var(--font-display); font-weight: var(--weight-display);
+  font-size: var(--fs-2xl); line-height: var(--lh-2xl); letter-spacing: var(--tracking-tight); color: var(--text-primary); }
+.settings-caption { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-tertiary); }
+.settings-scroll { flex: 1; overflow-y: auto; padding: var(--space-20) var(--space-24) var(--space-32);
+  display: flex; flex-direction: column; gap: var(--space-24); }
+.settings-section { display: flex; flex-direction: column; gap: var(--space-12); max-width: 720px; }
+.settings-section__label { font-size: var(--fs-xs); font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-tertiary); }
+
+/* Base — labeled swatch tiles */
+.set-base-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: var(--space-12); }
+.set-base-tile { display: flex; flex-direction: column; gap: var(--space-8); padding: var(--space-8);
+  background: var(--bg-card); border: var(--border-hair); border-radius: var(--radius-3);
+  cursor: pointer; text-align: left; font: inherit; color: var(--text-secondary);
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover); }
+.set-base-tile:hover { background: var(--bg-hover); }
+.set-base-tile.is-active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--text-primary); }
+.set-base-tile__sw { height: 40px; border-radius: var(--radius-2); border: 1px solid var(--border-hairline); }
+.set-base-tile__name { font-size: var(--fs-sm); font-weight: var(--weight-medium); }
+
+/* Accent — curated swatches + app-styled hue slider + hex readout */
+.set-accent-row { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.set-accent-sw { width: 30px; height: 30px; border-radius: var(--radius-2); cursor: pointer;
+  border: 0; padding: 0; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10);
+  transition: transform var(--motion-hover), box-shadow var(--motion-hover); }
+.set-accent-sw:hover { transform: translateY(-1px); }
+.set-accent-sw.is-active { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10),
+  0 0 0 2px var(--bg-window), 0 0 0 4px var(--text-primary); }
+.set-accent-tune { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; }
+.app-hue { -webkit-appearance: none; appearance: none; width: 220px; height: 8px; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(to right,
+    hsl(0 65% 55%), hsl(45 78% 56%), hsl(90 55% 52%), hsl(140 55% 50%),
+    hsl(190 60% 52%), hsl(240 60% 60%), hsl(290 55% 60%), hsl(340 60% 60%), hsl(360 65% 55%));
+  border: var(--border-hair); }
+.app-hue::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg-window); box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer; }
+.app-hue::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg-window); cursor: pointer; }
+.app-readout { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-secondary);
+  padding: var(--space-6) var(--space-12); background: var(--bg-card); border: var(--border-hair); border-radius: var(--radius-2); }
+.app-readout__chip { width: 14px; height: 14px; border-radius: 4px; flex: none; border: 1px solid var(--border-hairline); }
+.app-readout b { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.app-readout .mono { font-family: var(--font-mono); color: var(--text-primary); font-variant-numeric: tabular-nums; text-transform: uppercase; }
+
+/* Display — labeled toggle rows in a card */
+.set-toggle-list { display: flex; flex-direction: column; background: var(--bg-card);
+  border: var(--border-hair); border-radius: var(--radius-3); overflow: hidden; }
+.set-toggle-row { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) var(--space-16); }
+.set-toggle-row + .set-toggle-row { border-top: var(--border-hair); }
+.set-toggle-row__label { flex: 1; min-width: 0; }
+.set-toggle-row__name { font-size: var(--fs-base); color: var(--text-primary); }
+.set-toggle-row__hint { font-size: var(--fs-xs); color: var(--text-tertiary); margin-top: 2px; }
+.app-switch { position: relative; width: 40px; height: 22px; border-radius: 999px; flex: none; cursor: pointer; padding: 0;
+  background: var(--bg-neutral-selected); border: 1px solid var(--border-hairline); transition: background var(--motion-hover), border-color var(--motion-hover); }
+.app-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-secondary); transition: transform var(--dur-fast) var(--ease-standard), background var(--motion-hover); }
+.app-switch[aria-pressed="true"] { background: var(--accent); border-color: transparent; }
+.app-switch[aria-pressed="true"]::after { transform: translateX(18px); background: var(--on-accent); }
+
+/* Preview card */
+.set-preview { display: flex; flex-direction: column; gap: var(--space-12); padding: var(--space-16);
+  background: var(--bg-card); border: var(--border-hair); border-radius: var(--radius-3); }
+.set-preview__mini { background: var(--bg-sidebar); border: var(--border-hair); border-radius: var(--radius-2); padding: var(--space-6); }
+.set-preview__actions { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; }
+.set-preview__badges { display: inline-flex; align-items: center; gap: var(--space-6); }
+
+/* ============================================================================
+   REDUCED MOTION (doc 05 §6)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .rec-dot { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .working-line .pulse { animation: none !important; }
+  .app-window, .modal, .empty-wrap, .notes-chat, .modal-overlay { animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== ICON SPRITE (Lucide, stroke 1.75) ===================== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-git-branch" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-blocks" viewBox="0 0 24 24"><rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-git-merge" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-key-round" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></symbol>
+</svg>
+
+<!-- ===================== CONTROL STRIP (scaffolding) ===================== -->
+<header class="control-strip">
+  <div class="control-strip__brand">Kiln · <b>Chewo</b> mockups</div>
+
+  <div class="control-strip__group">
+    <span class="control-strip__label">Screen</span>
+    <div class="seg" id="screenSwitcher">
+      <button class="seg__btn is-active" data-screen="terminal">Code · Terminal</button>
+      <button class="seg__btn" data-screen="transcript">Code · Transcript</button>
+      <button class="seg__btn" data-screen="notes">Notes</button>
+      <button class="seg__btn" data-screen="recording">Recording</button>
+      <button class="seg__btn" data-screen="empty">Empty + Modal</button>
+      <button class="seg__btn" data-screen="appearance">Appearance</button>
+    </div>
+  </div>
+
+  <div class="control-strip__group">
+    <span class="control-strip__label">Variants</span>
+    <label class="tog"><button class="tog__sw" id="togSerif" aria-pressed="true"></button>Serif <span class="tog__val" id="valSerif">on</span></label>
+    <label class="tog"><button class="tog__sw" id="togCodex" aria-pressed="true"></button>Codex <span class="tog__val" id="valCodex">vivid</span></label>
+    <label class="tog"><button class="tog__sw" id="togGrain" aria-pressed="true"></button>Grain <span class="tog__val" id="valGrain">on</span></label>
+    <label class="tog"><button class="tog__sw" id="togTerm" aria-pressed="true"></button>Terminal <span class="tog__val" id="valTerm">bleed</span></label>
+  </div>
+
+  <div class="control-strip__group">
+    <span class="control-strip__label">Base</span>
+    <div class="base-picker" id="basePicker"></div>
+  </div>
+
+  <div class="control-strip__group accent-explorer">
+    <span class="control-strip__label">Accent</span>
+    <div class="swatch-groups" id="swatchGroups"></div>
+    <div class="hue-slider-wrap">
+      <input type="range" min="0" max="360" value="44" class="hue-slider" id="hueSlider" title="Custom hue">
+    </div>
+    <div class="accent-readout" id="accentReadout">
+      <span class="accent-readout__chip" id="readoutChip"></span><b id="readoutName">Gold</b><span class="mono" id="readoutHex">#000</span>
+    </div>
+    <span class="control-strip__note">Badges = brand colors, not the app accent</span>
+  </div>
+</header>
+
+<!-- ===================== STAGE (variant data-attrs live here) ===================== -->
+<main class="stage" id="stage" data-serif="on" data-codex="vivid" data-grain="on" data-terminal="bleed" data-base="graphite">
+
+  <!-- ============ SCREEN 1 · CODE — TERMINAL ============ -->
+  <section class="screen is-active" data-screen="terminal">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+
+        <div class="side-row--create">
+          <div class="split-btn">
+            <button class="split-btn__main"><svg class="icon icon--14"><use href="#i-plus"/></svg><span>New session</span></button>
+            <button class="split-btn__caret" title="Claude / Codex / Shell"><svg class="icon icon--14"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <button class="icon-btn icon-btn--boxed" title="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+          <button class="icon-btn icon-btn--boxed" title="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+        </div>
+
+        <div class="search-wrap">
+          <div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input placeholder="Search sessions…"></div>
+        </div>
+
+        <div class="side-scroll">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Home</div>
+          <div class="row"><span class="badge badge--sh">SH</span><span class="row__title">zsh · default shell</span><span class="row__meta">2h</span></div>
+
+          <div class="rail-header" style="margin-top:8px"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Projects<span class="rail-header__count">2</span></div>
+
+          <div class="row row--project"><svg class="icon icon--14 row__chev"><use href="#i-chevron-down"/></svg><svg class="icon icon--14" style="color:var(--text-tertiary)"><use href="#i-folder"/></svg><span class="row__title">chewo</span><span class="dot dot--live" style="margin-left:auto"></span></div>
+          <div class="row__sub">
+            <div class="row row--selected"><span class="badge badge--cc">CC</span><span class="row__title">Redesign token sheet pass</span><span class="row__meta">now</span></div>
+            <div class="row row--live"><span class="badge badge--cx">CX</span><span class="row__title">Fix tab-bar z-index stacking</span><span class="dot dot--live"></span><span class="row__meta">4m</span></div>
+            <div class="row"><span class="badge badge--cc">CC</span><span class="row__title">Notes chat scope select</span><span class="row__meta">1h</span></div>
+          </div>
+
+          <div class="row row--project"><svg class="icon icon--14 row__chev"><use href="#i-chevron-down"/></svg><svg class="icon icon--14" style="color:var(--text-tertiary)"><use href="#i-folder"/></svg><span class="row__title">argo-site</span></div>
+          <div class="row__sub">
+            <div class="row"><span class="badge badge--cx">CX</span><span class="row__title">Landing hero copy tweaks</span><span class="row__meta">3h</span></div>
+            <div class="row"><span class="badge badge--sh">SH</span><span class="row__title">pnpm build · preview</span><span class="row__meta">yest</span></div>
+          </div>
+
+          <div class="rail-header" style="margin-top:8px"><svg class="icon icon--14 chev"><use href="#i-chevron-right"/></svg>Hidden<span class="rail-header__count">5</span></div>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <div class="main-panel">
+        <div class="tabbar">
+          <div class="tab tab--active"><span class="badge badge--cc">CC</span><span class="tab__title">Redesign token sheet</span><span class="tab__close"><svg class="icon icon--14"><use href="#i-x"/></svg></span></div>
+          <div class="tab"><span class="badge badge--cx">CX</span><span class="tab__title">Fix z-index</span><span class="dot dot--live"></span><span class="tab__close"><svg class="icon icon--14"><use href="#i-x"/></svg></span></div>
+          <div class="tab tab--ghost"><svg class="icon icon--14"><use href="#i-play"/></svg><span class="tab__title">build · preview</span></div>
+          <span class="tabbar__spacer"></span>
+          <button class="icon-btn tab-newbtn" title="New shell"><svg class="icon icon--18"><use href="#i-plus"/></svg></button>
+        </div>
+
+        <div class="term-stage">
+          <div class="term-canvas"><span class="a-green">martin@studio</span> <span class="a-blue">~/dev/chewo</span> <span class="a-yellow">(main)</span> $ git status
+On branch <span class="a-green">main</span>
+Your branch is up to date with '<span class="a-blue">origin/main</span>'.
+
+Changes not staged for commit:
+  (use "git add &lt;file&gt;..." to update what will be committed)
+	<span class="a-yellow">modified:   src/renderer/src/styles.css</span>
+	<span class="a-yellow">modified:   src/renderer/src/App.tsx</span>
+
+Untracked files:
+	<span class="a-red">design/mockups/kiln.html</span>
+
+<span class="a-green">martin@studio</span> <span class="a-blue">~/dev/chewo</span> <span class="a-yellow">(main)</span> $ npm run build
+<span class="a-dim">&gt; chewo@0.1.0 build</span>
+<span class="a-dim">&gt; electron-vite build</span>
+
+<span class="a-cyan">vite v5.4.10</span> building for production...
+<span class="a-green">✓</span> 342 modules transformed.
+<span class="a-green">✓</span> built in <span class="a-bold">1.84s</span>
+<span class="a-mag">warning</span>: 1 chunk larger than 500 kB after minification.
+
+<span class="a-green">martin@studio</span> <span class="a-blue">~/dev/chewo</span> <span class="a-yellow">(main)</span> $ <span class="cursor-block"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 2 · CODE — TRANSCRIPT ============ -->
+  <section class="screen" data-screen="transcript">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+        <div class="side-row--create">
+          <div class="split-btn">
+            <button class="split-btn__main"><svg class="icon icon--14"><use href="#i-plus"/></svg><span>New session</span></button>
+            <button class="split-btn__caret" title="Claude / Codex / Shell"><svg class="icon icon--14"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <button class="icon-btn icon-btn--boxed" title="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+          <button class="icon-btn icon-btn--boxed" title="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+        </div>
+        <div class="search-wrap"><div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input placeholder="Search sessions…"></div></div>
+        <div class="side-scroll">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Projects<span class="rail-header__count">2</span></div>
+          <div class="row row--project"><svg class="icon icon--14 row__chev"><use href="#i-chevron-down"/></svg><svg class="icon icon--14" style="color:var(--text-tertiary)"><use href="#i-folder"/></svg><span class="row__title">chewo</span></div>
+          <div class="row__sub">
+            <div class="row row--selected"><span class="badge badge--cc">CC</span><span class="row__title">Structuring pass · sonnet</span><span class="row__meta">now</span></div>
+            <div class="row row--live"><span class="badge badge--cx">CX</span><span class="row__title">Fix z-index stacking</span><span class="dot dot--live"></span><span class="row__meta">4m</span></div>
+            <div class="row"><span class="badge badge--cc">CC</span><span class="row__title">Notes chat scope select</span><span class="row__meta">1h</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <div class="tabbar">
+          <div class="tab tab--active"><span class="badge badge--cc">CC</span><span class="tab__title">Structuring pass</span><span class="tab__close"><svg class="icon icon--14"><use href="#i-x"/></svg></span></div>
+          <div class="tab tab--ghost"><svg class="icon icon--14"><use href="#i-play"/></svg><span class="tab__title">notes chat</span></div>
+          <span class="tabbar__spacer"></span>
+          <button class="icon-btn tab-newbtn"><svg class="icon icon--18"><use href="#i-plus"/></svg></button>
+        </div>
+
+        <div class="sheet is-inset">
+          <div class="trans-header">
+            <div class="trans-header__main">
+              <div class="trans-title"><span class="badge badge--cc">CC</span>Pin structuring pass to sonnet</div>
+              <div class="trans-meta">
+                <span class="meta-item mono">~/dev/chewo</span>
+                <span class="meta-item"><svg class="icon icon--14"><use href="#i-git-branch"/></svg><span class="mono">notes-structuring</span></span>
+                <span class="meta-item">32 messages</span>
+                <span class="meta-item">2h ago</span>
+              </div>
+            </div>
+            <button class="btn btn--primary btn--default"><svg class="icon icon--14"><use href="#i-play"/></svg>Resume</button>
+          </div>
+
+          <div class="trans-body">
+            <div class="measure">
+              <div class="msg msg--user">
+                <div class="role-label">You</div>
+                <div class="bubble">The structuring pass keeps drifting model. Pin it to sonnet and make sure the dictation append writes into the selected lesson, not a new note.</div>
+              </div>
+
+              <div class="msg msg--assistant">
+                <div class="role-label">Claude</div>
+                <div class="md">
+                  <p>Pinned the structuring call to <code>claude-sonnet</code> and traced the append path. Two changes:</p>
+                  <div class="cmd-chip"><span class="cmd-chip__sym">/model</span>set structuring → sonnet</div>
+                  <h2>What I changed</h2>
+                  <ul>
+                    <li><strong>Model:</strong> the structuring request now hard-codes sonnet instead of inheriting the session default.</li>
+                    <li><strong>Append target:</strong> dictation writes to the <code>selectedLessonId</code>, falling back to a new page only when none is selected.</li>
+                  </ul>
+                  <p>Ran the transcript flow end-to-end; confirmed-only paragraphs land in the right lesson.</p>
+                </div>
+              </div>
+
+              <div class="tool-chip">
+                <div class="tool-chip__head">Edit · NotesWorkspace.tsx<svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg></div>
+                <div class="tool-chip__detail">- model: session.defaultModel
++ model: 'claude-sonnet'  // pinned — structuring must stay deterministic</div>
+              </div>
+
+              <div class="msg msg--assistant">
+                <div class="role-label">Claude</div>
+                <div class="md"><p>Done. Want me to add a regression note under <code>docs/decisions.md</code>?</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 3 · NOTES ============ -->
+  <section class="screen" data-screen="notes">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <!-- Notes subjects/topics sidebar -->
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+        <div class="search-wrap" style="padding-top:8px"><div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input placeholder="Search notes…"></div></div>
+        <div class="side-scroll">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Machine Learning<span class="rail-header__count">4</span></div>
+          <div class="row__sub">
+            <div class="row"><span class="row__title">Transformers</span><span class="row__meta">6</span></div>
+            <div class="row row--selected"><span class="row__title">Attention & KV cache</span><span class="row__meta">9</span></div>
+            <div class="row"><span class="row__title">Tokenization</span><span class="row__meta">3</span></div>
+          </div>
+          <div class="rail-header" style="margin-top:8px"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Systems<span class="rail-header__count">3</span></div>
+          <div class="row__sub">
+            <div class="row"><span class="row__title">Electron IPC</span><span class="row__meta">5</span></div>
+            <div class="row"><span class="row__title">node-pty internals</span><span class="row__meta">2</span></div>
+          </div>
+          <div class="rail-header" style="margin-top:8px"><svg class="icon icon--14 chev"><use href="#i-chevron-right"/></svg>Reading log<span class="rail-header__count">11</span></div>
+        </div>
+      </aside>
+
+      <!-- Pages list -->
+      <div class="notes-pages sidebar">
+        <div class="pages-head"><span class="pages-title">Attention & KV cache</span><button class="icon-btn" title="New page"><svg class="icon icon--14"><use href="#i-plus"/></svg></button></div>
+        <div class="side-scroll">
+          <div class="row note-page-row row--selected"><span class="np-title">Why KV cache exists</span><span class="np-date">Edited 12m ago</span></div>
+          <div class="row note-page-row"><span class="np-title">Multi-query vs grouped-query</span><span class="np-date">Yesterday</span></div>
+          <div class="row note-page-row"><span class="np-title">Paged attention notes</span><span class="np-date">Mon</span></div>
+          <div class="row note-page-row"><span class="np-title">Flash-attention read</span><span class="np-date">Jul 12</span></div>
+        </div>
+      </div>
+
+      <!-- Editor -->
+      <div class="notes-editor">
+        <div class="editor-head">
+          <div class="lesson-title" contenteditable="false">Why the KV cache exists</div>
+          <div class="edit-toggle"><button class="is-active">Edit</button><button>Preview</button></div>
+        </div>
+        <div class="editor-body"><span class="md-h"># Why the KV cache exists</span>
+<span class="md-blank"></span>Autoregressive decoding recomputes attention over the whole prefix at every
+step. That's <span class="md-mark">**O(n²)**</span> work you already did.
+<span class="md-blank"></span><span class="md-h">## The trick</span>
+<span class="md-blank"></span>- Keep the per-layer **K** and **V** tensors from prior tokens
+- Only compute Q, K, V for the *new* token each step
+- Attention becomes O(n) per step instead of O(n²)
+<span class="md-blank"></span>The cost moves to memory: cache size grows linearly with sequence length
+times layers times heads. That's why long context gets expensive.</div>
+
+        <div class="workspace-bar">
+          <div class="breadcrumb">Machine Learning<span class="sep">/</span>Attention & KV cache<span class="sep">/</span><span class="cur">Why the KV cache exists</span></div>
+          <button class="btn"><svg class="icon icon--14"><use href="#i-sparkles"/></svg>Ask</button>
+          <button class="btn"><span class="dot dot--record" style="animation:none"></span>Record</button>
+        </div>
+      </div>
+
+      <!-- Chat rail -->
+      <div class="notes-chat">
+        <div class="chat-head"><svg class="icon icon--14" style="color:var(--accent-text)"><use href="#i-sparkles"/></svg><span class="chat-title">Ask your notes</span><button class="icon-btn" title="Close"><svg class="icon icon--14"><use href="#i-x"/></svg></button></div>
+        <div class="chat-scope-row">
+          <div class="select-trigger"><span>Scope · this topic</span><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg></div>
+        </div>
+        <div class="chat-body">
+          <div class="chat-msg chat-msg--user"><div class="crole">You</div><div class="cbubble">What's the memory tradeoff of the KV cache in one sentence?</div></div>
+          <div class="chat-msg chat-msg--assistant"><div class="crole">Notes</div><div class="cbubble">You trade quadratic recompute for memory that grows linearly with sequence length × layers × heads — which is why long-context inference becomes memory-bound rather than compute-bound.</div></div>
+        </div>
+        <div class="chat-input-row">
+          <div class="chat-input"><textarea placeholder="Ask across your notes…"></textarea><button class="send-btn"><svg class="icon icon--14"><use href="#i-arrow-up"/></svg></button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 4 · RECORDING ============ -->
+  <section class="screen" data-screen="recording">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+        <div class="side-scroll" style="padding-top:8px">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Machine Learning<span class="rail-header__count">4</span></div>
+          <div class="row__sub">
+            <div class="row row--selected"><span class="row__title">Attention & KV cache</span><span class="row__meta">9</span></div>
+            <div class="row"><span class="row__title">Transformers</span><span class="row__meta">6</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="notes-pages sidebar">
+        <div class="pages-head"><span class="pages-title">Attention & KV cache</span><button class="icon-btn"><svg class="icon icon--14"><use href="#i-plus"/></svg></button></div>
+        <div class="side-scroll">
+          <div class="row note-page-row row--selected"><span class="np-title">Lecture 9 · dictation</span><span class="np-date">Recording now</span></div>
+          <div class="row note-page-row"><span class="np-title">Why KV cache exists</span><span class="np-date">12m ago</span></div>
+        </div>
+      </div>
+
+      <div class="notes-editor">
+        <div class="rec-tabs">
+          <div class="rec-tab">Note</div>
+          <div class="rec-tab is-active">Live transcript</div>
+        </div>
+        <div class="rec-status-bar">
+          <div class="rec-indicator"><span class="rec-dot"></span>Recording</div>
+          <span class="rec-elapsed">04:17</span>
+          <div class="level-meter"><div class="level-meter__fill"></div></div>
+          <span class="rec-spacer"></span>
+          <button class="btn btn--danger btn--default"><svg class="icon icon--14"><use href="#i-square"/></svg>Stop</button>
+        </div>
+
+        <div class="rec-transcript">
+          <p>So the key insight is that during autoregressive decoding you never need to
+          recompute the keys and values for tokens you've already seen. You cache them.
+          Every new step only produces one new query, one new key, one new value.</p>
+          <p>The attention operation then reduces from quadratic to linear per step, and the
+          whole cost of generation shifts from compute into memory bandwidth — <span class="interim">which is
+          why on long contexts the bottleneck becomes how fast you can stream the cache…</span></p>
+        </div>
+
+        <div class="working-line"><span class="pulse">Structuring transcript into paragraphs…</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 5 · EMPTY STATE + MODAL ============ -->
+  <section class="screen" data-screen="empty">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+        <div class="side-row--create">
+          <div class="split-btn">
+            <button class="split-btn__main"><svg class="icon icon--14"><use href="#i-plus"/></svg><span>New session</span></button>
+            <button class="split-btn__caret" title="Claude / Codex / Shell"><svg class="icon icon--14"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <button class="icon-btn icon-btn--boxed" title="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+          <button class="icon-btn icon-btn--boxed" title="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+        </div>
+        <div class="search-wrap"><div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input placeholder="Search sessions…"></div></div>
+        <div class="side-scroll">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-right"/></svg>Projects<span class="rail-header__count">2</span></div>
+          <div class="rail-header" style="margin-top:8px"><svg class="icon icon--14 chev"><use href="#i-chevron-right"/></svg>Hidden<span class="rail-header__count">5</span></div>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <div class="tabbar"><span class="tabbar__spacer"></span><button class="icon-btn tab-newbtn"><svg class="icon icon--18"><use href="#i-plus"/></svg></button></div>
+        <div class="empty-wrap empty-wrap--top">
+          <svg class="icon icon--20 empty-glyph"><use href="#i-terminal"/></svg>
+          <div class="empty-title">The studio is quiet</div>
+          <div class="empty-sub">Nothing running. Open a Claude or Codex session to get started.</div>
+          <button class="btn btn--default"><svg class="icon icon--14"><use href="#i-plus"/></svg>New session</button>
+        </div>
+
+        <!-- Modal overlay -->
+        <div class="modal-overlay">
+          <div class="modal">
+            <div class="modal__head">
+              <span class="modal__title">New isolated terminal</span>
+              <button class="icon-btn" title="Close"><svg class="icon icon--20"><use href="#i-x"/></svg></button>
+            </div>
+            <div class="modal__body">
+              <div class="field">
+                <span class="field-label">Branch name</span>
+                <input class="input" value="feature/kv-cache-notes">
+              </div>
+              <div class="field">
+                <span class="field-label">Base</span>
+                <div class="select-trigger" style="width:100%;justify-content:space-between"><span>main</span><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg></div>
+              </div>
+            </div>
+            <div class="modal__foot">
+              <button class="btn btn--danger btn--default">Discard worktree</button>
+              <span class="spacer"></span>
+              <button class="btn btn--default">Cancel</button>
+              <button class="btn btn--primary btn--default"><svg class="icon icon--14"><use href="#i-git-branch"/></svg>Create</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN 6 · APPEARANCE (in-app Settings) ============ -->
+  <section class="screen" data-screen="appearance">
+    <div class="app-window">
+      <div class="titlebar-lights"><span class="tl-dot tl-dot--close"></span><span class="tl-dot tl-dot--min"></span><span class="tl-dot tl-dot--max"></span></div>
+
+      <aside class="sidebar">
+        <div class="drag-zone"></div>
+        <div class="side-row side-row--switch">
+          <div class="wswitch wswitch--full">
+            <button class="wswitch__btn is-active"><svg class="icon icon--14"><use href="#i-terminal"/></svg>Code</button>
+            <button class="wswitch__btn"><svg class="icon icon--14"><use href="#i-pencil"/></svg>Notes</button>
+          </div>
+        </div>
+        <div class="side-row--create">
+          <div class="split-btn">
+            <button class="split-btn__main"><svg class="icon icon--14"><use href="#i-plus"/></svg><span>New session</span></button>
+            <button class="split-btn__caret" title="Claude / Codex / Shell"><svg class="icon icon--14"><use href="#i-chevron-down"/></svg></button>
+          </div>
+          <button class="icon-btn icon-btn--boxed" title="New isolated worktree"><svg class="icon icon--14"><use href="#i-git-branch"/></svg></button>
+          <button class="icon-btn icon-btn--boxed" title="Capabilities"><svg class="icon icon--14"><use href="#i-blocks"/></svg></button>
+        </div>
+        <div class="search-wrap"><div class="input-search"><svg class="icon icon--14"><use href="#i-search"/></svg><input placeholder="Search sessions…"></div></div>
+        <div class="side-scroll">
+          <div class="rail-header"><svg class="icon icon--14 chev"><use href="#i-chevron-down"/></svg>Projects<span class="rail-header__count">1</span></div>
+          <div class="row row--project"><svg class="icon icon--14 row__chev"><use href="#i-chevron-down"/></svg><svg class="icon icon--14" style="color:var(--text-tertiary)"><use href="#i-folder"/></svg><span class="row__title">chewo</span><span class="dot dot--live" style="margin-left:auto"></span></div>
+          <div class="row__sub">
+            <div class="row row--selected"><span class="badge badge--cc">CC</span><span class="row__title">Redesign token sheet pass</span><span class="row__meta">now</span></div>
+            <div class="row row--live"><span class="badge badge--cx">CX</span><span class="row__title">Fix tab-bar z-index stacking</span><span class="dot dot--live"></span><span class="row__meta">4m</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <div class="settings-page">
+          <header class="settings-header">
+            <h1 class="settings-title">Appearance</h1>
+            <p class="settings-caption">Concept — the planned in-app color settings. Changes apply live across the whole app.</p>
+          </header>
+
+          <div class="settings-scroll">
+            <section class="settings-section">
+              <div class="settings-section__label">Base palette</div>
+              <div class="set-base-grid" id="setBaseGrid"></div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section__label">Accent</div>
+              <div class="set-accent-row" id="setAccentRow"></div>
+              <div class="set-accent-tune">
+                <input type="range" min="0" max="360" value="158" class="app-hue" id="setHue" title="Custom hue">
+                <div class="app-readout">
+                  <span class="app-readout__chip" id="setReadoutChip"></span><b id="setReadoutName">Emerald</b><span class="mono" id="setReadoutHex">#000</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section__label">Display</div>
+              <div class="set-toggle-list">
+                <div class="set-toggle-row">
+                  <div class="set-toggle-row__label"><div class="set-toggle-row__name">Editorial serif</div><div class="set-toggle-row__hint">Source Serif 4 on titles &amp; headlines</div></div>
+                  <button class="app-switch" id="setSerif" aria-pressed="true"></button>
+                </div>
+                <div class="set-toggle-row">
+                  <div class="set-toggle-row__label"><div class="set-toggle-row__name">Grain texture</div><div class="set-toggle-row__hint">Subtle noise on window &amp; sidebar</div></div>
+                  <button class="app-switch" id="setGrain" aria-pressed="true"></button>
+                </div>
+                <div class="set-toggle-row">
+                  <div class="set-toggle-row__label"><div class="set-toggle-row__name">Terminal full-bleed</div><div class="set-toggle-row__hint" id="hintTerm">Edge-to-edge canvas (off = inset card)</div></div>
+                  <button class="app-switch" id="setTerm" aria-pressed="true"></button>
+                </div>
+                <div class="set-toggle-row">
+                  <div class="set-toggle-row__label"><div class="set-toggle-row__name">Codex badge · vivid blue</div><div class="set-toggle-row__hint" id="hintCodex">Vivid #6BA4F8 (off = muted denim)</div></div>
+                  <button class="app-switch" id="setCodex" aria-pressed="true"></button>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section__label">Preview</div>
+              <div class="set-preview">
+                <div class="set-preview__mini">
+                  <div class="row row--selected"><span class="badge badge--cc">CC</span><span class="row__title">Selected session</span><span class="row__meta">now</span></div>
+                  <div class="row row--live"><span class="badge badge--cx">CX</span><span class="row__title">Running session</span><span class="dot dot--live"></span><span class="row__meta">4m</span></div>
+                </div>
+                <div class="set-preview__actions">
+                  <button class="btn btn--primary btn--default"><svg class="icon icon--14"><use href="#i-play"/></svg>Primary action</button>
+                  <span class="set-preview__badges"><span class="badge badge--cc">CC</span><span class="badge badge--cx">CX</span><span class="badge badge--sh">SH</span></span>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ---- Screen switcher ----
+const stage = document.getElementById('stage');
+const screens = document.querySelectorAll('.screen');
+document.getElementById('screenSwitcher').addEventListener('click', (e) => {
+  const btn = e.target.closest('.seg__btn');
+  if (!btn) return;
+  const name = btn.dataset.screen;
+  document.querySelectorAll('.seg__btn').forEach(b => b.classList.toggle('is-active', b === btn));
+  screens.forEach(s => s.classList.toggle('is-active', s.dataset.screen === name));
+});
+
+// ---- Variant toggles (shared setter drives BOTH the control-strip switch and
+//      the in-app Appearance switch, so the two UIs stay in sync) ----
+const VARIANTS = [
+  { key:'serif', attr:'data-serif',    on:'on',    off:'off',   valOn:'on',    valOff:'off',   strip:'togSerif', stripVal:'valSerif', set:'setSerif' },
+  { key:'codex', attr:'data-codex',    on:'vivid', off:'denim', valOn:'vivid', valOff:'denim', strip:'togCodex', stripVal:'valCodex', set:'setCodex', hint:'hintCodex', hintOn:'Vivid #6BA4F8 (off = muted denim)', hintOff:'Muted denim (on = vivid #6BA4F8)' },
+  { key:'grain', attr:'data-grain',    on:'on',    off:'off',   valOn:'on',    valOff:'off',   strip:'togGrain', stripVal:'valGrain', set:'setGrain' },
+  { key:'term',  attr:'data-terminal', on:'bleed', off:'inset', valOn:'bleed', valOff:'inset', strip:'togTerm',  stripVal:'valTerm',  set:'setTerm', hint:'hintTerm', hintOn:'Edge-to-edge canvas (off = inset card)', hintOff:'Inset card frame (on = full-bleed)' },
+];
+function setVariant(key, isOn) {
+  const v = VARIANTS.find(x => x.key === key);
+  stage.setAttribute(v.attr, isOn ? v.on : v.off);
+  const strip = document.getElementById(v.strip);
+  if (strip) { strip.setAttribute('aria-pressed', String(isOn)); }
+  const val = document.getElementById(v.stripVal);
+  if (val) val.textContent = isOn ? v.valOn : v.valOff;
+  const setSw = document.getElementById(v.set);
+  if (setSw) setSw.setAttribute('aria-pressed', String(isOn));
+  if (v.hint) { const h = document.getElementById(v.hint); if (h) h.textContent = isOn ? v.hintOn : v.hintOff; }
+}
+VARIANTS.forEach(v => {
+  const strip = document.getElementById(v.strip);
+  strip.addEventListener('click', () => setVariant(v.key, strip.getAttribute('aria-pressed') !== 'true'));
+  const setSw = document.getElementById(v.set);
+  if (setSw) setSw.addEventListener('click', () => setVariant(v.key, setSw.getAttribute('aria-pressed') !== 'true'));
+});
+
+// ---- Base-palette selector (5 dark foundations, independent of the accent) ----
+// chip = each base's mid-surface (surface-2), so the swatch previews the room tone.
+const BASES = [
+  { id: 'warm',     name: 'Warm',     chip: '#211C17' },
+  { id: 'graphite', name: 'Graphite', chip: '#1E1E1E' },
+  { id: 'slate',    name: 'Slate',    chip: '#181C22' },
+  { id: 'ink',      name: 'Ink',      chip: '#141416' },
+  { id: 'taupe',    name: 'Taupe',    chip: '#201E1D' },
+];
+const basePicker = document.getElementById('basePicker');
+const setBaseGrid = document.getElementById('setBaseGrid');
+function applyBase(id) {
+  stage.setAttribute('data-base', id);
+  document.querySelectorAll('.base-sw').forEach(el => el.classList.toggle('is-active', el.dataset.base === id));
+  document.querySelectorAll('.set-base-tile').forEach(el => el.classList.toggle('is-active', el.dataset.base === id));
+}
+BASES.forEach(b => {
+  // control-strip swatch (scaffolding chrome)
+  const btn = document.createElement('button');
+  btn.className = 'base-sw';
+  btn.dataset.base = b.id;
+  btn.style.setProperty('--sw', b.chip);
+  btn.innerHTML = `<span class="base-sw__chip"></span>${b.name}`;
+  btn.addEventListener('click', () => applyBase(b.id));
+  basePicker.appendChild(btn);
+
+  // in-app Appearance tile (real app UI)
+  const tile = document.createElement('button');
+  tile.className = 'set-base-tile';
+  tile.dataset.base = b.id;
+  tile.innerHTML = `<span class="set-base-tile__sw" style="background:${b.chip}"></span><span class="set-base-tile__name">${b.name}</span>`;
+  tile.addEventListener('click', () => applyBase(b.id));
+  setBaseGrid.appendChild(tile);
+});
+
+// ---- Accent Explorer ----
+// Curated presets [H, S%, L%]. Green-band shift is derived from hue, not stored.
+const ACCENTS = [
+  { group: 'Cool',     name: 'Azure',      h: 210, s: 70, l: 58 },
+  { group: 'Cool',     name: 'Teal',       h: 188, s: 58, l: 50 },
+  { group: 'Cool',     name: 'Indigo',     h: 245, s: 55, l: 64 },
+  { group: 'Green',    name: 'Emerald',    h: 158, s: 52, l: 48 },
+  { group: 'Green',    name: 'Moss',       h: 128, s: 40, l: 52 },
+  { group: 'Green',    name: 'Fern',       h:  95, s: 42, l: 52 },
+  { group: 'Warm',     name: 'Gold',       h:  44, s: 78, l: 56 },
+  { group: 'Warm',     name: 'Honey',      h:  36, s: 70, l: 56 },
+  { group: 'Warm',     name: 'Rose',       h: 344, s: 60, l: 64 },
+  { group: 'Original', name: 'Terracotta', h:  16, s: 63, l: 59 },
+];
+
+const readoutChip = document.getElementById('readoutChip');
+const readoutName = document.getElementById('readoutName');
+const readoutHex  = document.getElementById('readoutHex');
+const hueSlider   = document.getElementById('hueSlider');
+const swatchGroups = document.getElementById('swatchGroups');
+// In-app Appearance accent controls (real app UI)
+const setAccentRow  = document.getElementById('setAccentRow');
+const setHue        = document.getElementById('setHue');
+const setReadoutChip = document.getElementById('setReadoutChip');
+const setReadoutName = document.getElementById('setReadoutName');
+const setReadoutHex  = document.getElementById('setReadoutHex');
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const c = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return Math.round(255 * c).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`.toUpperCase();
+}
+
+function applyAccent(h, s, l, name) {
+  // Accent lives entirely in its own HSL triplet. Status colors (live cyan,
+  // record red) are FIXED elsewhere and never move with the accent.
+  stage.style.setProperty('--accent-h', h);
+  stage.style.setProperty('--accent-s', s + '%');
+  stage.style.setProperty('--accent-l', l + '%');
+
+  const hex = hslToHex(h, s, l);
+  const label = name || ('Custom H' + Math.round(h));
+  readoutChip.style.background = hex;
+  readoutName.textContent = label;
+  readoutHex.textContent = hex;
+  if (setReadoutChip) { setReadoutChip.style.background = hex; setReadoutName.textContent = label; setReadoutHex.textContent = hex; }
+
+  // Sync active-swatch rings across both the control strip and the Appearance page.
+  const match = el => +el.dataset.h === h && parseFloat(el.dataset.s) === s && parseFloat(el.dataset.l) === l;
+  document.querySelectorAll('.swatch').forEach(el => el.classList.toggle('is-active', match(el)));
+  document.querySelectorAll('.set-accent-sw').forEach(el => el.classList.toggle('is-active', match(el)));
+}
+
+// Build grouped swatch chips.
+let lastGroup = null;
+let currentSet = null;
+ACCENTS.forEach(a => {
+  if (a.group !== lastGroup) {
+    currentSet = document.createElement('div');
+    currentSet.className = 'swatch-set';
+    const lab = document.createElement('span');
+    lab.className = 'swatch-set__label';
+    lab.textContent = a.group;
+    currentSet.appendChild(lab);
+    swatchGroups.appendChild(currentSet);
+    lastGroup = a.group;
+  }
+  const btn = document.createElement('button');
+  btn.className = 'swatch';
+  btn.dataset.h = a.h; btn.dataset.s = a.s; btn.dataset.l = a.l;
+  btn.style.setProperty('--sw-h', a.h);
+  btn.style.setProperty('--sw-s', a.s + '%');
+  btn.style.setProperty('--sw-l', a.l + '%');
+  btn.innerHTML = `<span class="swatch__chip"></span>${a.name}`;
+  btn.addEventListener('click', () => selectAccent(a));
+  currentSet.appendChild(btn);
+
+  // in-app Appearance accent swatch (real app UI)
+  const sw = document.createElement('button');
+  sw.className = 'set-accent-sw';
+  sw.dataset.h = a.h; sw.dataset.s = a.s; sw.dataset.l = a.l;
+  sw.style.background = `hsl(${a.h} ${a.s}% ${a.l}%)`;
+  sw.title = a.name;
+  sw.addEventListener('click', () => selectAccent(a));
+  setAccentRow.appendChild(sw);
+});
+
+// Pick a curated accent from either UI; keep both hue sliders in step.
+function selectAccent(a) {
+  hueSlider.value = a.h;
+  if (setHue) setHue.value = a.h;
+  applyAccent(a.h, a.s, a.l, a.name);
+}
+
+// Hue sliders: hold S/L at a sensible default, drive --accent-h live. Either
+// slider (control strip or Appearance page) moves the other.
+const SLIDER_S = 58, SLIDER_L = 57;
+hueSlider.addEventListener('input', () => {
+  if (setHue) setHue.value = hueSlider.value;
+  applyAccent(+hueSlider.value, SLIDER_S, SLIDER_L, null);
+});
+if (setHue) setHue.addEventListener('input', () => {
+  hueSlider.value = setHue.value;
+  applyAccent(+setHue.value, SLIDER_S, SLIDER_L, null);
+});
+
+// Default on load: Martin's LOCKED combo — Graphite base + Emerald accent,
+// serif ON, Codex VIVID, grain ON, terminal FULL-BLEED.
+applyBase('graphite');
+const emerald = ACCENTS.find(a => a.name === 'Emerald');
+selectAccent(emerald);
+setVariant('serif', true);
+setVariant('codex', true);
+setVariant('grain', true);
+setVariant('term',  true);
+</script>
+</body>
+</html>
