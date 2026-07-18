@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/projects'
 import { ModalShell } from './ModalShell'
 import { Select, type SelectOption } from './Select'
+import { Badge, Button, Input } from './ui'
 
 /**
  * Both CLIs start every fresh session at their own default and forget the mode
@@ -92,27 +93,27 @@ export function SectionSettingsModal({
       footer={
         <>
           {onRemove && (
-            <button
-              className="wt-button wt-button-danger"
+            <Button
+              intent="danger"
               title="Remove this project from Chewo — the folder and its sessions stay"
               onClick={remove}
             >
               Remove Project
-            </button>
+            </Button>
           )}
           <div className="wt-footer-spacer" />
-          <button className="wt-button" onClick={onClose}>
+          <Button intent="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button className="wt-button wt-button-primary" onClick={save}>
+          </Button>
+          <Button intent="primary" onClick={save}>
             Save
-          </button>
+          </Button>
         </>
       }
     >
       <div className="wt-field">
         <label className="wt-field-label" htmlFor="set-claude">
-          <span className="source-badge source-badge-claude">CC</span> Claude permission mode
+          <Badge source="claude" /> Claude permission mode
         </label>
         <Select id="set-claude" value={claudeMode} options={CLAUDE_MODES} onChange={setClaudeMode} />
         <div className="wt-field-hint">
@@ -122,7 +123,7 @@ export function SectionSettingsModal({
 
       <div className="wt-field">
         <label className="wt-field-label" htmlFor="set-codex">
-          <span className="source-badge source-badge-codex">CX</span> Codex approval policy
+          <Badge source="codex" /> Codex approval policy
         </label>
         <Select
           id="set-codex"
@@ -140,9 +141,10 @@ export function SectionSettingsModal({
           <label className="wt-field-label" htmlFor="set-setup">
             Worktree setup command <span className="wt-field-optional">optional</span>
           </label>
-          <textarea
+          <Input
             id="set-setup"
-            className="wt-input wt-input-mono"
+            variant="textarea"
+            mono
             placeholder={`cp ${path}/.env . && npm install`}
             value={setup}
             rows={2}
