@@ -2338,3 +2338,433 @@ body {
   opacity: 0.4;
   cursor: default;
 }
+
+/* ============================================================
+   ===== UI primitives (Phase 2a) =====
+   design/04 §2 contracts · BEM-lite · semantic tokens only.
+   ============================================================ */
+
+/* ---------- Button ---------- */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-16);
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-instant) var(--ease-standard);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.btn__icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* --- intents --- */
+.btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn--primary:active:not(:disabled) {
+  background: var(--accent-press);
+}
+
+.btn--secondary {
+  background: var(--bg-card);
+  border-color: var(--border-hairline);
+  color: var(--text-primary);
+}
+.btn--secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.btn--secondary:active:not(:disabled) {
+  background: var(--bg-selected);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn--danger {
+  background: transparent;
+  color: var(--danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* --- sizes --- */
+.btn--compact {
+  padding: var(--space-6) var(--space-12);
+}
+.btn--icon,
+.btn--icon-only {
+  padding: var(--space-8);
+  gap: 0;
+}
+
+/* --- disabled (design/04 §3 law 3) --- */
+.btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+  box-shadow: none;
+}
+.btn--primary:disabled {
+  background: var(--bg-hover);
+}
+
+/* --- loading: mono status replaces the label, resting width held --- */
+.btn__label--held {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  visibility: hidden;
+}
+.btn__loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ---------- Input ---------- */
+.input {
+  width: 100%;
+  background: var(--bg-canvas);
+  border: var(--border-input);
+  border-radius: var(--radius-2);
+  padding: var(--space-8) var(--space-12);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-instant) var(--ease-standard);
+}
+
+.input::placeholder {
+  color: var(--text-faint);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input:disabled {
+  background: var(--bg-sidebar);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+}
+
+.input--textarea {
+  resize: vertical;
+  min-height: var(--space-32);
+}
+
+.input--with-leading {
+  padding-left: var(--space-32);
+}
+
+.input-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-field__icon {
+  position: absolute;
+  left: var(--space-12);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.input-field__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- Tooltip ---------- */
+.tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip__bubble {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-popover);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.tooltip__bubble--top {
+  bottom: calc(100% + var(--space-4));
+}
+.tooltip__bubble--bottom {
+  top: calc(100% + var(--space-4));
+}
+.tooltip__bubble--visible {
+  opacity: 1;
+}
+
+/* ---------- IconButton ---------- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-instant) var(--ease-standard);
+}
+
+.icon-btn--dense {
+  width: 24px;
+  height: 24px;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-btn--active,
+.icon-btn--active:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.icon-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.icon-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* ---------- Badge ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-badge);
+  font-variant: small-caps;
+}
+
+.badge--claude {
+  color: var(--badge-claude);
+  background: var(--badge-claude-bg);
+}
+.badge--codex {
+  color: var(--badge-codex);
+  background: var(--badge-codex-bg);
+}
+.badge--shell {
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+}
+
+/* ---------- Dot ---------- */
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.dot--live {
+  background: var(--live);
+}
+.dot--accent {
+  background: var(--accent);
+}
+.dot--idle {
+  background: var(--text-tertiary);
+}
+
+/* ---------- Row / ListItem ---------- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-6) var(--space-12);
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.row--compact {
+  padding: var(--space-4) var(--space-12);
+}
+
+.row--live {
+  background: var(--live-bg);
+}
+
+/* Selection wins over the live tint, and carries the 2px accent bar. */
+.row--selected,
+.row--selected.row--live {
+  background: var(--bg-accent-selected);
+  box-shadow: inset 2px 0 0 var(--border-selected);
+}
+
+.row__leading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: none;
+}
+
+.row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.row__trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .row__trailing,
+.row:focus-within .row__trailing {
+  opacity: 1;
+}
+
+/* ---------- Skeleton ---------- */
+.skeleton {
+  display: block;
+  width: 100%;
+  background: var(--bg-hover);
+  border-radius: var(--radius-2);
+}
+
+/* ---------- WorkingText ---------- */
+.working-text {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-tertiary);
+}
+
+.working-text--pulse {
+  animation: working-pulse var(--period-work) var(--ease-breath) infinite;
+  will-change: opacity;
+}
+
+@keyframes working-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* design/05 §6 — remove the one loop; static status survives. */
+@media (prefers-reduced-motion: reduce) {
+  .working-text--pulse {
+    animation: none;
+  }
+}
