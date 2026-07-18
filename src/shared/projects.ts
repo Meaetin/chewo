@@ -64,6 +64,9 @@ export interface Worktree {
   createdAt: string
 }
 
+/** Top-level app mode, switched from the sidebar's top-left segmented control. */
+export type Workflow = 'code' | 'notes'
+
 export interface ProjectsFile {
   projects: Project[]
   selectedProjectId: string | null
@@ -74,6 +77,10 @@ export interface ProjectsFile {
   /** Home is a section like any project, so it gets its own launch settings */
   homeSettings: AgentSettings
   worktrees: Worktree[]
+  /** Last active workflow — restored on launch */
+  workflow?: Workflow
+  /** Notes store location; unset = ~/ChewoNotes */
+  notesRoot?: string
 }
 
 export const EMPTY_PROJECTS_FILE: ProjectsFile = {

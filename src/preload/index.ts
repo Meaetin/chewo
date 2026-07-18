@@ -6,6 +6,8 @@ import type {
   RemoveWorktreeResult,
   WorktreeStatusResult
 } from '../main/worktrees'
+import type { NotesOpResult } from '../main/notes'
+import type { NotesTree } from '../shared/notes'
 
 export interface TermDataEvent {
   id: number
@@ -94,6 +96,28 @@ const api = {
     ipcRenderer.invoke('worktree:merge', args) as Promise<MergeWorktreeResult>,
   worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
     ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
+  notesScan: () => ipcRenderer.invoke('notes:scan') as Promise<NotesTree>,
+  notesRead: (path: string) => ipcRenderer.invoke('notes:read', path) as Promise<string>,
+  notesWrite: (path: string, content: string) =>
+    ipcRenderer.invoke('notes:write', { path, content }) as Promise<void>,
+  notesCreateSubject: (name: string) =>
+    ipcRenderer.invoke('notes:createSubject', name) as Promise<NotesOpResult>,
+  notesCreateTopic: (subject: string, name: string) =>
+    ipcRenderer.invoke('notes:createTopic', { subject, name }) as Promise<NotesOpResult>,
+  notesCreateNote: (args: {
+    subject: string
+    topic: string
+    title: string
+    body?: string
+    source?: string
+  }) => ipcRenderer.invoke('notes:createNote', args) as Promise<NotesOpResult>,
+  notesDelete: (path: string) => ipcRenderer.invoke('notes:delete', path) as Promise<NotesOpResult>,
+  onNotesChanged: (cb: () => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('notes:changed', listener)
+    return () => ipcRenderer.removeListener('notes:changed', listener)
+  },
+
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

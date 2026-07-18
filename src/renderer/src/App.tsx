@@ -6,9 +6,14 @@ import {
   type Project,
   type ProjectsFile,
   type SavedTerminal,
+  type Workflow,
   type Worktree
 } from '../../shared/projects'
+import type { NoteSource, NotesTree } from '../../shared/notes'
 import { Sidebar } from './components/Sidebar'
+import { NotesSidebar, type TopicRef } from './components/NotesSidebar'
+import { NotesWorkspace } from './components/NotesWorkspace'
+import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
@@ -51,6 +56,11 @@ export function App(): React.JSX.Element {
   /** Section whose settings modal is open — string id, or null for Home */
   const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [workflow, setWorkflow] = useState<Workflow>('code')
+  const [notesTree, setNotesTree] = useState<NotesTree | null>(null)
+  const [notesSel, setNotesSel] = useState<TopicRef | null>(null)
+  const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
+  const notesRoot = useRef<string | undefined>(undefined)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
   // Last-viewed terminal per section, so switching sections lands you back
@@ -68,8 +78,13 @@ export function App(): React.JSX.Element {
     setSessions(result.sessions)
   }, [])
 
+  const refreshNotes = useCallback(async () => {
+    setNotesTree(await window.api.notesScan())
+  }, [])
+
   useEffect(() => {
     void refresh()
+    void refreshNotes()
     void window.api.loadProjects().then((file: ProjectsFile) => {
       setProjects(file.projects)
       setSelectedProjectId(file.selectedProjectId)
@@ -77,8 +92,11 @@ export function App(): React.JSX.Element {
       setHomeTerminals(file.homeTerminals)
       setHomeSettings(file.homeSettings)
       setWorktrees(file.worktrees)
+      setWorkflow(file.workflow ?? 'code')
+      notesRoot.current = file.notesRoot
       loaded.current = true
     })
+    const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offChanged = window.api.onSessionsChanged(() => void refresh())
     const offExit = window.api.onTermExit(({ id }) => {
       setTabs((t) => t.map((tab) => (tab.termId === id ? { ...tab, exited: true } : tab)))
@@ -102,12 +120,13 @@ export function App(): React.JSX.Element {
       )
     })
     return () => {
+      offNotes()
       offChanged()
       offExit()
       offBound()
       offHandoff()
     }
-  }, [refresh, showToast])
+  }, [refresh, refreshNotes, showToast])
 
   // Persist projects + remembered terminals whenever state settles.
   // A section's saved list = its live bound tabs + dormant leftovers.
@@ -135,10 +154,12 @@ export function App(): React.JSX.Element {
       hiddenSessionIds: [...hiddenIds],
       homeTerminals: savedFor(null, homeTerminals),
       homeSettings,
-      worktrees
+      worktrees,
+      workflow,
+      notesRoot: notesRoot.current
     }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees])
+  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees, workflow])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
@@ -376,11 +397,24 @@ export function App(): React.JSX.Element {
     [projects, tabs, showToast]
   )
 
-  const closeTerminal = useCallback((termId: number) => {
-    window.api.termKill(termId)
-    setTabs((t) => t.filter((tab) => tab.termId !== termId))
-    setView((v) => (v.kind === 'terminal' && v.termId === termId ? { kind: 'empty' } : v))
-  }, [])
+  const closeTerminal = useCallback(
+    (termId: number) => {
+      window.api.termKill(termId)
+      const closing = tabs.find((tab) => tab.termId === termId)
+      setTabs((t) => t.filter((tab) => tab.termId !== termId))
+      // Closing the focused tab hands focus to its left neighbour in the same
+      // section (falling back to the right, then the empty state). Closing a
+      // background tab leaves focus where it is.
+      setView((v) => {
+        if (v.kind !== 'terminal' || v.termId !== termId || !closing) return v
+        const siblings = tabs.filter((tab) => tab.projectId === closing.projectId)
+        const idx = siblings.findIndex((tab) => tab.termId === termId)
+        const neighbour = siblings[idx - 1] ?? siblings[idx + 1] ?? null
+        return neighbour ? { kind: 'terminal', termId: neighbour.termId } : { kind: 'empty' }
+      })
+    },
+    [tabs]
+  )
 
   const removeDormant = useCallback(
     (sessionId: string) => {
@@ -412,6 +446,83 @@ export function App(): React.JSX.Element {
     []
   )
 
+  // ---------- notes workflow ----------
+
+  const currentTopic = notesSel
+    ? (notesTree?.subjects
+        .find((s) => s.name === notesSel.subject)
+        ?.topics.find((t) => t.name === notesSel.topic) ?? null)
+    : null
+
+  // Rescans can remove the selection (folder renamed/deleted in Finder)
+  useEffect(() => {
+    if (!notesTree) return
+    if (notesSel && !currentTopic) {
+      setNotesSel(null)
+      setSelectedNotePath(null)
+      return
+    }
+    if (
+      selectedNotePath &&
+      currentTopic &&
+      !currentTopic.notes.some((n) => n.path === selectedNotePath)
+    )
+      setSelectedNotePath(null)
+  }, [notesTree, notesSel, currentTopic, selectedNotePath])
+
+  const createSubject = useCallback(
+    async (name: string): Promise<string | null> => {
+      const res = await window.api.notesCreateSubject(name)
+      if (res.ok) void refreshNotes()
+      return res.ok ? null : (res.error ?? 'Could not create subject')
+    },
+    [refreshNotes]
+  )
+
+  const createTopic = useCallback(
+    async (subject: string, name: string): Promise<string | null> => {
+      const res = await window.api.notesCreateTopic(subject, name)
+      if (res.ok) void refreshNotes()
+      return res.ok ? null : (res.error ?? 'Could not create topic')
+    },
+    [refreshNotes]
+  )
+
+  const selectTopic = useCallback((ref: TopicRef) => {
+    setNotesSel(ref)
+    setSelectedNotePath(null)
+  }, [])
+
+  const createNote = useCallback(
+    async (title: string, body?: string, source?: NoteSource) => {
+      if (!notesSel) return
+      const res = await window.api.notesCreateNote({
+        subject: notesSel.subject,
+        topic: notesSel.topic,
+        title,
+        body,
+        source
+      })
+      if (res.ok && res.path) {
+        setSelectedNotePath(res.path)
+        void refreshNotes()
+      } else if (!res.ok) {
+        showToast(res.error ?? 'Could not create note')
+      }
+    },
+    [notesSel, refreshNotes, showToast]
+  )
+
+  const deleteNote = useCallback(
+    async (path: string) => {
+      const res = await window.api.notesDelete(path)
+      if (!res.ok) showToast(res.error ?? 'Could not delete note')
+      setSelectedNotePath((p) => (p === path ? null : p))
+      void refreshNotes()
+    },
+    [refreshNotes, showToast]
+  )
+
   const createProject = useCallback(async () => {
     const path = await window.api.pickFolder()
     if (!path) return
@@ -433,6 +544,17 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app-layout">
+      <div className="sidebar-column">
+        <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
+        {workflow === 'notes' ? (
+          <NotesSidebar
+            tree={notesTree}
+            selected={notesSel}
+            onSelectTopic={selectTopic}
+            onCreateSubject={createSubject}
+            onCreateTopic={createTopic}
+          />
+        ) : (
       <Sidebar
         sessions={visibleSessions}
         hiddenSessions={hiddenSessions}
@@ -459,8 +581,11 @@ export function App(): React.JSX.Element {
         onOpenSettings={(id) => setSettingsFor({ id })}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
+        )}
+      </div>
 
       <main className="main-panel">
+        {workflow === 'code' && (
         <div className="terminal-tab-bar">
           {visibleTabs.map((tab) => (
             <div
@@ -539,9 +664,31 @@ export function App(): React.JSX.Element {
             </div>
           ))}
         </div>
+        )}
 
         <div className="main-content">
-          {view.kind === 'empty' && (
+          {workflow === 'notes' &&
+            (currentTopic && notesSel ? (
+              <NotesWorkspace
+                subject={notesSel.subject}
+                topic={currentTopic}
+                selectedNotePath={selectedNotePath}
+                onSelectNote={setSelectedNotePath}
+                onCreateNote={createNote}
+                onDeleteNote={(p) => void deleteNote(p)}
+              />
+            ) : (
+              <div className="empty-state">
+                <h2>Notes</h2>
+                <p>
+                  Pick a topic in the sidebar — or create a subject (“+” next to Subjects),
+                  then a topic inside it. Notes live as markdown files in{' '}
+                  {notesTree?.root ?? '~/ChewoNotes'}.
+                </p>
+              </div>
+            ))}
+
+          {workflow === 'code' && view.kind === 'empty' && (
             <div className="empty-state">
               <h2>{selectedProject ? selectedProject.name : 'Chewo'}</h2>
               <p>
@@ -552,19 +699,20 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          {view.kind === 'transcript' && (
+          {workflow === 'code' && view.kind === 'transcript' && (
             <TranscriptView key={view.session.id} session={view.session} onResume={resumeSession} />
           )}
 
-          {view.kind === 'capabilities' && (
+          {workflow === 'code' && view.kind === 'capabilities' && (
             <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
           )}
 
+          {/* Panes stay mounted across workflow switches — terminals keep running */}
           {tabs.map((tab) => (
             <TerminalPane
               key={tab.termId}
               termId={tab.termId}
-              active={view.kind === 'terminal' && view.termId === tab.termId}
+              active={workflow === 'code' && view.kind === 'terminal' && view.termId === tab.termId}
             />
           ))}
         </div>

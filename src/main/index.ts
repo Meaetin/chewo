@@ -10,6 +10,18 @@ import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from '
 import { copyMcp } from './mcp-writer'
 import type { HookRef, McpRef } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
+import {
+  createNote,
+  createSubject,
+  createTopic,
+  deleteNoteItem,
+  getNotesRoot,
+  readNote,
+  scanNotes,
+  setNotesRoot,
+  writeNote,
+  type CreateNoteArgs
+} from './notes'
 import { loadProjects, saveProjects } from './projects'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
 import { safeSend } from './safe-send'
@@ -24,6 +36,12 @@ import {
   writeTerminal,
   type CreateTerminalOptions
 } from './terminals'
+
+// Keep the dev instance's state separate from the installed app's
+// (both would otherwise resolve to ~/Library/Application Support/chewo).
+if (!app.isPackaged) {
+  app.setPath('userData', `${app.getPath('userData')}-dev`)
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -116,6 +134,18 @@ function registerIpc(): void {
       removeWorktree(a.projectPath, a.worktreePath, a.branch)
   )
 
+  ipcMain.handle('notes:scan', () => scanNotes())
+  ipcMain.handle('notes:read', (_e, path: string) => readNote(path))
+  ipcMain.handle('notes:write', (_e, a: { path: string; content: string }) =>
+    writeNote(a.path, a.content)
+  )
+  ipcMain.handle('notes:createSubject', (_e, name: string) => createSubject(name))
+  ipcMain.handle('notes:createTopic', (_e, a: { subject: string; name: string }) =>
+    createTopic(a.subject, a.name)
+  )
+  ipcMain.handle('notes:createNote', (_e, args: CreateNoteArgs) => createNote(args))
+  ipcMain.handle('notes:delete', (_e, path: string) => deleteNoteItem(path))
+
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
   ipcMain.handle('dialog:pickFolder', async () => {
@@ -161,6 +191,19 @@ function watchSessionStores(): void {
       bindNewSessions()
       safeSend(mainWindow, 'sessions:changed')
     }, 1000)
+  })
+
+  app.on('before-quit', () => watcher.close())
+}
+
+/** Same pattern as the session stores: any change under the notes root → rescan. */
+function watchNotesStore(): void {
+  const watcher = chokidar.watch(getNotesRoot(), { ignoreInitial: true, depth: 3 })
+
+  let timer: NodeJS.Timeout | null = null
+  watcher.on('all', () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => safeSend(mainWindow, 'notes:changed'), 400)
   })
 
   app.on('before-quit', () => watcher.close())
@@ -223,10 +266,13 @@ function buildMenu(): void {
 }
 
 app.whenReady().then(() => {
+  const savedNotesRoot = loadProjects().notesRoot
+  if (savedNotesRoot) setNotesRoot(savedNotesRoot)
   buildMenu()
   registerIpc()
   createWindow()
   watchSessionStores()
+  watchNotesStore()
   watchHandoffInbox()
 
   app.on('activate', () => {

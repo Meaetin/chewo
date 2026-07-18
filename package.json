@@ -12,6 +12,8 @@
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder --mac",
+    "dist:install": "npm run dist && rm -rf /Applications/Chewo.app && ditto dist/mac-arm64/Chewo.app /Applications/Chewo.app",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
@@ -33,6 +36,8 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.1",
+    "@uiw/react-codemirror": "^4.25.11",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "chokidar": "^5.0.0",

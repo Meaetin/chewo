@@ -38,13 +38,49 @@ body {
 
 /* ---------- sidebar ---------- */
 
-.sidebar {
+/* Fixed left rail: workflow switcher on top, the active workflow's sidebar below */
+.sidebar-column {
   width: 300px;
   min-width: 300px;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+}
+
+.sidebar {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workflow-switcher {
+  display: flex;
+  gap: 4px;
+  padding: 10px 10px 0;
+}
+
+.workflow-switcher-option {
+  flex: 1;
+  padding: 6px 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.workflow-switcher-option:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.workflow-switcher-active {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--text);
 }
 
 .project-rail-header {
@@ -324,9 +360,11 @@ body {
 
 .terminal-tab-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 4px;
-  padding: 6px 8px;
+  /* No bottom padding: tabs sit on the bottom rail so the active one can reach
+     down and merge with the terminal, Chrome-style. */
+  padding: 6px 8px 0;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   min-height: 38px;
@@ -337,15 +375,23 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
-  background: var(--bg);
+  background: var(--bg-hover);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  /* Rounded top only — the flat bottom lets a tab flow into the content below. */
+  border-radius: 6px 6px 0 0;
   cursor: pointer;
   max-width: 220px;
 }
 
+/* Active session literally connects to its terminal: same surface colour
+   (--bg), and dropped 1px over the bar's bottom border with a matching bottom
+   edge so the seam disappears and tab + terminal read as one continuous piece.
+   Inactive tabs keep their border and sit raised (--bg-hover). */
 .terminal-tab-active {
-  background: var(--bg-selected);
+  background: var(--bg);
+  border-bottom-color: var(--bg);
+  margin-bottom: -1px;
+  position: relative;
 }
 
 .terminal-tab-exited {
@@ -1609,4 +1655,237 @@ body {
   inset: 0;
   padding: 8px;
   background: var(--bg);
+}
+
+/* ---------- notes workflow ---------- */
+
+.notes-sidebar {
+  padding-top: 6px;
+}
+
+.notes-topic-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 8px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.notes-topic-row:hover {
+  background: var(--bg-hover);
+}
+
+.notes-topic-row-selected {
+  background: var(--bg-selected);
+  border-left-color: var(--accent-claude);
+}
+
+.notes-topic-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notes-add {
+  padding: 4px 12px;
+}
+
+.notes-add-input {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  outline: none;
+  font-size: 12px;
+}
+
+.notes-add-error {
+  margin-top: 3px;
+  color: var(--accent-claude);
+  font-size: 11px;
+}
+
+/* Sub-level workspace: page list + editor (OneNote section view) */
+.notes-workspace {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+
+.notes-pages {
+  width: 230px;
+  min-width: 230px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-pages-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 6px;
+}
+
+.notes-pages-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dictation lands here in N2 — placeholder stays visible but inert */
+.notes-record-button {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent-claude);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.notes-record-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.notes-pages-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.note-page-row {
+  padding: 7px 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.note-page-row:hover {
+  background: var(--bg-hover);
+}
+
+.note-page-row-selected {
+  background: var(--bg-selected);
+  border-left-color: var(--accent-claude);
+}
+
+.note-page-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-page-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-page-row .session-action-button {
+  visibility: hidden;
+}
+
+.note-page-row:hover .session-action-button {
+  visibility: visible;
+}
+
+.note-page-date {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.notes-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notes-title-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  outline: none;
+}
+
+.notes-mode-button {
+  padding: 5px 12px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.notes-mode-button:hover {
+  color: var(--text);
+}
+
+.notes-mode-button-active {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.notes-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.notes-editor-cm {
+  height: 100%;
+}
+
+.notes-editor-cm .cm-editor {
+  height: 100%;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.notes-editor-cm .cm-editor.cm-focused {
+  outline: none;
+}
+
+.notes-editor-cm .cm-scroller {
+  font-family: 'SF Mono', Menlo, monospace;
+  line-height: 1.6;
+  padding: 12px 16px;
+}
+
+.notes-md-preview {
+  padding: 16px 20px;
+  max-width: 860px;
+}
+
+.notes-editor-loading {
+  padding: 16px 20px;
+  color: var(--text-dim);
 }
