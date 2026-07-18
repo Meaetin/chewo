@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { KeyRound, TriangleAlert, X } from 'lucide-react'
+import { ModalShell } from './ModalShell'
+import { Badge, Button, IconButton, Row, Tooltip } from './ui'
 import type {
   AgentRef,
   CapabilityInventory,
@@ -213,9 +216,9 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
       <header className="capabilities-header">
         <div className="capabilities-header-top">
           <h2>Capabilities</h2>
-          <button className="capabilities-close-button" title="Close" onClick={onClose}>
-            ×
-          </button>
+          <IconButton label="Close" onClick={onClose}>
+            <X size={20} strokeWidth={1.75} />
+          </IconButton>
         </div>
         <p className="capabilities-subtitle">
           What each scope gives your agents. Copy skills and subagents between projects and your
@@ -245,37 +248,43 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
               ).map(
                 ([file, ref, tool]) =>
                   ref && (
-                    <div
+                    <Row
                       key={file}
-                      className="capability-row capability-row-clickable"
-                      title="Click to view"
+                      className="capability-row capability-row--clickable"
+                      density="compact"
+                      leading={<Badge source={tool} />}
                       onClick={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
+                      trailing={
+                        <>
+                          <Button
+                            intent="secondary"
+                            size="compact"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)
+                            }}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            intent="secondary"
+                            size="compact"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startCopy({ kind: 'memory', ref, file })
+                            }}
+                          >
+                            Copy to…
+                          </Button>
+                        </>
+                      }
                     >
-                      <span className={`source-badge source-badge-${tool}`}>
-                        {tool === 'claude' ? 'CC' : 'CX'}
-                      </span>
-                      <span className="capability-name">{file}</span>
-                      <span className="capability-detail">{ref.firstLine}</span>
-                      <button
-                        className="copy-to-button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)
-                        }}
-                      >
-                        View
-                      </button>
-                      <button
-                        className="copy-to-button copy-to-button-second"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          startCopy({ kind: 'memory', ref, file })
-                        }}
-                      >
-                        Copy to…
-                      </button>
+                      <div className="capability-row__main">
+                        <span className="capability-name">{file}</span>
+                        <span className="capability-detail">{ref.firstLine}</span>
+                      </div>
                       <span className="capability-meta">{kb(ref.bytes)}</span>
-                    </div>
+                    </Row>
                   )
               )}
               {!inv.memory.claudeMd && !inv.memory.agentsMd && (
@@ -286,21 +295,28 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             <div className="capability-group">
               <div className="capability-group-title">Skills ({inv.skills.length})</div>
               {inv.skills.map((s) => (
-                <div key={s.dir} className="capability-row" title={s.dir}>
-                  {s.tools.map((t) => (
-                    <span key={t} className={`source-badge source-badge-${t}`}>
-                      {t === 'claude' ? 'CC' : 'CX'}
-                    </span>
+                <Row
+                  key={s.dir}
+                  className="capability-row"
+                  density="compact"
+                  leading={s.tools.map((t) => (
+                    <Badge key={t} source={t} />
                   ))}
-                  <span className="capability-name">{s.name}</span>
-                  <span className="capability-detail">{s.description}</span>
-                  <button
-                    className="copy-to-button"
-                    onClick={() => startCopy({ kind: 'skill', ref: s })}
-                  >
-                    Copy to…
-                  </button>
-                </div>
+                  trailing={
+                    <Button
+                      intent="secondary"
+                      size="compact"
+                      onClick={() => startCopy({ kind: 'skill', ref: s })}
+                    >
+                      Copy to…
+                    </Button>
+                  }
+                >
+                  <div className="capability-row__main">
+                    <span className="capability-name">{s.name}</span>
+                    <span className="capability-detail">{s.description}</span>
+                  </div>
+                </Row>
               ))}
               {inv.skills.length === 0 && <div className="capability-empty">none</div>}
             </div>
@@ -308,17 +324,26 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             <div className="capability-group">
               <div className="capability-group-title">Subagents ({inv.agents.length})</div>
               {inv.agents.map((a) => (
-                <div key={a.path} className="capability-row" title={a.path}>
-                  <span className="source-badge source-badge-claude">CC</span>
-                  <span className="capability-name">{a.name}</span>
-                  <span className="capability-detail">{a.description}</span>
-                  <button
-                    className="copy-to-button"
-                    onClick={() => startCopy({ kind: 'agent', ref: a })}
-                  >
-                    Copy to…
-                  </button>
-                </div>
+                <Row
+                  key={a.path}
+                  className="capability-row"
+                  density="compact"
+                  leading={<Badge source="claude" />}
+                  trailing={
+                    <Button
+                      intent="secondary"
+                      size="compact"
+                      onClick={() => startCopy({ kind: 'agent', ref: a })}
+                    >
+                      Copy to…
+                    </Button>
+                  }
+                >
+                  <div className="capability-row__main">
+                    <span className="capability-name">{a.name}</span>
+                    <span className="capability-detail">{a.description}</span>
+                  </div>
+                </Row>
               ))}
               {inv.agents.length === 0 && <div className="capability-empty">none</div>}
             </div>
@@ -326,19 +351,31 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             <div className="capability-group">
               <div className="capability-group-title">Hooks ({inv.hooks.length})</div>
               {inv.hooks.map((h, hi) => (
-                <div key={hi} className="capability-row" title={h.settingsPath}>
-                  <span className="source-badge source-badge-claude">CC</span>
-                  <span className="capability-name">
-                    {h.event}
-                    {h.matcher ? ` · ${h.matcher}` : ''}
-                  </span>
-                  <span className="capability-detail">
-                    <code>{h.command}</code>
-                  </span>
-                  <button className="copy-to-button" onClick={() => startCopy({ kind: 'hook', ref: h })}>
-                    Copy to…
-                  </button>
-                </div>
+                <Row
+                  key={hi}
+                  className="capability-row"
+                  density="compact"
+                  leading={<Badge source="claude" />}
+                  trailing={
+                    <Button
+                      intent="secondary"
+                      size="compact"
+                      onClick={() => startCopy({ kind: 'hook', ref: h })}
+                    >
+                      Copy to…
+                    </Button>
+                  }
+                >
+                  <div className="capability-row__main">
+                    <span className="capability-name">
+                      {h.event}
+                      {h.matcher ? ` · ${h.matcher}` : ''}
+                    </span>
+                    <span className="capability-detail">
+                      <code>{h.command}</code>
+                    </span>
+                  </div>
+                </Row>
               ))}
               {inv.hooks.length === 0 && (
                 <div className="capability-empty">
@@ -352,22 +389,35 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             <div className="capability-group">
               <div className="capability-group-title">MCP servers ({inv.mcp.length})</div>
               {inv.mcp.map((m) => (
-                <div key={`${m.tool}:${m.name}`} className="capability-row">
-                  <span className={`source-badge source-badge-${m.tool}`}>
-                    {m.tool === 'claude' ? 'CC' : 'CX'}
-                  </span>
-                  <span className="capability-name">{m.name}</span>
-                  <span className="capability-detail">{m.command}</span>
+                <Row
+                  key={`${m.tool}:${m.name}`}
+                  className="capability-row"
+                  density="compact"
+                  leading={<Badge source={m.tool} />}
+                  trailing={
+                    <Button
+                      intent="secondary"
+                      size="compact"
+                      onClick={() => startCopy({ kind: 'mcp', ref: m })}
+                    >
+                      Copy to…
+                    </Button>
+                  }
+                >
+                  <div className="capability-row__main">
+                    <span className="capability-name">{m.name}</span>
+                    <span className="capability-detail">{m.command}</span>
+                  </div>
                   {m.envKeys && m.envKeys.length > 0 && (
-                    <span className="capability-meta" title={`Needs env vars: ${m.envKeys.join(', ')}`}>
-                      🔑{m.envKeys.length}
+                    <span className="capability-meta capability-meta--keys">
+                      <Tooltip label={`Needs env vars: ${m.envKeys.join(', ')}`}>
+                        <KeyRound size={12} strokeWidth={1.75} />
+                      </Tooltip>
+                      {m.envKeys.length}
                     </span>
                   )}
-                  <button className="copy-to-button" onClick={() => startCopy({ kind: 'mcp', ref: m })}>
-                    Copy to…
-                  </button>
                   <span className="capability-meta">{m.scope}</span>
-                </div>
+                </Row>
               ))}
               {inv.mcp.length === 0 && <div className="capability-empty">none</div>}
             </div>
@@ -376,25 +426,17 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
       </div>
 
       {viewing && (
-        <div className="copy-modal-backdrop" onClick={() => setViewing(null)}>
-          <div className="memory-viewer" onClick={(e) => e.stopPropagation()}>
-            <div className="memory-viewer-header">
-              <h3 className="copy-modal-title">{viewing.title}</h3>
-              <button className="terminal-tab-close" onClick={() => setViewing(null)}>
-                ×
-              </button>
-            </div>
-            <div className="memory-viewer-body message-markdown">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewing.content}</ReactMarkdown>
-            </div>
+        <ModalShell title={viewing.title} size="wide" onClose={() => setViewing(null)}>
+          <div className="memory-viewer-body message-markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewing.content}</ReactMarkdown>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {copying && (
-        <div className="copy-modal-backdrop" onClick={() => !busy && setCopying(null)}>
-          <div className="copy-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="copy-modal-title">
+        <ModalShell
+          title={
+            <>
               Copy{' '}
               {copying.kind === 'skill'
                 ? `skill “${copying.ref.name}”`
@@ -405,8 +447,32 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
                     : copying.kind === 'hook'
                       ? `hook ${copying.ref.event}${copying.ref.matcher ? ` · ${copying.ref.matcher}` : ''}`
                       : copying.file}
-            </h3>
-
+            </>
+          }
+          busy={busy}
+          onClose={() => setCopying(null)}
+          footer={
+            <>
+              <div className="wt-footer-spacer" />
+              <Button intent="secondary" disabled={busy} onClick={() => setCopying(null)}>
+                Cancel
+              </Button>
+              <Button
+                intent="primary"
+                loading={busy}
+                loadingText="Copying…"
+                disabled={
+                  pickedTargets.size === 0 ||
+                  (copying.kind === 'skill' && pickedTools.size === 0)
+                }
+                onClick={() => void applyCopy()}
+              >
+                Copy
+              </Button>
+            </>
+          }
+        >
+          <>
             {copying.kind === 'skill' && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">For which tool</div>
@@ -437,7 +503,12 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             {copying.kind === 'hook' && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">
-                  ⚠ Hooks run automatically. This installs into .claude/settings.json:
+                  <TriangleAlert
+                    className="copy-modal-label-icon copy-modal-label-icon--warn"
+                    size={14}
+                    strokeWidth={1.75}
+                  />
+                  Hooks run automatically. This installs into .claude/settings.json:
                 </div>
                 <code className="hook-command-preview">{copying.ref.command}</code>
               </div>
@@ -445,7 +516,8 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             {copying.kind === 'mcp' && copying.ref.envKeys && copying.ref.envKeys.length > 0 && (
               <div className="copy-modal-section">
                 <div className="copy-modal-label">
-                  🔑 Secrets are never copied — set these env vars manually at each destination:{' '}
+                  <KeyRound className="copy-modal-label-icon" size={14} strokeWidth={1.75} />
+                  Secrets are never copied — set these env vars manually at each destination:{' '}
                   {copying.ref.envKeys.join(', ')}
                 </div>
               </div>
@@ -493,7 +565,9 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
                     {option('personal', 'Personal (all projects, globally)')}
                     {projects.map((p) => option(p.id, p.name))}
                     {projects.length > 0 && (
-                      <button
+                      <Button
+                        intent="ghost"
+                        size="compact"
                         className="copy-modal-selectall"
                         onClick={() =>
                           setPickedTargets(
@@ -502,27 +576,14 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
                         }
                       >
                         Select all projects
-                      </button>
+                      </Button>
                     )}
                   </>
                 )
               })()}
             </div>
-
-            <div className="copy-modal-actions">
-              <button className="copy-modal-cancel" disabled={busy} onClick={() => setCopying(null)}>
-                Cancel
-              </button>
-              <button
-                className="copy-modal-apply"
-                disabled={busy || pickedTargets.size === 0 || (copying.kind === 'skill' && pickedTools.size === 0)}
-                onClick={() => void applyCopy()}
-              >
-                {busy ? 'Copying…' : 'Copy'}
-              </button>
-            </div>
-          </div>
-        </div>
+          </>
+        </ModalShell>
       )}
     </div>
   )
