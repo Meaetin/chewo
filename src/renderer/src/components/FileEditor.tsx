@@ -3,6 +3,7 @@ import CodeMirror, { keymap, Prec, type Extension } from '@uiw/react-codemirror'
 import { Code2, Eye, X } from 'lucide-react'
 import type { ReadFileResult } from '../../../main/file-explorer'
 import type { OpenFile } from '../App'
+import { ImageStage } from './ImageStage'
 import { editorTheme } from '../theme/editorTheme'
 import { languageFor } from '../theme/langs'
 import { IconButton } from './ui'
@@ -40,7 +41,9 @@ interface FileBuffer {
   svgPreview?: boolean
 }
 
-const bufferFrom = (res: ReadFileResult): FileBuffer => ({
+const isSvg = (path: string): boolean => path.toLowerCase().endsWith('.svg')
+
+const bufferFrom = (res: ReadFileResult, path: string): FileBuffer => ({
   kind: res.ok ? res.kind : 'text',
   content: res.ok && res.kind === 'text' ? res.content : '',
   image: res.ok && res.kind === 'image' ? res.dataUrl : undefined,
@@ -48,10 +51,10 @@ const bufferFrom = (res: ReadFileResult): FileBuffer => ({
   error: res.ok ? undefined : res.error,
   dirty: false,
   conflict: false,
-  savedAt: 0
+  savedAt: 0,
+  // SVGs open rendered; the chip-bar toggle flips to code
+  svgPreview: isSvg(path) || undefined
 })
-
-const isSvg = (path: string): boolean => path.toLowerCase().endsWith('.svg')
 
 /** Our own save comes back as a watcher event within this window */
 const SAVE_ECHO_MS = 1500
@@ -84,7 +87,7 @@ export function FileEditor({
     let stale = false
     void window.api.fsReadFile(activePath).then((res) => {
       if (stale) return
-      buffers.current.set(activePath, bufferFrom(res))
+      buffers.current.set(activePath, bufferFrom(res, activePath))
       bump()
     })
     return () => {
@@ -97,7 +100,7 @@ export function FileEditor({
       void window.api.fsReadFile(path).then((res) => {
         // Keep the preview mode across reloads of the same SVG
         const prev = buffers.current.get(path)
-        buffers.current.set(path, { ...bufferFrom(res), svgPreview: prev?.svgPreview })
+        buffers.current.set(path, { ...bufferFrom(res, path), svgPreview: prev?.svgPreview })
         bump()
       })
     },
@@ -281,17 +284,13 @@ export function FileEditor({
             <p>{buffer.error}</p>
           </div>
         ) : buffer?.kind === 'image' ? (
-          <div className="file-editor-image-stage">
-            <img className="file-editor-image" src={buffer.image} alt={activePath ?? ''} />
-          </div>
+          <ImageStage src={buffer.image ?? ''} alt={activePath ?? ''} active={visible} />
         ) : buffer && activePath && isSvg(activePath) && buffer.svgPreview ? (
-          <div className="file-editor-image-stage">
-            <img
-              className="file-editor-image"
-              src={`data:image/svg+xml;utf8,${encodeURIComponent(buffer.content)}`}
-              alt={activePath}
-            />
-          </div>
+          <ImageStage
+            src={`data:image/svg+xml;utf8,${encodeURIComponent(buffer.content)}`}
+            alt={activePath}
+            active={visible}
+          />
         ) : buffer ? (
           <CodeMirror
             className="file-editor-cm"

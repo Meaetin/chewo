@@ -989,11 +989,15 @@ body {
 
 /* Images sit centered on the canvas at natural size, scaled down to fit */
 .file-editor-image-stage {
+  position: relative;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-24);
+  /* Zoomed content clips to the viewport rather than scrolling the pane */
+  overflow: hidden;
+  user-select: none;
 }
 
 .file-editor-image {
@@ -1001,6 +1005,32 @@ body {
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-1);
+  /* Pan/zoom is driven by an inline transform; keep it crisp and snappy */
+  transform-origin: center center;
+  will-change: transform;
+  -webkit-user-drag: none;
+}
+
+/* Zoom % + gesture hint — fades unless the stage is hovered */
+.file-editor-image-hint {
+  position: absolute;
+  bottom: var(--space-8);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--space-2) var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+
+.file-editor-image-stage:hover .file-editor-image-hint {
+  opacity: 1;
 }
 
 .file-editor-cm {
