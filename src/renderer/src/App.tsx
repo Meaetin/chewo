@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { GitMerge, Play, Plus, Terminal, X } from 'lucide-react'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -24,6 +25,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
+import { Badge, Dot, IconButton } from './components/ui'
 
 export type PaneSource = Source | 'shell'
 
@@ -37,8 +39,6 @@ export interface TerminalTab {
   worktreeId?: string
   exited: boolean
 }
-
-const BADGES: Record<PaneSource, string> = { claude: 'CC', codex: 'CX', shell: 'SH' }
 
 type MainView =
   | { kind: 'transcript'; session: SessionMeta }
@@ -700,6 +700,8 @@ export function App(): React.JSX.Element {
   return (
     <div className="app-layout">
       <div className="sidebar-column">
+        {/* hiddenInset traffic lights wired in main process separately */}
+        <div className="sidebar-drag-strip" />
         <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
         {workflow === 'notes' ? (
           <NotesSidebar
@@ -748,31 +750,33 @@ export function App(): React.JSX.Element {
               className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''}`}
               onClick={() => setView({ kind: 'terminal', termId: tab.termId })}
             >
-              <span className={`source-badge source-badge-${tab.source}`}>
-                {BADGES[tab.source]}
-              </span>
+              {!tab.exited && <Dot tone="live" className="terminal-tab-dot" />}
+              <Badge source={tab.source} />
               <span className="terminal-tab-label">{tab.label}</span>
               {tab.worktreeId && (
-                <button
-                  className="terminal-tab-merge"
-                  title="Review & merge this worktree into the main checkout"
+                <IconButton
+                  label="Review & merge this worktree into the main checkout"
+                  dense
+                  className="terminal-tab-action"
                   onClick={(e) => {
                     e.stopPropagation()
                     setWtMerge(worktrees.find((w) => w.id === tab.worktreeId) ?? null)
                   }}
                 >
-                  ⇤
-                </button>
+                  <GitMerge size={14} strokeWidth={1.75} />
+                </IconButton>
               )}
-              <button
-                className="terminal-tab-close"
+              <IconButton
+                label="Close session"
+                dense
+                className="terminal-tab-action"
                 onClick={(e) => {
                   e.stopPropagation()
                   closeTerminal(tab.termId)
                 }}
               >
-                ×
-              </button>
+                <X size={14} strokeWidth={1.75} />
+              </IconButton>
             </div>
           ))}
 
@@ -783,42 +787,44 @@ export function App(): React.JSX.Element {
               title="Terminal from a previous app run — click to resume"
               onClick={() => wakeDormant(t)}
             >
-              <span className={`source-badge source-badge-${t.source}`}>
-                {t.source === 'claude' ? 'CC' : 'CX'}
-              </span>
-              <span className="terminal-tab-label">▶ {t.label}</span>
+              <Play className="terminal-tab-ghost-glyph" size={14} strokeWidth={1.75} />
+              <Badge source={t.source} />
+              <span className="terminal-tab-label">{t.label}</span>
               {t.worktreeId && (
-                <button
-                  className="terminal-tab-merge"
-                  title="Review & merge this worktree into the main checkout"
+                <IconButton
+                  label="Review & merge this worktree into the main checkout"
+                  dense
+                  className="terminal-tab-action"
                   onClick={(e) => {
                     e.stopPropagation()
                     setWtMerge(worktrees.find((w) => w.id === t.worktreeId) ?? null)
                   }}
                 >
-                  ⇤
-                </button>
+                  <GitMerge size={14} strokeWidth={1.75} />
+                </IconButton>
               )}
-              <button
-                className="terminal-tab-close"
+              <IconButton
+                label="Forget this session"
+                dense
+                className="terminal-tab-action"
                 onClick={(e) => {
                   e.stopPropagation()
                   removeDormant(t.sessionId)
                 }}
               >
-                ×
-              </button>
+                <X size={14} strokeWidth={1.75} />
+              </IconButton>
             </div>
           ))}
 
           {/* Parked at the far right, past every live + ghost tab */}
-          <button
+          <IconButton
+            label={`New shell in ${selectedProject?.name ?? 'Home'}`}
             className="new-shell-button"
-            title={`New shell in ${selectedProject?.name ?? 'Home'}`}
             onClick={() => newTerminal('shell')}
           >
-            +
-          </button>
+            <Plus size={18} strokeWidth={1.75} />
+          </IconButton>
         </div>
         )}
 
@@ -869,7 +875,10 @@ export function App(): React.JSX.Element {
 
           {workflow === 'code' && view.kind === 'empty' && (
             <div className="empty-state">
-              <h2>{selectedProject ? selectedProject.name : 'Chewo'}</h2>
+              <Terminal className="empty-state-glyph" size={20} strokeWidth={1.5} />
+              <h2 className="empty-state-title">
+                {selectedProject ? selectedProject.name : 'Chewo'}
+              </h2>
               <p>
                 {selectedProject
                   ? `Sessions and terminals scoped to ${selectedProject.path}`

@@ -192,30 +192,36 @@ body {
 
 .workflow-switcher {
   display: flex;
-  gap: 4px;
-  padding: 10px 10px 0;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12) var(--space-4);
 }
 
 .workflow-switcher-option {
   flex: 1;
-  padding: 6px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-12);
   background: none;
   border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--text-dim);
+  border-radius: var(--radius-2);
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
 }
 
 .workflow-switcher-option:hover {
   background: var(--bg-hover);
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .workflow-switcher-active {
   background: var(--bg-selected);
-  border-color: var(--border);
-  color: var(--text);
+  border-color: var(--border-hairline);
+  color: var(--text-primary);
 }
 
 .project-rail-header {
@@ -267,22 +273,6 @@ body {
   padding-left: 10px;
   border-left: 1px solid var(--border);
   margin-left: 17px;
-}
-
-.show-more-button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 6px 12px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.show-more-button:hover {
-  color: var(--text);
 }
 
 .project-row:hover {
@@ -345,92 +335,10 @@ body {
   color: var(--text);
 }
 
-.terminal-tab-dormant {
-  opacity: 0.5;
-}
-
-.terminal-tab-dormant:hover {
-  opacity: 0.9;
-}
-
-.sidebar-actions {
-  display: flex;
-  gap: 8px;
-  padding: 10px;
-}
-
-.new-terminal-button {
-  flex: 1;
-  padding: 7px 0;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.new-terminal-button:hover {
-  background: var(--bg-selected);
-}
-
-.session-search-input {
-  margin: 0 10px 10px;
-  padding: 7px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  outline: none;
-}
-
 .session-list {
   flex: 1;
   overflow-y: auto;
   padding-bottom: 12px;
-}
-
-.session-item {
-  padding: 7px 12px;
-  cursor: pointer;
-  border-left: 2px solid transparent;
-}
-
-.session-item:hover {
-  background: var(--bg-hover);
-}
-
-.session-item-selected {
-  background: var(--bg-selected);
-  border-left-color: var(--accent-claude);
-}
-
-.session-item-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.session-item-title {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-item-time {
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
-.session-item-preview {
-  margin-top: 2px;
-  padding-left: 26px;
-  color: var(--text-dim);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .session-list-empty {
@@ -465,31 +373,6 @@ body {
   color: var(--text-dim);
 }
 
-.new-shell-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  /* Parked at the far right, past every tab (live + ghost) — a distinct action,
-     not a tab. Borderless like Chrome's new-tab button. */
-  margin-left: auto;
-  margin-bottom: 4px;
-  background: transparent;
-  border: none;
-  border-radius: 7px;
-  color: var(--text-dim);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.new-shell-button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 /* ---------- main panel ---------- */
 
 .main-panel {
@@ -505,34 +388,34 @@ body {
      not gaps). The focused tab fills down into the terminal to merge. */
   align-items: flex-end;
   gap: 0;
-  padding: 6px 8px 0;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-6) var(--space-8) 0;
+  background: var(--bg-sidebar);
+  border-bottom: var(--border-hair);
   min-height: 38px;
 }
 
 .terminal-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-12);
   /* Borderless and same height whether focused or not, so content never shifts
      and every tab's text stays on the same baseline. */
   background: transparent;
   border: none;
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
   cursor: pointer;
   max-width: 220px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   position: relative;
   transition:
-    background-color 0.12s ease,
-    color 0.12s ease;
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
 }
 
 .terminal-tab:hover {
   background: var(--bg-hover);
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 /* Thin divider on the left of each tab (Chrome separators). Hidden on both
@@ -544,7 +427,7 @@ body {
   top: 9px;
   bottom: 9px;
   width: 1px;
-  background: var(--border);
+  background: var(--border-hairline);
 }
 
 .terminal-tab-active::before,
@@ -558,8 +441,8 @@ body {
    dropped 1px over the bar's border so it merges into the terminal below.
    Same box as at rest — only the fill changes, so text doesn't move. */
 .terminal-tab-active {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
   margin-bottom: -1px;
 }
 
@@ -571,27 +454,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
-}
-
-.project-row-live {
-  color: var(--live);
-  font-size: 10px;
-  flex-shrink: 0;
-}
-
-.session-live-dot {
-  color: var(--accent-live);
-  font-size: 9px;
-  flex-shrink: 0;
-}
-
-.session-item-live {
-  background: color-mix(in srgb, var(--accent-live) 6%, transparent);
-}
-
-.session-item-live .session-item-title {
-  color: color-mix(in srgb, var(--accent-live) 35%, var(--text));
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
 }
 
 .terminal-tab-close {
@@ -605,40 +469,6 @@ body {
 
 .terminal-tab-close:hover {
   color: var(--text);
-}
-
-.terminal-tab-merge {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-}
-
-.terminal-tab-merge:hover {
-  color: var(--accent-live);
-}
-
-/* ---------- worktrees ---------- */
-
-.worktree-new-button {
-  width: 34px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.worktree-new-button:hover:not(:disabled) {
-  background: var(--bg-selected);
-}
-
-.worktree-new-button:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /* worktree modals: header + scrollable body + fixed footer */
@@ -1455,20 +1285,6 @@ body {
 }
 
 /* ---------- capabilities ---------- */
-
-.capabilities-button {
-  width: 34px;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.capabilities-button:hover {
-  background: var(--bg-selected);
-}
 
 .capabilities-view {
   height: 100%;
@@ -2620,6 +2436,202 @@ body {
    ============================================================ */
 
 /* ===== 2b: Sidebar / Chrome ===== */
+
+/* Top drag strip — hiddenInset traffic-light zone (wired in main process later) */
+.sidebar-drag-strip {
+  height: 40px;
+  flex: none;
+  -webkit-app-region: drag;
+}
+
+/* Workflow switcher — segmented control icon (accent when active) */
+.workflow-switcher-icon {
+  color: var(--text-tertiary);
+}
+.workflow-switcher-active .workflow-switcher-icon {
+  color: var(--accent);
+}
+
+/* Create row — quiet unified new-session split button + inline icon actions */
+.sidebar-create-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-12) var(--space-8);
+}
+
+.new-session {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.new-session__trigger {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.new-session__caret {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+.new-session__menu {
+  position: absolute;
+  top: calc(100% + var(--space-4));
+  left: 0;
+  right: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-float);
+}
+
+.new-session__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-8);
+  background: none;
+  border: none;
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.new-session__item:hover {
+  background: var(--bg-hover);
+}
+
+/* Dense 14px glyphs for the sidebar create-row icon actions */
+.sidebar-create-row .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-search-row {
+  padding: 0 var(--space-12) var(--space-12);
+}
+
+/* Session rows (Row primitive body) */
+.session-row-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+.session-row-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-row-time {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+.session-row-sub {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Section header rows (Home / project / hidden) */
+.section-chevron {
+  color: var(--text-tertiary);
+}
+.section-row-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+.section-row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.section-row-count {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+.section-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: none;
+  color: var(--live);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-2xs);
+}
+
+/* Terminal tab bar — live dot, ghost glyph + italic label, hover-revealed actions */
+.terminal-tab-dot {
+  flex: none;
+}
+.terminal-tab-ghost-glyph {
+  flex: none;
+  color: var(--text-tertiary);
+}
+.terminal-tab-dormant .terminal-tab-label {
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+.terminal-tab-action {
+  flex: none;
+  opacity: 0;
+}
+.terminal-tab:hover .terminal-tab-action,
+.terminal-tab-active .terminal-tab-action {
+  opacity: 1;
+}
+.terminal-tab .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+/* New-shell: parked at the far right, past every tab. IconButton is wrapped in a
+   Tooltip span, so the auto margin rides the wrapper (the flex child). */
+.terminal-tab-bar > .tooltip {
+  margin-left: auto;
+  margin-bottom: var(--space-4);
+}
+.new-shell-button.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Empty state — serif headline + one calm glyph (design/04 §2.11) */
+.empty-state-glyph {
+  color: var(--text-tertiary);
+}
+.empty-state-title {
+  font-family: var(--font-display);
+  font-weight: var(--weight-medium);
+  font-size: var(--fs-2xl);
+  line-height: var(--lh-2xl);
+  color: var(--text-primary);
+}
 
 /* ===== 2b: Transcript ===== */
 
