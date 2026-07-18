@@ -334,8 +334,10 @@ body {
 .new-shell-button {
   width: 26px;
   height: 26px;
-  /* Sits apart from the session tabs — it's a distinct "new" action, not a tab */
+  /* Sits apart from the session tabs — it's a distinct "new" action, not a tab.
+     margin-bottom matches the tabs' float so it lines up centred with them. */
   margin-left: 8px;
+  margin-bottom: 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -362,43 +364,55 @@ body {
 
 .terminal-tab-bar {
   display: flex;
-  /* At rest, tabs and the + button sit centred and float free — nothing is
-     connected to the terminal until a session is focused. */
-  align-items: center;
+  /* Items bottom-align on the rail, then float up via their own margin-bottom
+     so at rest they read as centred chips. Bottom-anchoring is what lets the
+     focused tab's bridge reach a known distance down into the terminal. */
+  align-items: flex-end;
   gap: 4px;
-  padding: 0 8px;
+  padding: 6px 8px 0;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  min-height: 44px;
+  min-height: 38px;
 }
 
 .terminal-tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 5px 8px;
+  /* Floats 6px above the seam → reads as a centred chip. The focused tab keeps
+     this exact same position and only extends its bottom edge downward. */
+  margin-bottom: 6px;
   background: var(--bg-hover);
   border: 1px solid var(--border);
-  /* Fully rounded floating chip while unfocused. */
   border-radius: 6px;
   cursor: pointer;
   max-width: 220px;
+  position: relative;
   transition: background-color 0.12s ease;
 }
 
-/* Focused session only: grows down to the bottom rail and merges into its
-   terminal — same surface colour (--bg), rounded top, and a bottom edge
-   dropped 1px over the bar's border so the seam disappears and tab + terminal
-   read as one piece. When no terminal is focused, no tab carries this class,
-   so every tab stays a centred floating chip connected to nothing. */
+/* Focused session: stays in place (no downward shift). It recolours to the
+   terminal surface (--bg), squares its bottom corners, and grows a bridge
+   (::after) straight down through the 6px float gap and the bar's 1px border
+   into the terminal — so tab + terminal read as one continuous piece. No tab
+   carries this class unless a terminal is focused, so at rest nothing connects. */
 .terminal-tab-active {
-  align-self: flex-end;
-  padding: 7px 10px 8px;
   background: var(--bg);
   border-bottom-color: var(--bg);
   border-radius: 6px 6px 0 0;
-  margin-bottom: -1px;
-  position: relative;
+}
+
+.terminal-tab-active::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 100%;
+  height: 7px; /* 6px float gap + 1px bar border */
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .terminal-tab-exited {
@@ -1976,6 +1990,7 @@ body {
   max-width: 860px;
   line-height: 1.7;
   font-size: 14px;
+  white-space: pre-wrap;
 }
 
 .transcript-tail {
@@ -2018,4 +2033,22 @@ body {
 .notes-record-lesson-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.notes-rec-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.notes-rec-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notes-editor-stack {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  display: flex;
 }

@@ -7,7 +7,7 @@ import type {
   WorktreeStatusResult
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
-import type { StructureArgs } from '../main/structure'
+import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
 
 export interface TermDataEvent {
@@ -126,7 +126,7 @@ const api = {
     return () => ipcRenderer.removeListener('stt:event', listener)
   },
   notesStructure: (args: StructureArgs) =>
-    ipcRenderer.invoke('notes:structure', args) as Promise<NotesOpResult>,
+    ipcRenderer.invoke('notes:structure', args) as Promise<StructureResult>,
 
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),

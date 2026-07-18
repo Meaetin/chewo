@@ -1,57 +1,68 @@
 import { spawn } from 'node:child_process'
-import { statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { kebabCase } from '../shared/notes'
-import { getNotesRoot, type NotesOpResult } from './notes'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
+import { parseNote } from '../shared/notes'
+import { getNotesRoot } from './notes'
 import { buildPtyEnv } from './terminals'
+import { resolve, sep } from 'node:path'
 
 /**
- * On-stop structuring pass (SPEC-NOTES.md §7): raw transcript → headless
- * Claude → sectioned markdown note. The raw transcript is written first as
- * the note's .raw.md twin and survives regardless of what Claude does; a
- * failed pass leaves a usable raw note behind.
+ * Structuring pass for a dictation that APPENDS to an existing lesson
+ * (SPEC-NOTES.md §7, revised): the raw transcript is appended to the
+ * lesson's .raw.md twin first (audit trail, survives any failure), then
+ * headless Claude structures the new material as a continuation of the
+ * lesson's current content. The caller appends the returned body to the
+ * lesson — main never writes the lesson file itself, so an open editor
+ * can't be clobbered.
  */
 
 export interface StructureArgs {
-  subject: string
-  topic: string
+  /** Absolute path of the lesson .md the dictation belongs to */
+  lessonPath: string
   transcript: string
   durationS: number
   sttModel: string
 }
 
-const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000
-
-const PROMPT = (rawFileName: string): string => `Read the file "${rawFileName}" in the current directory. After its frontmatter it contains a raw speech-to-text transcript of a lesson.
-
-Produce a structured markdown study note from the transcript:
-- "## " sections grouping the material by theme, in the order it was taught
-- bullet the key points; put key terms in **bold** followed by their definition
-- keep the speaker's examples; be faithful to the transcript; never invent content
-- end with a "## Summary" section of 3-5 bullets
-
-Output ONLY the markdown note body — no frontmatter, no preamble, no code fences.`
-
-function frontmatter(
-  title: string,
-  date: string,
-  status: 'raw' | 'structured',
-  sttModel: string,
-  durationS: number
-): string {
-  return `---\ntitle: ${title}\ndate: ${date}\nsource: dictation\nstatus: ${status}\nstt: { engine: whisperkit, model: ${sttModel} }\nduration_s: ${Math.round(durationS)}\n---\n\n`
+export interface StructureResult {
+  ok: boolean
+  /** Structured markdown to append to the lesson (ok only) */
+  body?: string
+  error?: string
 }
 
-/** Run `claude -p` in the topic folder; resolves to the note body markdown. */
+const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000
+
+const PROMPT = (existingBody: string, transcript: string): string => `You are extending a student's lesson note with newly dictated lecture material.
+
+CURRENT NOTE (markdown, may be empty):
+<<<
+${existingBody}
+>>>
+
+NEW RAW TRANSCRIPT (speech-to-text of the latest recording):
+<<<
+${transcript}
+>>>
+
+Structure the new transcript into markdown that CONTINUES the current note:
+- "## " sections grouping the new material by theme, in the order it was taught
+- bullet the key points; put key terms in **bold** followed by their definition
+- keep the speaker's examples; be faithful to the transcript; never invent content
+- do not repeat or rewrite material already in the current note
+- no overall summary section, no preamble, no code fences
+
+Output ONLY the new markdown to append.`
+
+/** Run `claude -p`; prompt over stdin; resolves to the markdown body. */
 function runClaude(cwd: string, prompt: string): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     // Login shell so PATH matches the user's terminal — same reason the pty
     // terminals use zsh -il. Prompt goes over stdin, never through argv.
-    const child = spawn(
-      '/bin/zsh',
-      ['-ilc', 'claude -p --model sonnet --output-format json --allowedTools Read'],
-      { cwd, env: buildPtyEnv(process.env) }
-    )
+    const child = spawn('/bin/zsh', ['-ilc', 'claude -p --model sonnet --output-format json'], {
+      cwd,
+      env: buildPtyEnv(process.env)
+    })
     const timeout = setTimeout(() => {
       child.kill()
       reject(new Error('Structuring timed out after 5 minutes'))
@@ -85,53 +96,36 @@ function runClaude(cwd: string, prompt: string): Promise<string> {
   })
 }
 
-export async function structureTranscript(args: StructureArgs): Promise<NotesOpResult> {
+function assertLessonInsideRoot(path: string): string {
+  const resolved = resolve(path)
+  const root = resolve(getNotesRoot())
+  if (!resolved.startsWith(root + sep) || !resolved.endsWith('.md'))
+    throw new Error(`not a lesson inside the notes root: ${path}`)
+  return resolved
+}
+
+export async function structureTranscript(args: StructureArgs): Promise<StructureResult> {
   try {
-    const topicPath = join(getNotesRoot(), args.subject, args.topic)
-    if (!statSync(topicPath).isDirectory()) throw new Error('topic folder missing')
+    const lessonPath = assertLessonInsideRoot(args.lessonPath)
+    const lessonContent = readFileSync(lessonPath, 'utf8')
+    const existingBody = parseNote(lessonContent).body
 
-    const now = new Date()
-    const title = `Lesson ${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`
-    const base = `${now.toISOString().slice(0, 10)}-${kebabCase(title)}`
-    let suffix = ''
-    for (let n = 2; ; n++) {
-      try {
-        statSync(join(topicPath, `${base}${suffix}.md`))
-        suffix = `-${n}`
-      } catch {
-        break
-      }
+    // Raw twin: append-only audit trail of every dictation into this lesson
+    const rawPath = lessonPath.replace(/\.md$/, '.raw.md')
+    const stamp = `*${new Date().toISOString()} — ${Math.round(args.durationS)}s, ${args.sttModel}*`
+    const rawChunk = `\n\n---\n\n${stamp}\n\n${args.transcript}\n`
+    if (existsSync(rawPath)) {
+      appendFileSync(rawPath, rawChunk)
+    } else {
+      writeFileSync(
+        rawPath,
+        `---\ntitle: ${basename(lessonPath, '.md')} (raw transcripts)\nstatus: raw\n---\n${rawChunk}`
+      )
     }
 
-    const rawPath = join(topicPath, `${base}${suffix}.raw.md`)
-    const notePath = join(topicPath, `${base}${suffix}.md`)
-    const iso = now.toISOString()
-
-    writeFileSync(
-      rawPath,
-      frontmatter(title, iso, 'raw', args.sttModel, args.durationS) + args.transcript + '\n'
-    )
-
-    try {
-      const body = await runClaude(topicPath, PROMPT(`${base}${suffix}.raw.md`))
-      writeFileSync(
-        notePath,
-        frontmatter(title, iso, 'structured', args.sttModel, args.durationS) + body + '\n'
-      )
-      return { ok: true, path: notePath }
-    } catch (err) {
-      // .raw.md twins are hidden from page lists, so a failed pass must still
-      // yield a visible note — the raw transcript, marked status: raw.
-      writeFileSync(
-        notePath,
-        frontmatter(title, iso, 'raw', args.sttModel, args.durationS) + args.transcript + '\n'
-      )
-      return {
-        ok: false,
-        error: String(err instanceof Error ? err.message : err),
-        path: notePath
-      }
-    }
+    const cwd = resolve(lessonPath, '..')
+    const body = await runClaude(cwd, PROMPT(existingBody, args.transcript))
+    return { ok: true, body }
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) }
   }

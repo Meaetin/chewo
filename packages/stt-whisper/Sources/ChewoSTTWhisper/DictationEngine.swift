@@ -116,11 +116,23 @@ actor DictationEngine {
         )
     }
 
+    /// A silence gap between segments longer than this starts a new paragraph —
+    /// keeps long lectures readable without any model involvement.
+    private let paragraphGapSeconds: Float = 1.75
+
     private func joinedText(of segments: [TranscriptionSegment]) -> String {
-        segments
-            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        var text = ""
+        var previousEnd: Float?
+        for segment in segments {
+            let piece = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !piece.isEmpty else { continue }
+            if let previousEnd {
+                text += segment.start - previousEnd > paragraphGapSeconds ? "\n\n" : " "
+            }
+            text += piece
+            previousEnd = segment.end
+        }
+        return text
     }
 
     /// Promotes all but the trailing `requiredSegmentsForConfirmation` segments

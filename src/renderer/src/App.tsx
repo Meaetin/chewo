@@ -12,7 +12,11 @@ import {
 import { DEFAULT_STT_MODEL, type NoteSource, type NotesTree } from '../../shared/notes'
 import { Sidebar } from './components/Sidebar'
 import { NotesSidebar, type TopicRef } from './components/NotesSidebar'
-import { NotesWorkspace, type RecordingState } from './components/NotesWorkspace'
+import {
+  NotesWorkspace,
+  type PendingAppend,
+  type RecordingState
+} from './components/NotesWorkspace'
 import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
@@ -61,8 +65,17 @@ export function App(): React.JSX.Element {
   const [notesSel, setNotesSel] = useState<TopicRef | null>(null)
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
   const [recording, setRecording] = useState<RecordingState | null>(null)
+  const [pendingAppend, setPendingAppend] = useState<PendingAppend | null>(null)
+  const appendSeq = useRef(0)
   const recordingRef = useRef<RecordingState | null>(null)
   recordingRef.current = recording
+  // Live mirrors for the stt event handler (registered once, must not go stale)
+  const workflowRef = useRef<Workflow>('code')
+  workflowRef.current = workflow
+  const notesSelRef = useRef<TopicRef | null>(null)
+  notesSelRef.current = notesSel
+  const selectedNotePathRef = useRef<string | null>(null)
+  selectedNotePathRef.current = selectedNotePath
   const notesRoot = useRef<string | undefined>(undefined)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
@@ -85,7 +98,12 @@ export function App(): React.JSX.Element {
     setNotesTree(await window.api.notesScan())
   }, [])
 
-  /** stt 'final' → write raw twin, run the claude -p structuring pass, open the note. */
+  /**
+   * stt 'final' → raw transcript appended to the lesson's .raw.md twin, one
+   * claude -p pass structures it as a continuation, and the result appends
+   * into the lesson: through the open editor when it's mounted (so typing is
+   * never clobbered), else straight to the file.
+   */
   const finalizeRecording = useCallback(
     async (text: string, durationS: number) => {
       const rec = recordingRef.current
@@ -96,28 +114,50 @@ export function App(): React.JSX.Element {
         setRecording(null)
         return
       }
-      setRecording({ phase: 'structuring', ref: rec.ref })
+      setRecording({ phase: 'structuring', ref: rec.ref, notePath: rec.notePath })
       const res = await window.api.notesStructure({
-        subject: rec.ref.subject,
-        topic: rec.ref.topic,
+        lessonPath: rec.notePath,
         transcript,
         durationS,
         sttModel: DEFAULT_STT_MODEL
       })
+
+      // A failed pass still lands in the lesson — as the raw transcript
+      const when = new Date().toLocaleString()
+      const stamp = res.ok
+        ? `*Dictated ${when}*`
+        : `*Dictated ${when} — structuring failed, raw transcript:*`
+      const addition = `---\n\n${stamp}\n\n${(res.ok ? (res.body ?? '') : transcript).trim()}`
+
+      const editorMounted =
+        workflowRef.current === 'notes' &&
+        selectedNotePathRef.current === rec.notePath &&
+        notesSelRef.current?.subject === rec.ref.subject &&
+        notesSelRef.current?.topic === rec.ref.topic
+      if (editorMounted) {
+        setPendingAppend({ id: ++appendSeq.current, path: rec.notePath, text: addition })
+      } else {
+        try {
+          const existing = await window.api.notesRead(rec.notePath)
+          await window.api.notesWrite(
+            rec.notePath,
+            existing.replace(/\s+$/, '') + '\n\n' + addition + '\n'
+          )
+        } catch {
+          showToast('Lesson file is gone — the transcript is kept in its .raw.md twin.')
+        }
+      }
+
       setRecording(null)
-      await refreshNotes()
-      if (res.path) {
-        setNotesSel(rec.ref)
-        setSelectedNotePath(res.path)
-      }
-      if (!res.ok) {
-        showToast(
-          `Structuring failed: ${res.error ?? 'unknown'} — the raw transcript was saved as a note instead.`
-        )
-      }
+      void refreshNotes()
+      if (!res.ok) showToast(`Structuring failed: ${res.error ?? 'unknown'} — appended raw transcript.`)
     },
     [refreshNotes, showToast]
   )
+
+  const onAppendApplied = useCallback((id: number) => {
+    setPendingAppend((p) => (p && p.id === id ? null : p))
+  }, [])
 
   useEffect(() => {
     void refresh()
@@ -139,7 +179,15 @@ export function App(): React.JSX.Element {
         case 'ready':
           setRecording((r) =>
             r && r.phase === 'loading'
-              ? { phase: 'recording', ref: r.ref, confirmed: '', tail: '', level: 0, startedAt: Date.now() }
+              ? {
+                  phase: 'recording',
+                  ref: r.ref,
+                  notePath: r.notePath,
+                  confirmed: '',
+                  tail: '',
+                  level: 0,
+                  startedAt: Date.now()
+                }
               : r
           )
           break
@@ -580,10 +628,10 @@ export function App(): React.JSX.Element {
   )
 
   const startRecording = useCallback(() => {
-    if (!notesSel || recordingRef.current) return
-    setRecording({ phase: 'loading', ref: notesSel })
+    if (!notesSel || !selectedNotePath || recordingRef.current) return
+    setRecording({ phase: 'loading', ref: notesSel, notePath: selectedNotePath })
     window.api.sttStart(DEFAULT_STT_MODEL)
-  }, [notesSel])
+  }, [notesSel, selectedNotePath])
 
   const stopRecording = useCallback(() => {
     window.api.sttStop()
@@ -610,12 +658,18 @@ export function App(): React.JSX.Element {
 
   const deleteProject = useCallback(
     (id: string) => {
+      // Closing a project fully tears it down: kill its live terminals and drop
+      // their tabs, rather than orphaning them into Home.
+      const doomed = tabs.filter((tab) => tab.projectId === id)
+      for (const tab of doomed) window.api.termKill(tab.termId)
+      const doomedIds = new Set(doomed.map((tab) => tab.termId))
+      setTabs((t) => t.filter((tab) => !doomedIds.has(tab.termId)))
       setProjects((ps) => ps.filter((p) => p.id !== id))
       if (selectedProjectId === id) setSelectedProjectId(null)
-      // Live tabs of a deleted project fall back to the "All" view
-      setTabs((t) => t.map((tab) => (tab.projectId === id ? { ...tab, projectId: null } : tab)))
+      // If the focused terminal belonged to the closed project, drop the view.
+      setView((v) => (v.kind === 'terminal' && doomedIds.has(v.termId) ? { kind: 'empty' } : v))
     },
-    [selectedProjectId]
+    [tabs, selectedProjectId]
   )
 
   return (
@@ -750,6 +804,8 @@ export function App(): React.JSX.Element {
                 topic={currentTopic}
                 selectedNotePath={selectedNotePath}
                 recording={recording}
+                pendingAppend={pendingAppend}
+                onAppendApplied={onAppendApplied}
                 onStartRecording={startRecording}
                 onStopRecording={stopRecording}
                 onSelectNote={setSelectedNotePath}
