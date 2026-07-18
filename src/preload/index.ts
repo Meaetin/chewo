@@ -7,6 +7,13 @@ import type {
   WorktreeStatusResult
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
+import type {
+  FileOpResult,
+  FsChangedEvent,
+  ReadDirResult,
+  ReadFileResult,
+  WriteFileResult
+} from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
 
@@ -134,6 +141,29 @@ const api = {
     const listener = (_e: IpcRendererEvent, payload: Record<string, unknown>): void => cb(payload)
     ipcRenderer.on('noteschat:event', listener)
     return () => ipcRenderer.removeListener('noteschat:event', listener)
+  },
+
+  fsReadDir: (path: string) => ipcRenderer.invoke('fs:readDir', path) as Promise<ReadDirResult>,
+  fsReadFile: (path: string) => ipcRenderer.invoke('fs:readFile', path) as Promise<ReadFileResult>,
+  fsWriteFile: (args: { path: string; content: string }) =>
+    ipcRenderer.invoke('fs:writeFile', args) as Promise<WriteFileResult>,
+  fsRename: (args: { path: string; newName: string }) =>
+    ipcRenderer.invoke('fs:rename', args) as Promise<FileOpResult>,
+  fsDelete: (path: string) => ipcRenderer.invoke('fs:delete', path) as Promise<FileOpResult>,
+  fsCopy: (args: { srcPath: string; destDir: string }) =>
+    ipcRenderer.invoke('fs:copy', args) as Promise<FileOpResult>,
+  fsWatch: () => ipcRenderer.invoke('fs:watch') as Promise<number>,
+  fsWatchAdd: (watchId: number, path: string) =>
+    ipcRenderer.send('fs:watchAdd', { watchId, path }),
+  fsWatchRemove: (watchId: number, path: string) =>
+    ipcRenderer.send('fs:watchRemove', { watchId, path }),
+  fsUnwatch: (watchId: number) => ipcRenderer.send('fs:unwatch', { watchId }),
+  onFsChanged: (cb: (e: FsChangedEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: FsChangedEvent): void => cb(payload)
+    ipcRenderer.on('fs:changed', listener)
+    return (): void => {
+      ipcRenderer.removeListener('fs:changed', listener)
+    }
   },
 
   loadProjects: () => ipcRenderer.invoke('projects:load'),

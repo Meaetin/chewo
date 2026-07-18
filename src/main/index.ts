@@ -23,6 +23,19 @@ import {
   writeNote,
   type CreateNoteArgs
 } from './notes'
+import {
+  copyEntry,
+  deleteEntry,
+  disposeAllWatches,
+  readDir,
+  readFile,
+  renameEntry,
+  startWatch,
+  stopWatch,
+  watchAdd,
+  watchRemove,
+  writeFile
+} from './file-explorer'
 import { loadProjects, saveProjects } from './projects'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
 import { disposeSidecar, sttStart, sttStop } from './stt'
@@ -165,6 +178,30 @@ function registerIpc(): void {
   })
   ipcMain.on('noteschat:cancel', () => notesChatCancel())
 
+  ipcMain.handle('fs:readDir', (_e, path: string) => readDir(path))
+  ipcMain.handle('fs:readFile', (_e, path: string) => readFile(path))
+  ipcMain.handle('fs:writeFile', (_e, a: { path: string; content: string }) =>
+    writeFile(a.path, a.content)
+  )
+  ipcMain.handle('fs:rename', (_e, a: { path: string; newName: string }) =>
+    renameEntry(a.path, a.newName)
+  )
+  ipcMain.handle('fs:delete', (_e, path: string) => deleteEntry(path))
+  ipcMain.handle('fs:copy', (_e, a: { srcPath: string; destDir: string }) =>
+    copyEntry(a.srcPath, a.destDir)
+  )
+  ipcMain.handle('fs:watch', () => {
+    if (!mainWindow) throw new Error('no window')
+    return startWatch(mainWindow)
+  })
+  ipcMain.on('fs:watchAdd', (_e, a: { watchId: number; path: string }) =>
+    watchAdd(a.watchId, a.path)
+  )
+  ipcMain.on('fs:watchRemove', (_e, a: { watchId: number; path: string }) =>
+    watchRemove(a.watchId, a.path)
+  )
+  ipcMain.on('fs:unwatch', (_e, a: { watchId: number }) => stopWatch(a.watchId))
+
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
   ipcMain.handle('dialog:pickFolder', async () => {
@@ -301,6 +338,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   disposeAllTerminals()
+  disposeAllWatches()
   disposeSidecar()
   app.quit()
 })

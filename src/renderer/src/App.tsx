@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { GitMerge, Play, Plus, Terminal, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FolderTree, GitMerge, Play, Plus, Terminal, X } from 'lucide-react'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -23,6 +23,8 @@ import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
+import { FileTreePanel } from './components/FileTreePanel'
+import { FileEditor } from './components/FileEditor'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
 import { Badge, Dot, IconButton } from './components/ui'
@@ -46,6 +48,22 @@ type MainView =
   | { kind: 'capabilities' }
   | { kind: 'empty' }
 
+/** A file open in the editor layer — never a session tab */
+export interface OpenFile {
+  /** Absolute path — the identity everywhere */
+  path: string
+  name: string
+}
+
+/** Editor-layer state for one section (project or Home) */
+interface SectionFiles {
+  openFiles: OpenFile[]
+  /** Non-null → the editor covers the terminal layer */
+  activePath: string | null
+}
+
+const EMPTY_SECTION_FILES: SectionFiles = { openFiles: [], activePath: null }
+
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -67,6 +85,10 @@ export function App(): React.JSX.Element {
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
   const [recording, setRecording] = useState<RecordingState | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [fileTreeOpen, setFileTreeOpen] = useState(false)
+  // Editor-layer files per section, keyed by projectId ?? 'home'. Session-
+  // lifetime only — deliberately not persisted to the projects file.
+  const [filesBySection, setFilesBySection] = useState<Map<string, SectionFiles>>(new Map())
   const [pendingAppend, setPendingAppend] = useState<PendingAppend | null>(null)
   const appendSeq = useRef(0)
   const recordingRef = useRef<RecordingState | null>(null)
@@ -281,6 +303,136 @@ export function App(): React.JSX.Element {
   const wtMergeProject = wtMerge
     ? (projects.find((p) => p.id === wtMerge.projectId) ?? null)
     : null
+
+  // ---------- file explorer ----------
+
+  const sectionKey = selectedProjectId ?? 'home'
+  const sectionFiles = filesBySection.get(sectionKey) ?? EMPTY_SECTION_FILES
+  // Every section's open files — the editor watches/keeps buffers for all of
+  // them so switching sections loses nothing
+  const allOpenPaths = useMemo(
+    () => [
+      ...new Set([...filesBySection.values()].flatMap((s) => s.openFiles.map((f) => f.path)))
+    ],
+    [filesBySection]
+  )
+  /** Editor covers the terminal layer; `view` still describes what's underneath */
+  const editorVisible = workflow === 'code' && sectionFiles.activePath !== null
+
+  // The tree follows the active tab's effective root: an isolated session
+  // browses its worktree, not the main checkout (same resolution as wakeDormant)
+  const activeTab = view.kind === 'terminal' ? tabs.find((t) => t.termId === view.termId) : undefined
+  const activeWorktree = activeTab?.worktreeId
+    ? worktrees.find((w) => w.id === activeTab.worktreeId)
+    : undefined
+  const treeRoot = activeWorktree?.path ?? selectedProject?.path ?? window.api.homeDir
+  const treeRootLabel = activeWorktree
+    ? `⎇ ${activeWorktree.taskName}`
+    : (selectedProject?.name ?? 'Home')
+
+  const openFile = useCallback(
+    (path: string) => {
+      setFilesBySection((prev) => {
+        const cur = prev.get(sectionKey) ?? EMPTY_SECTION_FILES
+        const openFiles = cur.openFiles.some((f) => f.path === path)
+          ? cur.openFiles
+          : [...cur.openFiles, { path, name: path.split('/').pop() ?? path }]
+        return new Map(prev).set(sectionKey, { openFiles, activePath: path })
+      })
+    },
+    [sectionKey]
+  )
+
+  const activateFile = useCallback(
+    (path: string | null) => {
+      setFilesBySection((prev) => {
+        const cur = prev.get(sectionKey) ?? EMPTY_SECTION_FILES
+        if (cur.activePath === path) return prev
+        return new Map(prev).set(sectionKey, { ...cur, activePath: path })
+      })
+    },
+    [sectionKey]
+  )
+
+  const closeFile = useCallback(
+    (path: string) => {
+      setFilesBySection((prev) => {
+        const cur = prev.get(sectionKey)
+        if (!cur) return prev
+        const idx = cur.openFiles.findIndex((f) => f.path === path)
+        if (idx === -1) return prev
+        const openFiles = cur.openFiles.filter((f) => f.path !== path)
+        // Closing the active chip focuses its left neighbour, then right, then
+        // falls back to the terminal
+        const activePath =
+          cur.activePath === path
+            ? (openFiles[idx - 1] ?? openFiles[idx])?.path ?? null
+            : cur.activePath
+        return new Map(prev).set(sectionKey, { openFiles, activePath })
+      })
+    },
+    [sectionKey]
+  )
+
+  /** A path (file or whole dir) was trashed — close its chips in every section */
+  const closeFilesUnder = useCallback((path: string) => {
+    const gone = (p: string): boolean => p === path || p.startsWith(path + '/')
+    setFilesBySection((prev) => {
+      let changed = false
+      const next = new Map<string, SectionFiles>()
+      for (const [key, sf] of prev) {
+        if (!sf.openFiles.some((f) => gone(f.path))) {
+          next.set(key, sf)
+          continue
+        }
+        changed = true
+        const openFiles = sf.openFiles.filter((f) => !gone(f.path))
+        const activePath =
+          sf.activePath && gone(sf.activePath)
+            ? (openFiles[openFiles.length - 1]?.path ?? null)
+            : sf.activePath
+        next.set(key, { openFiles, activePath })
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  /** A path was renamed — re-point chips (and chips under it, for dirs) */
+  const renameOpenFiles = useCallback((oldPath: string, newPath: string) => {
+    const moved = (p: string): string | null =>
+      p === oldPath ? newPath : p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : null
+    setFilesBySection((prev) => {
+      let changed = false
+      const next = new Map<string, SectionFiles>()
+      for (const [key, sf] of prev) {
+        if (!sf.openFiles.some((f) => moved(f.path))) {
+          next.set(key, sf)
+          continue
+        }
+        changed = true
+        const openFiles = sf.openFiles.map((f) => {
+          const to = moved(f.path)
+          return to ? { path: to, name: to.split('/').pop() ?? to } : f
+        })
+        const activePath = sf.activePath ? (moved(sf.activePath) ?? sf.activePath) : null
+        next.set(key, { openFiles, activePath })
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  // ⌘⇧E toggles the file tree anywhere in the code workflow — including with
+  // terminal focus (xterm doesn't swallow it; see TerminalPane key handler)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        if (workflowRef.current === 'code') setFileTreeOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   /**
    * Launch settings belong to the section the terminal lands in — never the
@@ -690,6 +842,12 @@ export function App(): React.JSX.Element {
       const doomedIds = new Set(doomed.map((tab) => tab.termId))
       setTabs((t) => t.filter((tab) => !doomedIds.has(tab.termId)))
       setProjects((ps) => ps.filter((p) => p.id !== id))
+      setFilesBySection((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Map(prev)
+        next.delete(id)
+        return next
+      })
       if (selectedProjectId === id) setSelectedProjectId(null)
       // If the focused terminal belonged to the closed project, drop the view.
       setView((v) => (v.kind === 'terminal' && doomedIds.has(v.termId) ? { kind: 'empty' } : v))
@@ -744,11 +902,22 @@ export function App(): React.JSX.Element {
       <main className="main-panel">
         {workflow === 'code' && (
         <div className="terminal-tab-bar">
+          <IconButton
+            label="Files (⌘⇧E)"
+            className="file-tree-toggle"
+            onClick={() => setFileTreeOpen((o) => !o)}
+          >
+            <FolderTree size={16} strokeWidth={1.75} />
+          </IconButton>
           {visibleTabs.map((tab) => (
             <div
               key={tab.termId}
               className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''}`}
-              onClick={() => setView({ kind: 'terminal', termId: tab.termId })}
+              onClick={() => {
+                // Clicking the session tab also dismisses the editor layer
+                activateFile(null)
+                setView({ kind: 'terminal', termId: tab.termId })
+              }}
             >
               {!tab.exited && <Dot tone="live" className="terminal-tab-dot" />}
               <Badge source={tab.source} />
@@ -828,6 +997,18 @@ export function App(): React.JSX.Element {
         </div>
         )}
 
+        <div className="workspace-row">
+        <FileTreePanel
+          visible={workflow === 'code' && fileTreeOpen}
+          root={treeRoot}
+          rootLabel={treeRootLabel}
+          activePath={sectionFiles.activePath}
+          onOpenFile={openFile}
+          onClose={() => setFileTreeOpen(false)}
+          onError={showToast}
+          onDeleted={closeFilesUnder}
+          onRenamed={renameOpenFiles}
+        />
         <div className="main-content">
           {workflow === 'notes' && (
             <div className="notes-main">
@@ -873,7 +1054,7 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          {workflow === 'code' && view.kind === 'empty' && (
+          {workflow === 'code' && !editorVisible && view.kind === 'empty' && (
             <div className="empty-state">
               <Terminal className="empty-state-glyph" size={20} strokeWidth={1.5} />
               <h2 className="empty-state-title">
@@ -887,11 +1068,11 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          {workflow === 'code' && view.kind === 'transcript' && (
+          {workflow === 'code' && !editorVisible && view.kind === 'transcript' && (
             <TranscriptView key={view.session.id} session={view.session} onResume={resumeSession} />
           )}
 
-          {workflow === 'code' && view.kind === 'capabilities' && (
+          {workflow === 'code' && !editorVisible && view.kind === 'capabilities' && (
             <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
           )}
 
@@ -900,9 +1081,24 @@ export function App(): React.JSX.Element {
             <TerminalPane
               key={tab.termId}
               termId={tab.termId}
-              active={workflow === 'code' && view.kind === 'terminal' && view.termId === tab.termId}
+              active={
+                workflow === 'code' &&
+                !editorVisible &&
+                view.kind === 'terminal' &&
+                view.termId === tab.termId
+              }
             />
           ))}
+          <FileEditor
+            visible={editorVisible}
+            openFiles={sectionFiles.openFiles}
+            allOpenPaths={allOpenPaths}
+            activePath={sectionFiles.activePath}
+            onActivate={openFile}
+            onCloseFile={closeFile}
+            onExit={() => activateFile(null)}
+          />
+        </div>
         </div>
 
         {toast && (
