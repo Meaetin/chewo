@@ -267,18 +267,6 @@ export function NotesWorkspace({
             {topic.name}
           </span>
           <button
-            className="notes-record-button"
-            title={
-              recording
-                ? 'A recording is already in progress'
-                : 'Record a lesson — live transcript, structured note on stop'
-            }
-            disabled={!!recording}
-            onClick={onStartRecording}
-          >
-            ●
-          </button>
-          <button
             className="project-add-button"
             title="Paste clipboard as a new note"
             onClick={() => void pasteNote()}
@@ -329,6 +317,27 @@ export function NotesWorkspace({
       </div>
 
       <div className="notes-editor">
+        {/* Recording lives inside the note-taking pane and is only reachable
+            once a subject + topic are chosen — the lesson writes into this topic */}
+        <div className="notes-workspace-bar">
+          <span className="notes-breadcrumb" title={topic.path}>
+            {subject} / {topic.name}
+          </span>
+          {!recordingHere && (
+            <button
+              className="notes-record-lesson-button"
+              title={
+                recording
+                  ? 'A recording is already in progress in another topic'
+                  : `Record a lesson into ${subject} / ${topic.name} — live transcript, structured note on stop`
+              }
+              disabled={!!recording}
+              onClick={onStartRecording}
+            >
+              ● Record lesson
+            </button>
+          )}
+        </div>
         {recordingHere ? (
           <RecordingPanel rec={recordingHere} onStop={onStopRecording} />
         ) : selectedNotePath ? (
@@ -338,7 +347,7 @@ export function NotesWorkspace({
             <h2>
               {subject} / {topic.name}
             </h2>
-            <p>Select a note on the left, create one with “+”, or hit ● to dictate a lesson.</p>
+            <p>Select a note on the left, create one with “+”, or record a lesson.</p>
           </div>
         )}
       </div>
