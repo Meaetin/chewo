@@ -41,6 +41,7 @@ import { applyAppearance } from './theme/applyAppearance'
 import { makeTerminalTheme } from './theme/terminalTheme'
 import { makeEditorTheme } from './theme/editorTheme'
 import { Badge, Dot, IconButton } from './components/ui'
+import { reorderOpenFiles } from './fileTabs'
 
 export type PaneSource = Source | 'shell'
 
@@ -88,6 +89,7 @@ const EMPTY_SECTION_FILES: SectionFiles = { openFiles: [], activePath: null }
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [tabs, setTabs] = useState<TerminalTab[]>([])
+  const [draggedTermId, setDraggedTermId] = useState<number | null>(null)
   const [view, setView] = useState<MainView>({ kind: 'empty' })
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -427,6 +429,31 @@ export function App(): React.JSX.Element {
     [sectionKey]
   )
 
+  const reorderFile = useCallback(
+    (path: string, targetPath: string) => {
+      setFilesBySection((prev) => {
+        const cur = prev.get(sectionKey)
+        if (!cur) return prev
+        const openFiles = reorderOpenFiles(cur.openFiles, path, targetPath)
+        if (openFiles === cur.openFiles) return prev
+        return new Map(prev).set(sectionKey, { ...cur, openFiles })
+      })
+    },
+    [sectionKey]
+  )
+
+  const reorderTab = useCallback((termId: number, targetTermId: number) => {
+    setTabs((prev) => {
+      const from = prev.findIndex((t) => t.termId === termId)
+      const to = prev.findIndex((t) => t.termId === targetTermId)
+      if (from === -1 || to === -1 || from === to) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
+
   /** A path (file or whole dir) was trashed — close its chips in every section */
   const closeFilesUnder = useCallback((path: string) => {
     const gone = (p: string): boolean => p === path || p.startsWith(path + '/')
@@ -505,6 +532,9 @@ export function App(): React.JSX.Element {
   // is selected). Terminals in other sections keep running — the sidebar
   // shows a live count per section so they stay discoverable.
   const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
+  // Panes render in a stable termId order, decoupled from the reorderable tab
+  // strip: moving a live terminal's DOM node corrupts its xterm renderer.
+  const paneTabs = [...tabs].sort((a, b) => a.termId - b.termId)
   const liveCounts = new Map<string | null, number>()
   for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
 
@@ -591,6 +621,7 @@ export function App(): React.JSX.Element {
       projectId: string | null
       worktreeId?: string
       setupCommand?: string
+      runCommand?: string
     }) => {
       const { claudeMode, codexApproval } = settingsForSection(opts.projectId)
       const termId = await window.api.createTerminal({
@@ -598,6 +629,7 @@ export function App(): React.JSX.Element {
         sessionId: opts.sessionId,
         cwd: opts.cwd,
         setupCommand: opts.setupCommand,
+        runCommand: opts.runCommand,
         permissionMode: claudeMode,
         approvalPolicy: codexApproval
       })
@@ -629,6 +661,23 @@ export function App(): React.JSX.Element {
       }),
     [openTerminal, selectedProject]
   )
+
+  /** Play button: one shell per non-empty line of the section's start command. */
+  const runStartCommands = useCallback(() => {
+    const lines = (selectedProject?.runCommand?.trim() || 'npm run dev')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    for (const line of lines) {
+      void openTerminal({
+        source: 'shell',
+        cwd: selectedProject?.path ?? null,
+        projectId: selectedProject?.id ?? null,
+        label: line.length > 24 ? `${line.slice(0, 24)}…` : line,
+        runCommand: line
+      })
+    }
+  }, [openTerminal, selectedProject])
 
   const resumeSession = useCallback(
     (s: SessionMeta) => {
@@ -782,13 +831,13 @@ export function App(): React.JSX.Element {
   )
 
   const saveSectionSettings = useCallback(
-    (id: string | null, settings: AgentSettings, worktreeSetup?: string) => {
+    (id: string | null, settings: AgentSettings, worktreeSetup?: string, runCommand?: string) => {
       if (id === null) {
         setHomeSettings(settings)
         return
       }
       setProjects((ps) =>
-        ps.map((p) => (p.id === id ? { ...p, ...settings, worktreeSetup } : p))
+        ps.map((p) => (p.id === id ? { ...p, ...settings, worktreeSetup, runCommand } : p))
       )
     },
     []
@@ -1042,10 +1091,36 @@ export function App(): React.JSX.Element {
           >
             <FolderTree size={16} strokeWidth={1.75} />
           </IconButton>
+          <div className="terminal-tabs">
           {visibleTabs.map((tab) => (
             <div
               key={tab.termId}
-              className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''}`}
+              className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''} ${draggedTermId === tab.termId ? 'terminal-tab-dragging' : ''}`}
+              draggable
+              onDragStart={(e) => {
+                if ((e.target as HTMLElement).closest('button')) {
+                  e.preventDefault()
+                  return
+                }
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', String(tab.termId))
+                setDraggedTermId(tab.termId)
+              }}
+              onDragOver={(e) => {
+                if (draggedTermId === null || draggedTermId === tab.termId) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                const fromIndex = visibleTabs.findIndex((t) => t.termId === draggedTermId)
+                const overIndex = visibleTabs.findIndex((t) => t.termId === tab.termId)
+                if (fromIndex === -1 || overIndex === -1) return
+                const box = e.currentTarget.getBoundingClientRect()
+                const midpoint = box.left + box.width / 2
+                const crossed =
+                  fromIndex < overIndex ? e.clientX > midpoint : e.clientX < midpoint
+                if (crossed) reorderTab(draggedTermId, tab.termId)
+              }}
+              onDrop={(e) => e.preventDefault()}
+              onDragEnd={() => setDraggedTermId(null)}
               onClick={() => {
                 // Clicking the session tab also dismisses the editor layer
                 activateFile(null)
@@ -1118,15 +1193,25 @@ export function App(): React.JSX.Element {
               </IconButton>
             </div>
           ))}
+          </div>
 
-          {/* Parked at the far right, past every live + ghost tab */}
-          <IconButton
-            label={`New shell in ${selectedProject?.name ?? 'Home'}`}
-            className="new-shell-button"
-            onClick={() => newTerminal('shell')}
-          >
-            <Plus size={18} strokeWidth={1.75} />
-          </IconButton>
+          {/* Pinned to the far right, outside the scrolling tab strip */}
+          <div className="terminal-tab-actions">
+            <IconButton
+              label={`Run start command in ${selectedProject?.name ?? 'Home'}`}
+              className="run-start-button"
+              onClick={runStartCommands}
+            >
+              <Play size={16} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton
+              label={`New shell in ${selectedProject?.name ?? 'Home'}`}
+              className="new-shell-button"
+              onClick={() => newTerminal('shell')}
+            >
+              <Plus size={18} strokeWidth={1.75} />
+            </IconButton>
+          </div>
         </div>
         )}
 
@@ -1223,8 +1308,10 @@ export function App(): React.JSX.Element {
             <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
           )}
 
-          {/* Panes stay mounted across workflow switches — terminals keep running */}
-          {tabs.map((tab) => {
+          {/* Panes stay mounted across workflow switches — terminals keep running.
+              Fixed termId order so reordering the tab strip never moves a live
+              terminal's DOM node (which would corrupt its xterm renderer). */}
+          {paneTabs.map((tab) => {
             // Same root resolution as the file tree: isolated sessions resolve
             // clicked paths inside their worktree, not the main checkout
             const tabWorktree = tab.worktreeId
@@ -1257,6 +1344,7 @@ export function App(): React.JSX.Element {
             theme={editorTheme}
             onActivate={openFile}
             onCloseFile={closeFile}
+            onReorderFile={reorderFile}
             onExit={() => activateFile(null)}
           />
         </div>
@@ -1297,9 +1385,10 @@ export function App(): React.JSX.Element {
                 path={target?.path ?? window.api.homeDir}
                 settings={settingsForSection(settingsFor.id)}
                 worktreeSetup={target?.worktreeSetup}
+                runCommand={target?.runCommand}
                 showWorktreeSetup={!!target}
                 onClose={() => setSettingsFor(null)}
-                onSave={(s, setup) => saveSectionSettings(settingsFor.id, s, setup)}
+                onSave={(s, setup, run) => saveSectionSettings(settingsFor.id, s, setup, run)}
                 onRemove={target ? () => deleteProject(target.id) : undefined}
               />
             )

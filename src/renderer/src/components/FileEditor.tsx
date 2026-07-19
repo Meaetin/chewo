@@ -33,6 +33,7 @@ interface FileEditorProps {
   theme: Extension
   onActivate: (path: string, goto?: { line: number; col?: number }) => void
   onCloseFile: (path: string) => void
+  onReorderFile: (path: string, targetPath: string) => void
   /** Back to the terminal layer (Esc / chip strip empty) */
   onExit: () => void
 }
@@ -99,6 +100,7 @@ export function FileEditor({
   theme,
   onActivate,
   onCloseFile,
+  onReorderFile,
   onExit
 }: FileEditorProps): React.JSX.Element {
   const buffers = useRef(new Map<string, FileBuffer>())
@@ -110,6 +112,7 @@ export function FileEditor({
   activePathRef.current = activePath
   const cmRef = useRef<ReactCodeMirrorRef>(null)
   const gotoDone = useRef(0)
+  const [draggedPath, setDraggedPath] = useState<string | null>(null)
 
   // Apply a pending cursor jump. Retried via `version` bumps until the target
   // file's buffer has loaded and CodeMirror is showing it.
@@ -283,8 +286,35 @@ export function FileEditor({
         {openFiles.map((f) => (
           <div
             key={f.path}
-            className={`file-chip ${f.path === activePath ? 'file-chip-active' : ''}`}
+            className={`file-chip ${f.path === activePath ? 'file-chip-active' : ''} ${f.path === draggedPath ? 'file-chip-dragging' : ''}`}
             title={f.path}
+            draggable
+            onDragStart={(event) => {
+              if ((event.target as HTMLElement).closest('button')) {
+                event.preventDefault()
+                return
+              }
+              event.dataTransfer.effectAllowed = 'move'
+              event.dataTransfer.setData('text/plain', f.path)
+              setDraggedPath(f.path)
+            }}
+            onDragOver={(event) => {
+              if (!draggedPath || draggedPath === f.path) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+
+              const draggedIndex = openFiles.findIndex((file) => file.path === draggedPath)
+              const targetIndex = openFiles.findIndex((file) => file.path === f.path)
+              if (draggedIndex === -1 || targetIndex === -1) return
+              const targetBox = event.currentTarget.getBoundingClientRect()
+              const midpoint = targetBox.left + targetBox.width / 2
+              const crossedTarget =
+                draggedIndex < targetIndex ? event.clientX > midpoint : event.clientX < midpoint
+
+              if (crossedTarget) onReorderFile(draggedPath, f.path)
+            }}
+            onDrop={(event) => event.preventDefault()}
+            onDragEnd={() => setDraggedPath(null)}
             onClick={() => onActivate(f.path)}
           >
             {buffers.current.get(f.path)?.dirty && <span className="file-chip-dirty" />}

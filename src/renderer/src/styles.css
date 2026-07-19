@@ -101,6 +101,7 @@
 
   /* Z-index scale (design/04 §3) */
   --z-sticky: 10; --z-tabbar: 20; --z-popover: 800; --z-modal: 900; --z-toast: 1000;
+  --z-modal-popover: 950; /* dropdowns portalled to <body> from inside a modal — must clear the backdrop */
   --z-tooltip: 1100; /* transient hints — always topmost, never occluded */
 
   /* ============================================================
@@ -304,7 +305,7 @@ body {
   background: transparent;
   border: none;
   border-radius: var(--radius-2) var(--radius-2) 0 0;
-  cursor: pointer;
+  cursor: grab;
   max-width: 220px;
   color: var(--text-secondary);
   position: relative;
@@ -348,6 +349,14 @@ body {
 
 .terminal-tab-exited {
   opacity: 0.5;
+}
+
+.terminal-tab-dragging {
+  opacity: 0.55;
+}
+
+.terminal-tab:active {
+  cursor: grabbing;
 }
 
 .terminal-tab-label {
@@ -630,7 +639,7 @@ body {
 /* Overlay recipe (design/04 §2.3): card fill, strong border, float shadow. */
 .wt-select-menu {
   position: fixed;
-  z-index: var(--z-popover);
+  z-index: var(--z-modal-popover);
   overflow-y: auto;
   padding: var(--space-4);
   background: var(--bg-card);
@@ -920,7 +929,6 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   cursor: grab;
-  user-select: none;
   white-space: nowrap;
   transition:
     background-color var(--dur-fast) var(--ease-standard),
@@ -2611,18 +2619,46 @@ body {
   width: 14px;
   height: 14px;
 }
-/* New-shell: parked at the far right, past every tab. IconButton is wrapped in a
-   Tooltip span, so the auto margin rides the wrapper (the flex child). */
-.terminal-tab-bar > .tooltip {
+/* The file-tree toggle (left) and the play/new-shell actions (right) bottom-
+   align on the rail like the tabs. IconButtons are wrapped in Tooltip spans. */
+.terminal-tab-bar > .tooltip,
+.terminal-tab-actions .tooltip {
   margin-bottom: var(--space-4);
 }
-/* Only the new-shell + parks at the far right — the file-tree toggle stays left */
-.terminal-tab-bar > .tooltip:has(.new-shell-button) {
-  margin-left: auto;
+/* Tabs scroll horizontally in their own strip so the action buttons never get
+   pushed off the rail; the strip flexes to fill, the actions stay pinned right. */
+.terminal-tabs {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* overflow-x:auto forces the y-axis to clip too, which would shear off the
+     active tab's -1px bleed. The 1px pad keeps that bleed inside the scrollport;
+     the matching -1px margin re-aligns the strip to the rail. */
+  padding-bottom: 1px;
+  margin-bottom: -1px;
+}
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+/* Tabs keep their width and scroll rather than shrinking to fit */
+.terminal-tab {
+  flex: 0 0 auto;
+}
+.terminal-tab-actions {
+  display: flex;
+  align-items: flex-end;
+  flex: none;
 }
 .new-shell-button.icon-btn svg {
   width: 18px;
   height: 18px;
+}
+.run-start-button.icon-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Empty state — serif headline + one calm glyph (design/04 §2.11) */

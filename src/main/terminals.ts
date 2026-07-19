@@ -21,6 +21,8 @@ export interface CreateTerminalOptions {
   cwd?: string | null
   /** Runs visibly before the agent (worktree setup: env copy, install); a failure blocks the agent launch */
   setupCommand?: string
+  /** Shell panes only: run this on launch (tab-bar play button), then drop to an interactive shell */
+  runCommand?: string
   /** claude --permission-mode; omit for the CLI's own default */
   permissionMode?: string
   /** codex --ask-for-approval; omit for the CLI's own default */
@@ -75,7 +77,12 @@ function permissionFlag(source: Source, opts: CreateTerminalOptions): string {
 
 /** null = plain interactive shell, no command */
 export function buildCommand(opts: CreateTerminalOptions): string | null {
-  if (opts.source === 'shell') return null
+  if (opts.source === 'shell') {
+    const run = opts.runCommand?.trim()
+    // Run the command, then exec an interactive shell so the pane stays usable
+    // (inspect output, re-run) after a dev server is stopped with Ctrl-C.
+    return run ? `${run}; exec /bin/zsh -il` : null
+  }
   const flags = permissionFlag(opts.source, opts)
   const agent =
     opts.source === 'claude'

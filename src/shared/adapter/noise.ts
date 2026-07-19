@@ -9,7 +9,8 @@
  */
 const INJECTED_PATTERNS = [
   /^<[a-z][\w-]*[\s>]/i, // pseudo-XML blocks: <command-name>, <permissions instructions>, …
-  /^# AGENTS\.md/i // Codex injects AGENTS.md content under a markdown header, no tag
+  /^# AGENTS\.md/i, // Codex injects AGENTS.md content under a markdown header, no tag
+  /^You are\s+[`'"]?\/root[`'"]?,\s+the primary agent in a team of agents collaborating to fulfill the user's goals\./i
 ]
 
 export function isInjectedNoise(text: string): boolean {

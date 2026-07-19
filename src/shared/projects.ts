@@ -50,6 +50,8 @@ export interface Project extends AgentSettings {
   terminals: SavedTerminal[]
   /** Runs visibly in a fresh worktree pane before the agent launches (env copy, install) */
   worktreeSetup?: string
+  /** Commands the tab-bar play button launches — one shell per non-empty line. Unset = `npm run dev`. */
+  runCommand?: string
 }
 
 /** An isolated git checkout created for one agent task; shares the project's .git. */

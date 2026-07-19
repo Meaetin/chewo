@@ -96,12 +96,14 @@ describe('codex adapter', () => {
     expect(assistant[0].text).toContain('dutch oven')
   })
 
-  test('injected noise (user_instructions, permissions instructions) is filtered', () => {
+  test('injected noise (instructions, permissions, team-agent bootstrap) is filtered', () => {
     const { meta, messages } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
     expect(messages.some((m) => m.text.includes('AGENTS.md'))).toBe(false)
     expect(messages.some((m) => m.text.includes('sandbox_mode'))).toBe(false)
+    expect(messages.some((m) => m.text.includes('primary agent in a team'))).toBe(false)
     expect(meta.preview).toContain('sourdough')
     expect(meta.title).not.toContain('permissions')
+    expect(meta.title).not.toContain('primary agent')
   })
 
   test('function_call becomes a tool message with joined command and its output', () => {
@@ -127,6 +129,17 @@ describe('codex adapter', () => {
     const titleIndex = new Map([['019e0000-0000-7000-8000-000000000001', 'Sourdough baking help']])
     const { meta } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'), { titleIndex })
     expect(meta.title).toBe('Sourdough baking help')
+  })
+
+  test('team-agent bootstrap titleIndex entry falls back to the first real prompt', () => {
+    const titleIndex = new Map([
+      [
+        '019e0000-0000-7000-8000-000000000001',
+        "You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals."
+      ]
+    ])
+    const { meta } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'), { titleIndex })
+    expect(meta.title).toBe('how do I bake sourdough bread?')
   })
 
   test('missing session_index file yields an empty map, not a crash', () => {

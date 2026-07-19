@@ -40,9 +40,11 @@ interface SectionSettingsModalProps {
   settings: AgentSettings
   /** Projects only — Home has no worktrees */
   worktreeSetup?: string
+  /** Projects only — commands the tab-bar play button launches */
+  runCommand?: string
   showWorktreeSetup: boolean
   onClose: () => void
-  onSave: (settings: AgentSettings, worktreeSetup?: string) => void
+  onSave: (settings: AgentSettings, worktreeSetup?: string, runCommand?: string) => void
   /** Projects only — Home can't be removed */
   onRemove?: () => void
 }
@@ -53,6 +55,7 @@ export function SectionSettingsModal({
   path,
   settings,
   worktreeSetup,
+  runCommand,
   showWorktreeSetup,
   onClose,
   onSave,
@@ -63,13 +66,15 @@ export function SectionSettingsModal({
     settings.codexApproval ?? ''
   )
   const [setup, setSetup] = useState(worktreeSetup ?? '')
+  const [run, setRun] = useState(runCommand ?? '')
 
   const risky = claudeMode === 'bypassPermissions' || codexApproval === 'never'
 
   const save = (): void => {
     onSave(
       { claudeMode: claudeMode || undefined, codexApproval: codexApproval || undefined },
-      showWorktreeSetup ? setup.trim() || undefined : undefined
+      showWorktreeSetup ? setup.trim() || undefined : undefined,
+      showWorktreeSetup ? run.trim() || undefined : undefined
     )
     onClose()
   }
@@ -135,6 +140,27 @@ export function SectionSettingsModal({
           {CODEX_POLICIES.find((p) => p.value === codexApproval)?.detail}
         </div>
       </div>
+
+      {showWorktreeSetup && (
+        <div className="wt-field">
+          <label className="wt-field-label" htmlFor="set-run">
+            Start command <span className="wt-field-optional">optional</span>
+          </label>
+          <Input
+            id="set-run"
+            variant="textarea"
+            mono
+            placeholder="npm run dev"
+            value={run}
+            rows={2}
+            onChange={(e) => setRun(e.target.value)}
+          />
+          <div className="wt-field-hint">
+            The tab bar’s ▶ button launches these — one terminal per line. Defaults to{' '}
+            <code>npm run dev</code>.
+          </div>
+        </div>
+      )}
 
       {showWorktreeSetup && (
         <div className="wt-field">

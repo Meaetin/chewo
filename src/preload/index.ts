@@ -40,6 +40,31 @@ export interface HandoffEvent {
   nudged: boolean
 }
 
+/**
+ * One `ipcRenderer` listener per channel, fanned out to every subscriber. Panes
+ * subscribe to `terminal:data`/`terminal:exit` individually, so a naive
+ * on/removeListener per pane grows the emitter's listener count with the number
+ * of open terminals and trips Node's default 10-listener leak warning. This
+ * keeps it at exactly one listener per channel regardless of terminal count.
+ */
+function channelFanout<T>(channel: string): (cb: (e: T) => void) => () => void {
+  const subs = new Set<(e: T) => void>()
+  const listener = (_e: IpcRendererEvent, payload: T): void => {
+    for (const cb of subs) cb(payload)
+  }
+  return (cb) => {
+    if (subs.size === 0) ipcRenderer.on(channel, listener)
+    subs.add(cb)
+    return () => {
+      subs.delete(cb)
+      if (subs.size === 0) ipcRenderer.removeListener(channel, listener)
+    }
+  }
+}
+
+const onTermData = channelFanout<TermDataEvent>('terminal:data')
+const onTermExit = channelFanout<TermExitEvent>('terminal:exit')
+
 const api = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSession: (ref: { source: string; filePath: string }) =>
@@ -55,6 +80,7 @@ const api = {
     sessionId?: string
     cwd?: string | null
     setupCommand?: string
+    runCommand?: string
     permissionMode?: string
     approvalPolicy?: string
   }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
@@ -62,16 +88,8 @@ const api = {
   termResize: (id: number, cols: number, rows: number) =>
     ipcRenderer.send('terminal:resize', { id, cols, rows }),
   termKill: (id: number) => ipcRenderer.send('terminal:kill', { id }),
-  onTermData: (cb: (e: TermDataEvent) => void) => {
-    const listener = (_e: IpcRendererEvent, payload: TermDataEvent): void => cb(payload)
-    ipcRenderer.on('terminal:data', listener)
-    return () => ipcRenderer.removeListener('terminal:data', listener)
-  },
-  onTermExit: (cb: (e: TermExitEvent) => void) => {
-    const listener = (_e: IpcRendererEvent, payload: TermExitEvent): void => cb(payload)
-    ipcRenderer.on('terminal:exit', listener)
-    return () => ipcRenderer.removeListener('terminal:exit', listener)
-  },
+  onTermData,
+  onTermExit,
   onTermBound: (cb: (e: TermBoundEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
     ipcRenderer.on('terminal:session-bound', listener)
