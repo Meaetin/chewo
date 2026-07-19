@@ -4,7 +4,6 @@ import { Code2, Eye, X } from 'lucide-react'
 import type { ReadFileResult } from '../../../main/file-explorer'
 import type { OpenFile } from '../App'
 import { ImageStage } from './ImageStage'
-import { editorTheme } from '../theme/editorTheme'
 import { languageFor } from '../theme/langs'
 import { IconButton } from './ui'
 
@@ -16,6 +15,8 @@ interface FileEditorProps {
   allOpenPaths: string[]
   activePath: string | null
   onActivate: (path: string) => void
+  /** Appearance-driven CodeMirror theme (chrome + syntax highlighting) */
+  theme: Extension
   onCloseFile: (path: string) => void
   /** Back to the terminal layer (Esc / chip strip empty) */
   onExit: () => void
@@ -69,12 +70,13 @@ export function FileEditor({
   openFiles,
   allOpenPaths,
   activePath,
+  theme,
   onActivate,
   onCloseFile,
   onExit
 }: FileEditorProps): React.JSX.Element {
   const buffers = useRef(new Map<string, FileBuffer>())
-  const [, setVersion] = useState(0)
+  const [version, setVersion] = useState(0)
   const bump = useCallback(() => setVersion((v) => v + 1), [])
   const watchId = useRef<number | null>(null)
   const watched = useRef(new Set<string>())
@@ -295,9 +297,10 @@ export function FileEditor({
           <CodeMirror
             className="file-editor-cm"
             value={buffer.content}
-            theme={editorTheme}
+            theme={theme}
             height="100%"
             extensions={extensions}
+            onCreateEditor={() => bump()}
             basicSetup={{ highlightActiveLine: false, highlightActiveLineGutter: false }}
             onChange={(value) => {
               const buf = activePath ? buffers.current.get(activePath) : undefined

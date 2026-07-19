@@ -16,6 +16,7 @@ import type {
 } from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
+import type { SettingsFile } from '../shared/appearance'
 import type { BoardFile, TodoStatus } from '../shared/todos'
 
 export interface TermDataEvent {
@@ -196,6 +197,8 @@ const api = {
 
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
+  loadSettings: () => ipcRenderer.invoke('settings:load') as Promise<SettingsFile>,
+  saveSettings: (file: SettingsFile) => ipcRenderer.invoke('settings:save', file) as Promise<void>,
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>
 }
 

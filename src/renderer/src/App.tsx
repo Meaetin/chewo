@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTree, GitMerge, Play, Plus, Terminal, X } from 'lucide-react'
+import { FolderTree, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
+import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -35,6 +36,10 @@ import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
+import { AppSettings } from './components/settings/AppSettings'
+import { applyAppearance } from './theme/applyAppearance'
+import { makeTerminalTheme } from './theme/terminalTheme'
+import { makeEditorTheme } from './theme/editorTheme'
 import { Badge, Dot, IconButton } from './components/ui'
 
 export type PaneSource = Source | 'shell'
@@ -86,6 +91,9 @@ export function App(): React.JSX.Element {
   const [wtMerge, setWtMerge] = useState<Worktree | null>(null)
   /** Section whose settings modal is open — string id, or null for Home */
   const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false)
+  const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
+  const appearanceLoaded = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<Workflow>('code')
   const [notesTree, setNotesTree] = useState<NotesTree | null>(null)
@@ -210,6 +218,10 @@ export function App(): React.JSX.Element {
       todoHotkey.current = file.todoHotkey
       loaded.current = true
     })
+    void window.api.loadSettings().then((file) => {
+      setAppearance(file.appearance)
+      appearanceLoaded.current = true
+    })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offStt = window.api.onSttEvent((ev) => {
       switch (ev.event) {
@@ -312,6 +324,21 @@ export function App(): React.JSX.Element {
     }
     void window.api.saveProjects(file)
   }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees, workflow])
+
+  // ---------- appearance ----------
+
+  // Live re-theme: CSS tokens for the whole UI, plus derived themes for the
+  // two JS-painted surfaces (xterm, CodeMirror)
+  useEffect(() => applyAppearance(appearance), [appearance])
+  const terminalTheme = useMemo(() => makeTerminalTheme(appearance), [appearance])
+  const editorTheme = useMemo(() => makeEditorTheme(appearance), [appearance])
+
+  // Persist debounced — dragging the macOS color picker fires per-frame changes
+  useEffect(() => {
+    if (!appearanceLoaded.current) return
+    const t = setTimeout(() => void window.api.saveSettings({ appearance }), 400)
+    return () => clearTimeout(t)
+  }, [appearance])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
@@ -442,6 +469,10 @@ export function App(): React.JSX.Element {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
         if (workflowRef.current === 'code') setFileTreeOpen((o) => !o)
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault()
+        setAppSettingsOpen(true)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -932,7 +963,16 @@ export function App(): React.JSX.Element {
       <div className="sidebar-column">
         {/* hiddenInset traffic lights wired in main process separately */}
         <div className="sidebar-drag-strip" />
-        <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
+        <div className="workflow-switcher-row">
+          <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
+          <IconButton
+            label="Settings (⌘,)"
+            className="app-settings-button"
+            onClick={() => setAppSettingsOpen(true)}
+          >
+            <Settings size={15} strokeWidth={1.75} />
+          </IconButton>
+        </div>
         {workflow === 'notes' ? (
           <NotesSidebar
             tree={notesTree}
@@ -974,6 +1014,13 @@ export function App(): React.JSX.Element {
       </div>
 
       <main className="main-panel">
+        {appSettingsOpen && (
+          <AppSettings
+            appearance={appearance}
+            onChange={setAppearance}
+            onClose={() => setAppSettingsOpen(false)}
+          />
+        )}
         {workflow === 'code' && (
         <div className="terminal-tab-bar">
           <IconButton
@@ -1092,6 +1139,7 @@ export function App(): React.JSX.Element {
                     subject={notesSel.subject}
                     topic={currentTopic}
                     selectedNotePath={selectedNotePath}
+                    editorTheme={editorTheme}
                     recording={recording}
                     pendingAppend={pendingAppend}
                     onAppendApplied={onAppendApplied}
@@ -1164,23 +1212,25 @@ export function App(): React.JSX.Element {
           )}
 
           {/* Panes stay mounted across workflow switches — terminals keep running */}
-          {tabs.map((tab) => (
-            <TerminalPane
-              key={tab.termId}
-              termId={tab.termId}
-              active={
-                workflow === 'code' &&
-                !editorVisible &&
-                view.kind === 'terminal' &&
-                view.termId === tab.termId
-              }
-            />
-          ))}
+          {tabs.map((tab) => {
+            // Same root resolution as the file tree: isolated sessions resolve
+            // clicked paths inside their worktree, not the main checkout
+            const tabWorktree = tab.worktreeId
+              ? worktrees.find((w) => w.id === tab.worktreeId)
+              : undefined
+            const tabProject = projects.find((p) => p.id === tab.projectId)
+            return (
+              <TerminalPane
+                key={tab.termId}
+                termId={tab.termId}
+                root={tabWorktree?.path ?? tabProject?.path ?? window.api.homeDir}
+                theme={terminalTheme}
           <FileEditor
             visible={editorVisible}
             openFiles={sectionFiles.openFiles}
             allOpenPaths={allOpenPaths}
             activePath={sectionFiles.activePath}
+            theme={editorTheme}
             onActivate={openFile}
             onCloseFile={closeFile}
             onExit={() => activateFile(null)}

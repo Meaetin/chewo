@@ -5,7 +5,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { ClipboardPaste, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
 import { Button, Dot, IconButton, Row, WorkingText } from './ui'
-import { editorTheme } from '../theme/editorTheme'
+import type { Extension } from '@codemirror/state'
 import {
   parseNote,
   serializeNote,
@@ -54,10 +54,12 @@ function noteDate(iso: string): string {
  */
 function NoteEditor({
   path,
+  theme,
   pendingAppend,
   onAppendApplied
 }: {
   path: string
+  theme: Extension
   pendingAppend: PendingAppend | null
   onAppendApplied: (id: number) => void
 }): React.JSX.Element {
@@ -155,7 +157,7 @@ function NoteEditor({
           <CodeMirror
             className="notes-editor-cm"
             value={body}
-            theme={editorTheme}
+            theme={theme}
             height="100%"
             extensions={[markdown()]}
             basicSetup={{
@@ -249,6 +251,8 @@ interface NotesWorkspaceProps {
   subject: string
   topic: NotesTopic
   selectedNotePath: string | null
+  /** Appearance-driven CodeMirror theme for the lesson editor */
+  editorTheme: Extension
   recording: RecordingState | null
   pendingAppend: PendingAppend | null
   onAppendApplied: (id: number) => void
@@ -270,6 +274,7 @@ export function NotesWorkspace({
   subject,
   topic,
   selectedNotePath,
+  editorTheme,
   recording,
   pendingAppend,
   onAppendApplied,
@@ -438,6 +443,7 @@ export function NotesWorkspace({
             <NoteEditor
               key={selectedNotePath}
               path={selectedNotePath}
+              theme={editorTheme}
               pendingAppend={pendingAppend}
               onAppendApplied={onAppendApplied}
             />

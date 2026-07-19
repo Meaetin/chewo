@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
-import { WINDOW_BG } from '../shared/colors'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -37,7 +36,13 @@ import {
   writeFile
 } from './file-explorer'
 import { loadProjects, saveProjects } from './projects'
+import { loadSettings, saveSettings } from './settings'
+import type { SettingsFile } from '../shared/appearance'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
+import {
+  addCard,
+  clearDone,
+  deleteCard,
   loadBoard,
   moveCard,
   readAsset,
@@ -75,7 +80,8 @@ function createWindow(): void {
     width: 1440,
     height: 900,
     title: 'Chewo',
-    backgroundColor: WINDOW_BG,
+    // User's base color — resize flashes match the theme, not stock graphite
+    backgroundColor: loadSettings().appearance.base,
     // Frameless-inset: traffic lights float over the sidebar's top drag strip
     // (the 40px `-webkit-app-region: drag` zone above the workflow switcher).
     titleBarStyle: 'hiddenInset',
@@ -232,6 +238,12 @@ function registerIpc(): void {
 
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
+  ipcMain.handle('settings:load', () => loadSettings())
+  ipcMain.handle('settings:save', (_e, file: SettingsFile) => {
+    saveSettings(file)
+    // Native chrome behind the renderer follows the theme immediately
+    mainWindow?.setBackgroundColor(file.appearance.base)
+  })
   ipcMain.handle('dialog:pickFolder', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]

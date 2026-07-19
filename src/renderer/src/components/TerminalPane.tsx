@@ -2,14 +2,25 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { TERMINAL_THEME, MONO_STACK } from '../theme/terminalTheme'
+import { MONO_STACK } from '../theme/terminalTheme'
+
+/**
+ * Path-looking tokens in terminal output: absolute (`/…`), home (`~/…`),
+ * dot-relative (`./…`, `../…`), relative with at least one slash
+ * (`src/App.tsx`), or a bare filename with an extension (`package.json`) —
+ * each optionally suffixed with `:line[:col]`. Only tokens that resolve to a
+ * real file become links, so loose matches (URLs, `e.g.`) cost one stat and
+ * stay plain text.
+ */
 
 interface TerminalPaneProps {
   termId: number
   active: boolean
+  theme: ITheme
 }
 
 export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.Element {
+  theme,
   const containerRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -21,7 +32,7 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
     const term = new Terminal({
       fontFamily: MONO_STACK,
       fontSize: 13,
-      theme: TERMINAL_THEME
+      theme: themeRef.current
     })
 
     // ⌘+/⌘−/⌘0 zoom this pane's font (menu zoom roles are removed app-wide)
@@ -81,6 +92,11 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
       term.dispose()
     }
   }, [termId])
+
+  // Live re-theme — xterm applies options.theme reassignment immediately
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = theme
+  }, [theme])
 
   useEffect(() => {
     if (active) {

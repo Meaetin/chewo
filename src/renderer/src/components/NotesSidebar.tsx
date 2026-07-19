@@ -124,6 +124,7 @@ export function NotesSidebar({
             <div key={s.path} className="project-section">
               <Row
                 selected={selected?.subject === s.name}
+                tone="alt"
                 onClick={() => toggleSubject(s.name)}
                 leading={
                   <span className="notes-row-chevron">
