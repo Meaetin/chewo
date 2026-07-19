@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, resolve, sep } from 'node:path'
 import { shell } from 'electron'
@@ -21,7 +21,12 @@ import {
  * the notes root.
  */
 
-export const DEFAULT_NOTES_ROOT = join(homedir(), 'ChewoNotes')
+// ~/Documents rides iCloud Documents sync; installs that predate this default
+// keep their existing ~/ChewoNotes.
+const legacyRoot = join(homedir(), 'ChewoNotes')
+export const DEFAULT_NOTES_ROOT = existsSync(legacyRoot)
+  ? legacyRoot
+  : join(homedir(), 'Documents', 'Chewo Notes')
 
 let notesRoot = DEFAULT_NOTES_ROOT
 

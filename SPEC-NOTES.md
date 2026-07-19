@@ -70,7 +70,7 @@ A/B alternative, which is why the sidecar protocol is engine-agnostic.
    chewo-stt-whisper       reads .raw.md,          cwd = scope dir,
    (Swift/WhisperKit CLI)  stdout → note.md        tools: Read/Grep/Glob
    later: chewo-stt-parakeet
-                     ~/ChewoNotes/<Subject>/<Topic>/*.md
+                     <notes root>/<Subject>/<Topic>/*.md
                      (chokidar-watched, disk is the only data source)
 ```
 
@@ -106,7 +106,7 @@ type NotesView =
 ## 5. Notes store
 
 ```
-~/ChewoNotes/                          # default root; configurable in settings
+~/Documents/Chewo Notes/               # default root (legacy installs keep ~/ChewoNotes); configurable in settings
   Anatomy/                             # subject = folder (user-created)
     Upper Limb/                        # topic = subfolder (user-created)
       2026-07-17-brachial-plexus.md      # structured note
@@ -287,7 +287,9 @@ claude -p --output-format json --allowedTools "Read" \
 - **Accent accuracy:** if `large-v3-turbo` still misses ~10% of words, that —
   not features — becomes the N4 priority (Parakeet A/B, or initial-prompt
   vocabulary hints per subject).
-- Open: exact notes root default (`~/ChewoNotes` proposed); whether recording
+- Resolved: notes root defaults to `~/Documents/Chewo Notes` (legacy installs
+  with an existing `~/ChewoNotes` keep it) — see docs/decisions.md 2026-07-19.
+- Open: whether recording
   continues if the user switches back to the code workflow mid-lesson
   (proposed: yes, with a small "recording" pill on the switcher).
 

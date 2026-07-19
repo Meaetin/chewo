@@ -1168,7 +1168,7 @@ export function App(): React.JSX.Element {
                     <p>
                       Pick a topic in the sidebar — or create a subject (“+” next to
                       Subjects), then a topic inside it. Lessons live as markdown files in{' '}
-                      {notesTree?.root ?? '~/ChewoNotes'}.
+                      {notesTree?.root ?? 'your notes folder'}.
                     </p>
                     <button
                       className="notes-mode-button"
