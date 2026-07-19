@@ -17,7 +17,7 @@ import type {
 import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
 import type { SettingsFile } from '../shared/appearance'
-import type { BoardFile, TodoStatus } from '../shared/todos'
+import type { BoardFile, HudState, TodoStatus } from '../shared/todos'
 
 export interface TermDataEvent {
   id: number
@@ -147,6 +147,7 @@ const api = {
   },
   sttStart: (model: string) => ipcRenderer.send('stt:start', { model }),
   sttStop: () => ipcRenderer.send('stt:stop'),
+  sttPrewarm: (model: string) => ipcRenderer.send('stt:prewarm', { model }),
   onSttEvent: (cb: (e: SttEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: SttEvent): void => cb(payload)
     ipcRenderer.on('stt:event', listener)
@@ -211,6 +212,25 @@ const api = {
     ipcRenderer.on('fs:changed', listener)
     return (): void => {
       ipcRenderer.removeListener('fs:changed', listener)
+    }
+  },
+
+  // Voice HUD window (SPEC-TODOS §6)
+  onHudState: (cb: (state: HudState) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: HudState): void => cb(payload)
+    ipcRenderer.on('hud:state', listener)
+    return (): void => {
+      ipcRenderer.removeListener('hud:state', listener)
+    }
+  },
+  hudAction: (action: 'stop' | 'undo' | 'dismiss' | 'hover-in' | 'hover-out') =>
+    ipcRenderer.send('hud:action', action),
+  hudResize: (height: number) => ipcRenderer.send('hud:resize', height),
+  onAppToast: (cb: (message: string) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: string): void => cb(payload)
+    ipcRenderer.on('app:toast', listener)
+    return (): void => {
+      ipcRenderer.removeListener('app:toast', listener)
     }
   },
 

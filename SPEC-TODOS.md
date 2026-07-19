@@ -40,12 +40,12 @@ ordinary manual entry.
 | Question | Decision | Rejected |
 |---|---|---|
 | Board placement | **Third workflow segment**: Code \| Notes \| Todo (the switcher was built for this, SPEC-NOTES §4) | Panel inside code workflow; extra overlay (maybe T4) |
-| Hotkey scope | **System-wide** `globalShortcut` + always-on-top HUD; **toggle** start/stop (`globalShortcut` has no key-up event, so push-to-talk is impossible) | In-app-only listener |
+| Hotkey scope | **System-wide** `globalShortcut` + always-on-top HUD; **toggle** start/stop (`globalShortcut` has no key-up event, so push-to-talk is impossible). Default **`⌘.`** (Martin's pick 2026-07-19 — note it shadows Xcode/Safari "stop" while Chewo runs). The hotkey is a **universal mic toggle**: during a live notes recording it stops that dictation instead of starting a voice command | In-app-only listener; `⌥⇧Space` (first default); busy-rejection during notes recording (replaced by stop-it-instead) |
 | Voice targeting | **Sonnet infers** the board from the utterance; unnamed → **General** | Last-viewed board; strict-name-only matching |
 | Voice command breadth | **Full control**: add / move-status / edit / delete, executed immediately with an **undo toast** | Add-only; add+move-only; confirm-before-execute |
 | Storage location | **`~/.chewo/todos/<scope>/`** — global dotfolder: human-greppable, survives app-data resets, readable by agents/MCP without going through the app | `userData` (buried in `~/Library/Application Support`); in-repo `.chewo/` per project (pollutes repos) |
 | STT cold start | **Overlap capture with load + idle unload** (revised 2026-07-19): the hotkey opens the mic *immediately* — the sidecar buffers audio while the model loads in parallel, and transcription catches up ~2–4 s later, so perceived latency is ~0. Model stays resident **15 min after last use** (covers bursts), then a new mic-less `unload` command frees it — RAM cost between sparse uses is ~0. Same `prewarm` command fires on opening the notes recording view (load overlaps subject/topic picking). Single model shared with notes (default `large-v3-turbo`) | Always-resident prewarm at launch (~1–1.5 GB held for once-every-2 h usage — wasteful); lazy first-use load with a blocking wait (today's notes behavior); a smaller dedicated command model (`base.en` already measured ~90% on Martin's accented speech — misses land in card titles) |
-| Interpreter invocation | `claude -p --model sonnet --bare --json-schema <schema>` — `--bare` skips hooks/skills/MCP/CLAUDE.md discovery for faster startup; `--json-schema` enforces the command JSON (result in `structured_output`), replacing prompt-begged JSON. Verified vs docs 2026-07-19: print mode is strictly one-shot — **no persistent stream-json input mode exists**, so per-call process cold start is unavoidable | Resident multi-turn `claude` process (unsupported); direct Anthropic API (kept as fallback — needs an API key billed separately from the CLI's subscription auth) |
+| Interpreter invocation | `claude -p --model sonnet --output-format json --json-schema <schema>` — `--json-schema` enforces the command JSON (result in `structured_output`), replacing prompt-begged JSON. Verified vs docs 2026-07-19: print mode is strictly one-shot — **no persistent stream-json input mode exists**, so per-call process cold start is unavoidable. Measured 2026-07-19: ~4–5 s end-to-end per command | `--bare` (tested 2026-07-19 on CLI 2.1.215: breaks keychain auth — "Not logged in" — so dropped); resident multi-turn `claude` process (unsupported); direct Anthropic API (kept as fallback — needs an API key billed separately from the CLI's subscription auth) |
 
 ### 2.2 Defaults pending veto
 
@@ -161,8 +161,9 @@ interface BoardFile {
 
 ## 6. Voice command flow
 
-1. **Hotkey** (default `⌥⇧Space`, configurable in settings; pending Q2)
-   toggles capture. Registered via Electron `globalShortcut` in main.
+1. **Hotkey** (default `⌘.`, configurable via `todoHotkey` in projects.json)
+   toggles capture; during a live notes recording it stops that dictation
+   instead. Registered via Electron `globalShortcut` in main.
 2. On start: capture begins **immediately** — the sidecar opens the mic and
    buffers samples while the model loads in parallel (if not already
    resident); transcription catches up a few seconds later. Protocol grows
@@ -172,7 +173,7 @@ interface BoardFile {
    live transcript (confirmed solid / tail dimmed, same rendering as the
    notes recording view). Works while Chewo is in the background.
 3. Hotkey again (or HUD click, or Esc) stops capture → `final` transcript.
-4. Main runs the **interpreter**: `claude -p --model sonnet --bare
+4. Main runs the **interpreter**: `claude -p --model sonnet
    --output-format json --json-schema <command schema>` with a prompt
    containing (a) the transcript, (b) a compact snapshot of all boards
    (scope names + card ids/titles/columns). The schema-enforced
@@ -190,11 +191,14 @@ interface BoardFile {
    toast), executes, pushes `todos:changed`, and the HUD shows the result
    ("Added to General → Todo") with an **Undo** button (pending Q4), then
    auto-dismisses.
-6. Interpreter guardrails: JSON-only output, temperature-free single pass,
-   one command per utterance in v1 ("add A and B" → T4). Leading wake word
-   ("che-wo") stripped/ignored by the prompt.
-7. **Conflict rule:** if a notes recording is live, the todo hotkey is
-   rejected with a HUD message (one sidecar, one mic consumer at a time).
+6. Interpreter guardrails: schema-enforced JSON, single pass, and a
+   **command list** — one utterance can carry several actions ("delete A
+   and B", "add X and mark Y done"), executed in order; a failed item shows
+   an inline ✗ line and the rest still run; **Undo reverts every scope the
+   utterance touched** (pulled forward from T4, 2026-07-19). Leading wake
+   word ("che-wo") stripped/ignored by the prompt.
+7. **Mic ownership:** one sidecar, one consumer. If a notes recording is
+   live, the hotkey acts as a universal toggle and stops that dictation.
 
 ---
 
@@ -238,9 +242,9 @@ test"). No new server, no new transport.
   `unload` protocol commands + 15-min idle timer in main (standalone
   improvement — ship first; notes recording view prewarms on open);
   `globalShortcut` toggle + HUD window; sidecar conflict rule; Sonnet
-  interpreter (`--bare --json-schema`) + validation + undo toast.
+  interpreter (`--json-schema`) + validation + undo toast.
 - **T3 — MCP:** context-bridge todo tools over the same store module.
-- **T4 — Polish:** done-column auto-archive; multi-command utterances;
+- **T4 — Polish:** done-column auto-archive;
   board search/filter; project-removal cleanup; maybe card thumbnails.
 
 ---
@@ -250,9 +254,10 @@ test"). No new server, no new transport.
 - **Interpreter latency:** `claude -p` pays process cold start per call, and
   no resident/daemon mode exists (verified 2026-07-19 — print mode is
   one-shot; multi-turn means `--continue` with a fresh process). `--bare`
-  trims discovery overhead; STT prewarm removes the model-load wait; the
-  remaining floor is CLI boot + one Sonnet round trip, est. 2–4 s with the
-  HUD showing "Thinking…". If that still grates, the fallback is the direct
+  would trim discovery overhead but breaks keychain auth (CLI 2.1.215) —
+  retest on future CLI updates. The floor is CLI boot + one Sonnet round
+  trip, measured ~4–5 s with the HUD showing "Thinking…". If that grates,
+  the fallback is the direct
   Anthropic API for this one call — deliberately diverging from the
   headless-claude pattern, and requiring an API key billed separately from
   the CLI's subscription auth.
@@ -271,7 +276,8 @@ test"). No new server, no new transport.
 - **STT accuracy on short utterances:** commands are 5–15 words with no
   context; proper nouns (project names) may mis-transcribe. Mitigation:
   Sonnet gets the real scope list and fuzzy-matches ("chew oh" → chewo).
-- **Global hotkey collisions:** `⌥⇧Space` may clash with user apps —
+- **Global hotkey collisions:** `⌘.` shadows the "stop" shortcut of Xcode,
+  Safari, and some terminals while Chewo runs —
   configurable from day one, and registration failure surfaces a toast.
 - **HUD window focus stealing:** the HUD must never take focus from the
   frontmost app (`focusable: false`, `alwaysOnTop`) or dictating over other

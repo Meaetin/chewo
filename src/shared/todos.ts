@@ -63,6 +63,27 @@ export function projectScopeDir(name: string, path: string): string {
   return `p-${slug}-${djb2Hex(path)}`
 }
 
+/**
+ * State pushed from main to the voice HUD (SPEC-TODOS §6). Pushes are
+ * partial — the HUD merges defined fields over its last state, so a
+ * level-only tick never wipes the transcript.
+ */
+export interface HudState {
+  phase: 'capturing' | 'thinking' | 'result' | 'error'
+  confirmed?: string
+  tail?: string
+  /** Mic energy 0…1 */
+  level?: number
+  /** Model still loading — capture is buffering (capture-before-ready) */
+  loading?: boolean
+  /** The full utterance as finally transcribed — the live transcript lags
+   * seconds behind speech, so this is what "you said" once you stop */
+  finalText?: string
+  summary?: string
+  message?: string
+  undoable?: boolean
+}
+
 /** Which column holds a card. */
 export function statusOf(board: BoardFile, cardId: string): TodoStatus | null {
   for (const status of TODO_STATUSES) {

@@ -10,6 +10,8 @@ import {
   loadBoard,
   moveCard,
   readAsset,
+  restoreAssets,
+  restoreBoard,
   setTodosRoot,
   updateCard
 } from '../src/main/todos'
@@ -120,6 +122,37 @@ describe('board mutations', () => {
     board = clearDone('general')
     expect(board.columns.done).toEqual([])
     expect(board.columns.todo).toHaveLength(1)
+  })
+
+  test('addCard with text (voice add) stores it trimmed', () => {
+    const board = addCard('general', 'call dentist', 'todo', '  ask about invoice  ')
+    const card = Object.values(board.cards)[0]
+    expect(card.text).toBe('ask about invoice')
+  })
+
+  test('restoreBoard + restoreAssets undo a delete completely', () => {
+    let board = addCard('general', 'victim')
+    const id = board.columns.todo[0]
+    board = updateCard({
+      scopeDir: 'general',
+      cardId: id,
+      title: 'victim',
+      text: '',
+      addImages: [PNG_B64],
+      removeImages: []
+    })
+    const imageName = board.cards[id].images![0]
+    const snapshot = structuredClone(board)
+    const dataUrl = readAsset('general', imageName)!
+    const assetB64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+
+    deleteCard('general', id)
+    expect(readAsset('general', imageName)).toBeNull()
+
+    restoreAssets('general', [{ name: imageName, base64: assetB64 }])
+    const restored = restoreBoard('general', snapshot)
+    expect(restored.cards[id].title).toBe('victim')
+    expect(readAsset('general', imageName)).toContain('base64,')
   })
 
   test('mutations persist — a fresh load sees them', () => {

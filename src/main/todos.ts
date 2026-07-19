@@ -24,6 +24,13 @@ export function setTodosRoot(path: string): void {
 
 const todosRoot = (): string => root
 
+/** Interpreter runs (`claude -p`) get this as cwd so their sessions are
+ * identifiable — the sidebar filters anything under ~/.chewo out. */
+export function todosRootPath(): string {
+  mkdirSync(root, { recursive: true })
+  return root
+}
+
 /** Scope dirs are generated slugs — reject anything path-like outright. */
 function scopePath(scopeDir: string): string {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(scopeDir)) throw new Error(`bad scope: ${scopeDir}`)
@@ -66,15 +73,43 @@ function commit(scopeDir: string, board: BoardFile): BoardFile {
   return board
 }
 
-export function addCard(scopeDir: string, title: string, status: TodoStatus = 'todo'): BoardFile {
+export function addCard(
+  scopeDir: string,
+  title: string,
+  status: TodoStatus = 'todo',
+  text?: string
+): BoardFile {
   const board = loadBoard(scopeDir)
   const trimmed = title.trim()
   if (!trimmed) return board
   const now = new Date().toISOString()
-  const card = { id: randomUUID(), title: trimmed, createdAt: now, updatedAt: now }
+  const card = {
+    id: randomUUID(),
+    title: trimmed,
+    text: text?.trim() || undefined,
+    createdAt: now,
+    updatedAt: now
+  }
   board.cards[card.id] = card
   board.columns[status].unshift(card.id)
   return commit(scopeDir, board)
+}
+
+/** Undo for voice commands: write a snapshot back verbatim (SPEC-TODOS §6). */
+export function restoreBoard(scopeDir: string, board: BoardFile): BoardFile {
+  return commit(scopeDir, board)
+}
+
+/** Undoing a voice delete also brings back the card's image files. */
+export function restoreAssets(
+  scopeDir: string,
+  files: Array<{ name: string; base64: string }>
+): void {
+  const assetsDir = join(scopePath(scopeDir), 'assets')
+  for (const file of files) {
+    if (!/^[a-z0-9-]+\.png$/.test(file.name)) continue
+    writeFileSync(join(assetsDir, file.name), Buffer.from(file.base64, 'base64'))
+  }
 }
 
 /** Any move — including same-column — drops the card at the top (§5). */

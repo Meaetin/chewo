@@ -52,7 +52,8 @@ import {
   type UpdateCardArgs
 } from './todos'
 import type { TodoStatus } from '../shared/todos'
-import { disposeSidecar, sttStart, sttStop } from './stt'
+import { disposeSidecar, sttPrewarm, sttStart, sttStop } from './stt'
+import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
 import { safeSend } from './safe-send'
@@ -204,9 +205,13 @@ function registerIpc(): void {
   )
 
   ipcMain.on('stt:start', (_e, { model }: { model: string }) => {
-    if (mainWindow) sttStart(mainWindow, model)
+    const win = mainWindow
+    if (!win) return
+    const err = sttStart(model, 'notes', (ev) => safeSend(win, 'stt:event', ev))
+    if (err) safeSend(win, 'stt:event', { event: 'error', message: `Mic is busy — ${err}.` })
   })
   ipcMain.on('stt:stop', () => sttStop())
+  ipcMain.on('stt:prewarm', (_e, { model }: { model: string }) => sttPrewarm(model))
 
   ipcMain.on('noteschat:send', (_e, args: NotesChatArgs) => {
     if (mainWindow) notesChatSend(mainWindow, args)
@@ -239,7 +244,12 @@ function registerIpc(): void {
   ipcMain.on('fs:unwatch', (_e, a: { watchId: number }) => stopWatch(a.watchId))
 
   ipcMain.handle('projects:load', () => loadProjects())
-  ipcMain.handle('projects:save', (_e, file: ProjectsFile) => saveProjects(file))
+  ipcMain.handle('projects:save', (_e, file: ProjectsFile) => {
+    saveProjects(file)
+    // Hotkey edits take effect immediately; failure surfaces as a toast
+    const err = updateTodoHotkey(file.todoHotkey)
+    if (err) safeSend(mainWindow, 'app:toast', err)
+  })
   ipcMain.handle('settings:load', () => loadSettings())
   ipcMain.handle('settings:save', (_e, file: SettingsFile) => {
     saveSettings(file)
@@ -364,12 +374,18 @@ function buildMenu(): void {
 }
 
 app.whenReady().then(() => {
-  const savedNotesRoot = loadProjects().notesRoot
-  if (savedNotesRoot) setNotesRoot(savedNotesRoot)
+  const projectsFile = loadProjects()
+  if (projectsFile.notesRoot) setNotesRoot(projectsFile.notesRoot)
   buildMenu()
   registerIpc()
   createWindow()
-  if (mainWindow) setTodosWindow(mainWindow)
+  if (mainWindow) {
+    setTodosWindow(mainWindow)
+    initTodoVoice(mainWindow, projectsFile.todoHotkey)
+    // The hidden HUD window must not keep the app alive after the main
+    // window closes — it would swallow 'window-all-closed'
+    mainWindow.on('closed', () => closeHud())
+  }
   watchSessionStores()
   watchNotesStore()
   watchHandoffInbox()
@@ -383,5 +399,6 @@ app.on('window-all-closed', () => {
   disposeAllTerminals()
   disposeAllWatches()
   disposeSidecar()
+  disposeTodoVoice()
   app.quit()
 })

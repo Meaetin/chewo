@@ -269,6 +269,7 @@ export function App(): React.JSX.Element {
           break
       }
     })
+    const offToast = window.api.onAppToast((message) => showToast(message))
     const offChanged = window.api.onSessionsChanged(() => void refresh())
     const offExit = window.api.onTermExit(({ id }) => {
       setTabs((t) => t.map((tab) => (tab.termId === id ? { ...tab, exited: true } : tab)))
@@ -294,6 +295,7 @@ export function App(): React.JSX.Element {
     return () => {
       offNotes()
       offStt()
+      offToast()
       offChanged()
       offExit()
       offBound()
@@ -538,15 +540,18 @@ export function App(): React.JSX.Element {
   const liveCounts = new Map<string | null, number>()
   for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
 
-  // Notes-chat runs create real Claude sessions with cwd under the notes
-  // root — they're chat plumbing, not coding sessions, so keep them out of
-  // the coding sidebar entirely (SPEC-NOTES.md §9).
-  const inNotesStore = (path: string | null): boolean =>
+  // Notes-chat and todo-voice runs create real Claude sessions with cwd
+  // under the notes root / ~/.chewo — they're app plumbing, not coding
+  // sessions, so keep them out of the coding sidebar entirely
+  // (SPEC-NOTES.md §9, SPEC-TODOS.md §6).
+  const chewoStore = `${window.api.homeDir}/.chewo`
+  const inAppStore = (path: string | null): boolean =>
     !!path &&
-    !!notesTree &&
-    (path === notesTree.root || path.startsWith(notesTree.root + '/'))
-  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id) && !inNotesStore(s.project))
-  const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id) && !inNotesStore(s.project))
+    (path === chewoStore ||
+      path.startsWith(chewoStore + '/') ||
+      (!!notesTree && (path === notesTree.root || path.startsWith(notesTree.root + '/'))))
+  const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id) && !inAppStore(s.project))
+  const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id) && !inAppStore(s.project))
 
   // Remember which terminal was last viewed in each section
   useEffect(() => {
@@ -909,6 +914,12 @@ export function App(): React.JSX.Element {
     },
     [notesSel, refreshNotes, showToast]
   )
+
+  // Entering the notes workflow prewarms the STT model — the load overlaps
+  // picking a subject/topic, so hitting record feels instant (SPEC-TODOS §6)
+  useEffect(() => {
+    if (workflow === 'notes') window.api.sttPrewarm(DEFAULT_STT_MODEL)
+  }, [workflow])
 
   const startRecording = useCallback(() => {
     if (!notesSel || !selectedNotePath || recordingRef.current) return

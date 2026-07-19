@@ -1,13 +1,21 @@
 import Foundation
 
-/// Headless STT sidecar for Chewo (SPEC-NOTES.md §6): JSON-lines over stdio.
+/// Headless STT sidecar for Chewo (SPEC-NOTES.md §6, SPEC-TODOS.md §6):
+/// JSON-lines over stdio.
 ///
 /// stdin:  {"cmd":"start","model":"openai_whisper-large-v3-v20240930_turbo"}
-///         {"cmd":"stop"}   {"cmd":"shutdown"}
+///         {"cmd":"stop"}   {"cmd":"prewarm","model":"…"}   {"cmd":"unload"}
+///         {"cmd":"shutdown"}
 /// stdout: {"event":"loading"} {"event":"ready"} {"event":"level","rms":0.3}
 ///         {"event":"partial","confirmed":"…","tail":"…"}
 ///         {"event":"final","text":"…","duration_s":12.4}
+///         {"event":"prewarmed"} {"event":"unloaded"}
 ///         {"event":"error","message":"…"}
+///
+/// Capture-before-ready: `start` opens the mic immediately and emits `ready`;
+/// if the model is still loading it also emits `loading`, audio buffers, and
+/// transcription catches up once the load lands — so short utterances that
+/// end before the model is ready still transcribe fully on `stop`.
 
 struct Command: Decodable {
     let cmd: String
@@ -43,6 +51,7 @@ actor Controller {
     private let out: Emitter
     private var levelTask: Task<Void, Never>?
     private var transcribeTask: Task<Void, Never>?
+    private var loadTask: Task<Bool, Never>?
     private var recording = false
     private var lastConfirmed = ""
     private var lastTail = ""
@@ -52,17 +61,50 @@ actor Controller {
         self.out = out
     }
 
+    /// One load in flight at a time; concurrent callers await the same task.
+    private func sharedLoad(model: String) async -> Bool {
+        if let task = loadTask {
+            return await task.value
+        }
+        let task = Task { [engine, out] () -> Bool in
+            do {
+                try await engine.load(modelName: model)
+                return true
+            } catch {
+                await out.send(
+                    Event(event: "error", message: "Model load failed: \(error.localizedDescription)")
+                )
+                return false
+            }
+        }
+        loadTask = task
+        let ok = await task.value
+        loadTask = nil
+        return ok
+    }
+
+    func prewarm(model: String) async {
+        guard !(await engine.isLoaded(model)) else {
+            await out.send(Event(event: "prewarmed"))
+            return
+        }
+        if await sharedLoad(model: model) {
+            await out.send(Event(event: "prewarmed"))
+        }
+    }
+
+    func unload() async {
+        guard !recording else { return }
+        if let task = loadTask {
+            _ = await task.value
+        }
+        await engine.unload()
+        await out.send(Event(event: "unloaded"))
+    }
+
     func start(model: String) async {
         guard !recording else {
             await out.send(Event(event: "error", message: "Already recording"))
-            return
-        }
-
-        await out.send(Event(event: "loading"))
-        do {
-            try await engine.load(modelName: model)
-        } catch {
-            await out.send(Event(event: "error", message: "Model load failed: \(error.localizedDescription)"))
             return
         }
 
@@ -83,6 +125,13 @@ actor Controller {
         lastTail = ""
         lastDuration = 0
         await out.send(Event(event: "ready"))
+
+        // Capture is live; load the model in parallel if it isn't resident.
+        // `loading` after `ready` tells the HUD to show "warming up".
+        if !(await engine.isLoaded(model)) {
+            await out.send(Event(event: "loading"))
+            Task { _ = await self.sharedLoad(model: model) }
+        }
 
         // Cadence from the proven prototype: level 5 Hz; decode every 750 ms
         // once ≥12k new samples (~0.75 s at 16 kHz) have arrived.
@@ -126,6 +175,12 @@ actor Controller {
         transcribeTask = nil
         await engine.stopRecording()
 
+        // A short utterance can end before the model finishes loading — wait
+        // for it, then flush; the whole buffered clip transcribes here.
+        if let task = loadTask {
+            _ = await task.value
+        }
+
         // Flush whatever audio arrived after the last pass.
         await transcribePass(minimumNewSamples: 0)
 
@@ -152,6 +207,10 @@ struct ChewoSTTWhisper {
                     await controller.start(model: command.model ?? "openai_whisper-base.en")
                 case "stop":
                     await controller.stop()
+                case "prewarm":
+                    await controller.prewarm(model: command.model ?? "openai_whisper-base.en")
+                case "unload":
+                    await controller.unload()
                 case "shutdown":
                     await controller.stop()
                     exit(0)
