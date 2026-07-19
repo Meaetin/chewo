@@ -157,13 +157,22 @@ export function FileEditor({
 
   const reload = useCallback(
     (path: string) => {
+      const before = buffers.current.get(path)
       void window.api.fsReadFile(path).then((res) => {
-        // Keep the preview mode across reloads of the same SVG / markdown
         const prev = buffers.current.get(path)
+        // The buffer went dirty (or was replaced) while the read was in flight
+        // — the user started typing. Never clobber live edits; the watcher's
+        // dirty branch will raise a conflict instead.
+        if (!prev || prev !== before || prev.dirty) return
+        // Content unchanged — skip the swap. A fresh `value` string would force
+        // a full controlled-CodeMirror doc replacement and reset the cursor.
+        if (res.ok && res.kind === 'text' && prev.kind === 'text' && res.content === prev.content)
+          return
+        // Keep the preview mode across reloads of the same SVG / markdown
         buffers.current.set(path, {
           ...bufferFrom(res, path),
-          svgPreview: prev?.svgPreview,
-          mdPreview: prev?.mdPreview
+          svgPreview: prev.svgPreview,
+          mdPreview: prev.mdPreview
         })
         bump()
       })
