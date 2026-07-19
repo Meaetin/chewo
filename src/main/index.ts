@@ -26,6 +26,7 @@ import {
   copyEntry,
   deleteEntry,
   disposeAllWatches,
+  isFile,
   readDir,
   readFile,
   renameEntry,
@@ -214,6 +215,7 @@ function registerIpc(): void {
 
   ipcMain.handle('fs:readDir', (_e, path: string) => readDir(path))
   ipcMain.handle('fs:readFile', (_e, path: string) => readFile(path))
+  ipcMain.handle('fs:isFile', (_e, path: string) => isFile(path))
   ipcMain.handle('fs:writeFile', (_e, a: { path: string; content: string }) =>
     writeFile(a.path, a.content)
   )

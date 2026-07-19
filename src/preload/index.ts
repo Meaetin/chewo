@@ -174,6 +174,7 @@ const api = {
 
   fsReadDir: (path: string) => ipcRenderer.invoke('fs:readDir', path) as Promise<ReadDirResult>,
   fsReadFile: (path: string) => ipcRenderer.invoke('fs:readFile', path) as Promise<ReadFileResult>,
+  fsIsFile: (path: string) => ipcRenderer.invoke('fs:isFile', path) as Promise<boolean>,
   fsWriteFile: (args: { path: string; content: string }) =>
     ipcRenderer.invoke('fs:writeFile', args) as Promise<WriteFileResult>,
   fsRename: (args: { path: string; newName: string }) =>

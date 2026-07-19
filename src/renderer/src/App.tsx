@@ -68,6 +68,14 @@ export interface OpenFile {
   name: string
 }
 
+/** One-shot cursor jump after opening a file at `path:line[:col]` — seq lets repeat clicks re-fire */
+export interface GotoTarget {
+  path: string
+  line: number
+  col?: number
+  seq: number
+}
+
 /** Editor-layer state for one section (project or Home) */
 interface SectionFiles {
   openFiles: OpenFile[]
@@ -371,8 +379,11 @@ export function App(): React.JSX.Element {
     ? `⎇ ${activeWorktree.taskName}`
     : (selectedProject?.name ?? 'Home')
 
+  const gotoSeq = useRef(0)
+  const [gotoTarget, setGotoTarget] = useState<GotoTarget | null>(null)
+
   const openFile = useCallback(
-    (path: string) => {
+    (path: string, goto?: { line: number; col?: number }) => {
       setFilesBySection((prev) => {
         const cur = prev.get(sectionKey) ?? EMPTY_SECTION_FILES
         const openFiles = cur.openFiles.some((f) => f.path === path)
@@ -380,6 +391,7 @@ export function App(): React.JSX.Element {
           : [...cur.openFiles, { path, name: path.split('/').pop() ?? path }]
         return new Map(prev).set(sectionKey, { openFiles, activePath: path })
       })
+      if (goto) setGotoTarget({ path, line: goto.line, col: goto.col, seq: ++gotoSeq.current })
     },
     [sectionKey]
   )
@@ -1225,11 +1237,23 @@ export function App(): React.JSX.Element {
                 termId={tab.termId}
                 root={tabWorktree?.path ?? tabProject?.path ?? window.api.homeDir}
                 theme={terminalTheme}
+                onOpenFile={openFile}
+                active={
+                  workflow === 'code' &&
+                  !editorVisible &&
+                  view.kind === 'terminal' &&
+                  view.termId === tab.termId
+                }
+              />
+            )
+          })}
           <FileEditor
             visible={editorVisible}
             openFiles={sectionFiles.openFiles}
             allOpenPaths={allOpenPaths}
             activePath={sectionFiles.activePath}
+            root={treeRoot}
+            gotoTarget={gotoTarget}
             theme={editorTheme}
             onActivate={openFile}
             onCloseFile={closeFile}

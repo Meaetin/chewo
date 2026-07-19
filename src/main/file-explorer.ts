@@ -118,6 +118,17 @@ export function readDir(path: string): ReadDirResult {
   }
 }
 
+/** True when the path resolves inside an allowed root and is a regular file. */
+export function isFile(path: string): boolean {
+  const real = resolveInsideRoots(path)
+  if (!real) return false
+  try {
+    return statSync(real).isFile()
+  } catch {
+    return false
+  }
+}
+
 export function readFile(path: string): ReadFileResult {
   const real = resolveInsideRoots(path)
   if (!real) {
@@ -282,6 +293,11 @@ export function startWatch(win: BrowserWindow): number {
       entry.timer = null
       safeSend(win, 'fs:changed', { watchId: id, paths } satisfies FsChangedEvent)
     }, DEBOUNCE_MS)
+  })
+  // An unhandled 'error' would throw out of the emitter and take live updates
+  // down silently. Log and keep the watcher alive.
+  entry.watcher.on('error', (err) => {
+    console.error(`file-explorer watch ${id}:`, err)
   })
   watches.set(id, entry)
   return id

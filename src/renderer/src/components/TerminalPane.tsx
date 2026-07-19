@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ILink, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { MONO_STACK } from '../theme/terminalTheme'
@@ -12,18 +12,36 @@ import { MONO_STACK } from '../theme/terminalTheme'
  * real file become links, so loose matches (URLs, `e.g.`) cost one stat and
  * stay plain text.
  */
+const PATH_RE =
+  /(?:(?:~|\.{1,2})?\/[\w.+@-]+(?:\/[\w.+@-]+)*|[\w.+@-]+(?:\/[\w.+@-]+)+|[\w+@-][\w.+@-]*\.[A-Za-z]\w{0,7})(?::\d+(?::\d+)?)?/g
 
 interface TerminalPaneProps {
   termId: number
   active: boolean
+  /** Root for resolving relative paths: worktree ?? project ?? home */
+  root: string
   theme: ITheme
+  onOpenFile: (path: string, goto?: { line: number; col?: number }) => void
 }
 
-export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.Element {
+export function TerminalPane({
+  termId,
+  active,
+  root,
   theme,
+  onOpenFile
+}: TerminalPaneProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const termRef = useRef<Terminal | null>(null)
+  // Ref so the create effect (keyed on termId) starts with the current theme
+  const themeRef = useRef(theme)
+  themeRef.current = theme
+  // Refs so the link provider (registered once per terminal) sees current values
+  const rootRef = useRef(root)
+  rootRef.current = root
+  const onOpenFileRef = useRef(onOpenFile)
+  onOpenFileRef.current = onOpenFile
 
   useEffect(() => {
     const container = containerRef.current
@@ -65,6 +83,66 @@ export function TerminalPane({ termId, active }: TerminalPaneProps): React.JSX.E
     term.focus() // type immediately — no click required
 
     term.onData((data) => window.api.termInput(termId, data))
+
+    // Clickable file paths — path-looking tokens that exist on disk open in
+    // the editor layer. Relative paths resolve against the pane's root.
+    const resolvePath = (raw: string): string => {
+      const path = raw.replace(/:\d+(?::\d+)?$/, '')
+      if (path.startsWith('/')) return path
+      if (path.startsWith('~/')) return window.api.homeDir + path.slice(1)
+      return `${rootRef.current}/${path.replace(/^\.\//, '')}`
+    }
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const line = term.buffer.active.getLine(y - 1)
+        if (!line) {
+          callback(undefined)
+          return
+        }
+        // Build the line text with a string-index → buffer-column map: wide
+        // chars (CJK, emoji) occupy 2 cells and surrogate pairs are 2 string
+        // chars, so plain translateToString indices drift from columns
+        let text = ''
+        const colOf: number[] = []
+        for (let x = 0; x < line.length; ) {
+          const cell = line.getCell(x)
+          if (!cell) break
+          const chars = cell.getChars() || ' '
+          for (const ch of chars.split('')) {
+            text += ch
+            colOf.push(x)
+          }
+          x += cell.getWidth() || 1
+        }
+        const matches = [...text.matchAll(PATH_RE)]
+        if (matches.length === 0) {
+          callback(undefined)
+          return
+        }
+        void Promise.all(
+          matches.map(async (m): Promise<ILink | null> => {
+            const target = resolvePath(m[0])
+            if (!(await window.api.fsIsFile(target))) return null
+            const suffix = /:(\d+)(?::(\d+))?$/.exec(m[0])
+            const goto = suffix
+              ? { line: Number(suffix[1]), col: suffix[2] ? Number(suffix[2]) : undefined }
+              : undefined
+            return {
+              text: m[0],
+              // 1-based, end-inclusive columns; the :line suffix stays clickable
+              range: {
+                start: { x: colOf[m.index] + 1, y },
+                end: { x: colOf[m.index + m[0].length - 1] + 1, y }
+              },
+              activate: () => onOpenFileRef.current(target, goto)
+            }
+          })
+        ).then((links) => {
+          const found = links.filter((l) => l !== null)
+          callback(found.length > 0 ? found : undefined)
+        })
+      }
+    })
 
     const offData = window.api.onTermData(({ id, data }) => {
       if (id === termId) term.write(data)

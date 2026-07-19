@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import CodeMirror, { keymap, Prec, type Extension } from '@uiw/react-codemirror'
-import { Code2, Eye, X } from 'lucide-react'
+import CodeMirror, {
+  EditorView,
+  keymap,
+  Prec,
+  type Extension,
+  type ReactCodeMirrorRef
+} from '@uiw/react-codemirror'
+import { Code2, Eye, FileText, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ReadFileResult } from '../../../main/file-explorer'
-import type { OpenFile } from '../App'
+import type { GotoTarget, OpenFile } from '../App'
 import { ImageStage } from './ImageStage'
+import { pathLinks } from './pathLinks'
+import { closeSearchPanel, searchPanelOpen } from '@codemirror/search'
 import { languageFor } from '../theme/langs'
+import { editorSearch } from './EditorFindPanel'
 import { IconButton } from './ui'
 
 interface FileEditorProps {
@@ -14,9 +25,13 @@ interface FileEditorProps {
   /** Union across all sections — buffers and watches span section switches */
   allOpenPaths: string[]
   activePath: string | null
-  onActivate: (path: string) => void
+  /** Section root — base for resolving ⌘-clicked relative paths in the code */
+  root: string
+  /** Cursor jump to apply once the target file is up (terminal `path:line` clicks) */
+  gotoTarget: GotoTarget | null
   /** Appearance-driven CodeMirror theme (chrome + syntax highlighting) */
   theme: Extension
+  onActivate: (path: string, goto?: { line: number; col?: number }) => void
   onCloseFile: (path: string) => void
   /** Back to the terminal layer (Esc / chip strip empty) */
   onExit: () => void
@@ -40,9 +55,16 @@ interface FileBuffer {
   saveError?: string
   /** SVG only: rendered preview instead of the code */
   svgPreview?: boolean
+  /** Markdown only: rendered preview instead of the code */
+  mdPreview?: boolean
 }
 
 const isSvg = (path: string): boolean => path.toLowerCase().endsWith('.svg')
+
+const isMarkdown = (path: string): boolean => {
+  const p = path.toLowerCase()
+  return p.endsWith('.md') || p.endsWith('.markdown')
+}
 
 const bufferFrom = (res: ReadFileResult, path: string): FileBuffer => ({
   kind: res.ok ? res.kind : 'text',
@@ -54,7 +76,9 @@ const bufferFrom = (res: ReadFileResult, path: string): FileBuffer => ({
   conflict: false,
   savedAt: 0,
   // SVGs open rendered; the chip-bar toggle flips to code
-  svgPreview: isSvg(path) || undefined
+  svgPreview: isSvg(path) || undefined,
+  // Markdown opens rendered; the chip-bar toggle flips to code
+  mdPreview: isMarkdown(path) || undefined
 })
 
 /** Our own save comes back as a watcher event within this window */
@@ -70,6 +94,8 @@ export function FileEditor({
   openFiles,
   allOpenPaths,
   activePath,
+  root,
+  gotoTarget,
   theme,
   onActivate,
   onCloseFile,
@@ -82,6 +108,35 @@ export function FileEditor({
   const watched = useRef(new Set<string>())
   const activePathRef = useRef(activePath)
   activePathRef.current = activePath
+  const cmRef = useRef<ReactCodeMirrorRef>(null)
+  const gotoDone = useRef(0)
+
+  // Apply a pending cursor jump. Retried via `version` bumps until the target
+  // file's buffer has loaded and CodeMirror is showing it.
+  useEffect(() => {
+    if (!gotoTarget || gotoTarget.seq === gotoDone.current || gotoTarget.path !== activePath) return
+    const buf = buffers.current.get(gotoTarget.path)
+    const view = cmRef.current?.view
+    if (
+      !buf ||
+      buf.error ||
+      buf.kind !== 'text' ||
+      (isSvg(gotoTarget.path) && buf.svgPreview) ||
+      (isMarkdown(gotoTarget.path) && buf.mdPreview)
+    )
+      return
+    if (!view) return
+    gotoDone.current = gotoTarget.seq
+    const line = view.state.doc.line(
+      Math.min(Math.max(1, gotoTarget.line), view.state.doc.lines)
+    )
+    const pos = Math.min(line.from + Math.max(0, (gotoTarget.col ?? 1) - 1), line.to)
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: 'center' })
+    })
+    view.focus()
+  }, [gotoTarget, activePath, version])
 
   // Load the active file on first activation
   useEffect(() => {
@@ -100,9 +155,13 @@ export function FileEditor({
   const reload = useCallback(
     (path: string) => {
       void window.api.fsReadFile(path).then((res) => {
-        // Keep the preview mode across reloads of the same SVG
+        // Keep the preview mode across reloads of the same SVG / markdown
         const prev = buffers.current.get(path)
-        buffers.current.set(path, { ...bufferFrom(res, path), svgPreview: prev?.svgPreview })
+        buffers.current.set(path, {
+          ...bufferFrom(res, path),
+          svgPreview: prev?.svgPreview,
+          mdPreview: prev?.mdPreview
+        })
         bump()
       })
     },
@@ -192,7 +251,12 @@ export function FileEditor({
       keymap.of([
         {
           key: 'Escape',
-          run: () => {
+          run: (view) => {
+            // Layered escape: find panel first, then the editor itself.
+            if (searchPanelOpen(view.state)) {
+              closeSearchPanel(view)
+              return true
+            }
             onExit()
             return true
           }
@@ -207,8 +271,9 @@ export function FileEditor({
       ])
     )
     const lang = activePath ? languageFor(activePath.split('/').pop() ?? '') : null
-    return lang ? [keys, lang] : [keys]
-  }, [activePath, onExit, save])
+    const links = activePath ? pathLinks({ filePath: activePath, root, onOpen: onActivate }) : null
+    return [keys, editorSearch, ...(links ? [links] : []), ...(lang ? [lang] : [])]
+  }, [activePath, root, onActivate, onExit, save])
 
   const buffer = activePath ? buffers.current.get(activePath) : undefined
 
@@ -255,6 +320,24 @@ export function FileEditor({
             </IconButton>
           </div>
         )}
+        {buffer && activePath && isMarkdown(activePath) && !buffer.error && (
+          <div className="file-chip-bar-actions">
+            <IconButton
+              label={buffer.mdPreview ? 'Show code' : 'Preview markdown'}
+              dense
+              onClick={() => {
+                buffer.mdPreview = !buffer.mdPreview
+                bump()
+              }}
+            >
+              {buffer.mdPreview ? (
+                <Code2 size={14} strokeWidth={1.75} />
+              ) : (
+                <FileText size={14} strokeWidth={1.75} />
+              )}
+            </IconButton>
+          </div>
+        )}
       </div>
       {buffer?.conflict && activePath && (
         <div className="file-editor-conflict-bar">
@@ -293,8 +376,13 @@ export function FileEditor({
             alt={activePath}
             active={visible}
           />
+        ) : buffer && activePath && isMarkdown(activePath) && buffer.mdPreview ? (
+          <div className="file-editor-md-preview message-markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{buffer.content}</ReactMarkdown>
+          </div>
         ) : buffer ? (
           <CodeMirror
+            ref={cmRef}
             className="file-editor-cm"
             value={buffer.content}
             theme={theme}

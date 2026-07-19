@@ -82,10 +82,15 @@ export function FileTreePanel({
     [bump]
   )
 
-  // Load the root's top level when the panel becomes visible or the root flips
+  // Re-read the root and every expanded dir whenever the panel is shown or the
+  // root flips. No live watcher runs while hidden, so external changes made in
+  // that window (a file deleted from the terminal) would otherwise persist as
+  // stale rows — reopening the panel now re-syncs against disk.
   useEffect(() => {
     if (!visible) return
-    if (!treeFor(root).entries.has(root)) void loadDir(root, root)
+    const t = treeFor(root)
+    void loadDir(root, root)
+    for (const dir of t.expanded) if (t.entries.has(dir)) void loadDir(root, dir)
   }, [visible, root, loadDir])
 
   // Selection belongs to the visible root
