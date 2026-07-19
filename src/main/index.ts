@@ -38,6 +38,14 @@ import {
 } from './file-explorer'
 import { loadProjects, saveProjects } from './projects'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
+  loadBoard,
+  moveCard,
+  readAsset,
+  setTodosWindow,
+  updateCard,
+  type UpdateCardArgs
+} from './todos'
+import type { TodoStatus } from '../shared/todos'
 import { disposeSidecar, sttStart, sttStop } from './stt'
 import { structureTranscript, type StructureArgs } from './structure'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
@@ -167,6 +175,26 @@ function registerIpc(): void {
   ipcMain.handle('notes:createNote', (_e, args: CreateNoteArgs) => createNote(args))
   ipcMain.handle('notes:delete', (_e, path: string) => deleteNoteItem(path))
   ipcMain.handle('notes:structure', (_e, args: StructureArgs) => structureTranscript(args))
+
+  ipcMain.handle('todos:board', (_e, scopeDir: string) => loadBoard(scopeDir))
+  ipcMain.handle(
+    'todos:addCard',
+    (_e, a: { scopeDir: string; title: string; status?: TodoStatus }) =>
+      addCard(a.scopeDir, a.title, a.status)
+  )
+  ipcMain.handle(
+    'todos:moveCard',
+    (_e, a: { scopeDir: string; cardId: string; to: TodoStatus }) =>
+      moveCard(a.scopeDir, a.cardId, a.to)
+  )
+  ipcMain.handle('todos:updateCard', (_e, args: UpdateCardArgs) => updateCard(args))
+  ipcMain.handle('todos:deleteCard', (_e, a: { scopeDir: string; cardId: string }) =>
+    deleteCard(a.scopeDir, a.cardId)
+  )
+  ipcMain.handle('todos:clearDone', (_e, scopeDir: string) => clearDone(scopeDir))
+  ipcMain.handle('todos:readAsset', (_e, a: { scopeDir: string; fileName: string }) =>
+    readAsset(a.scopeDir, a.fileName)
+  )
 
   ipcMain.on('stt:start', (_e, { model }: { model: string }) => {
     if (mainWindow) sttStart(mainWindow, model)
@@ -327,6 +355,7 @@ app.whenReady().then(() => {
   buildMenu()
   registerIpc()
   createWindow()
+  if (mainWindow) setTodosWindow(mainWindow)
   watchSessionStores()
   watchNotesStore()
   watchHandoffInbox()

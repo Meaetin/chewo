@@ -65,7 +65,7 @@ export interface Worktree {
 }
 
 /** Top-level app mode, switched from the sidebar's top-left segmented control. */
-export type Workflow = 'code' | 'notes'
+export type Workflow = 'code' | 'notes' | 'todo'
 
 export interface ProjectsFile {
   projects: Project[]
@@ -79,8 +79,10 @@ export interface ProjectsFile {
   worktrees: Worktree[]
   /** Last active workflow — restored on launch */
   workflow?: Workflow
-  /** Notes store location; unset = ~/ChewoNotes */
+  /** Notes store location; unset = ~/Documents/Chewo Notes (~/ChewoNotes on installs that already have it) */
   notesRoot?: string
+  /** Voice-command capture accelerator (SPEC-TODOS §6); registered in T2 */
+  todoHotkey?: string
 }
 
 export const EMPTY_PROJECTS_FILE: ProjectsFile = {

@@ -1,4 +1,4 @@
-import { Code, PencilLine } from 'lucide-react'
+import { Code, PencilLine, SquareKanban } from 'lucide-react'
 import type { Workflow } from '../../../shared/projects'
 
 /** Top-left segmented control switching the whole app between workflows. */
@@ -30,6 +30,16 @@ export function WorkflowSwitcher({
       >
         <PencilLine className="workflow-switcher-icon" size={14} strokeWidth={1.75} />
         Notes
+      </button>
+      <button
+        role="tab"
+        aria-selected={workflow === 'todo'}
+        className={`workflow-switcher-option ${workflow === 'todo' ? 'workflow-switcher-active' : ''}`}
+        title="Todo workflow — kanban boards per project and General"
+        onClick={() => onSwitch('todo')}
+      >
+        <SquareKanban className="workflow-switcher-icon" size={14} strokeWidth={1.75} />
+        Todo
       </button>
     </div>
   )

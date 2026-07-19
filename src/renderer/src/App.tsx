@@ -11,6 +11,12 @@ import {
   type Worktree
 } from '../../shared/projects'
 import { DEFAULT_STT_MODEL, type NoteSource, type NotesTree } from '../../shared/notes'
+import {
+  GENERAL_SCOPE,
+  projectScopeDir,
+  type BoardFile,
+  type TodoStatus
+} from '../../shared/todos'
 import { Sidebar } from './components/Sidebar'
 import { NotesSidebar, type TopicRef } from './components/NotesSidebar'
 import {
@@ -20,6 +26,8 @@ import {
 } from './components/NotesWorkspace'
 import { NotesChat } from './components/NotesChat'
 import { WorkflowSwitcher } from './components/WorkflowSwitcher'
+import { TodoSidebar } from './components/TodoSidebar'
+import { TodoBoard, type UpdateCardPayload } from './components/TodoBoard'
 import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
@@ -85,6 +93,9 @@ export function App(): React.JSX.Element {
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
   const [recording, setRecording] = useState<RecordingState | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  /** Board scope in the todo workflow — a project id, or null for General */
+  const [todoScopeId, setTodoScopeId] = useState<string | null>(null)
+  const [todoBoard, setTodoBoard] = useState<BoardFile | null>(null)
   const [fileTreeOpen, setFileTreeOpen] = useState(false)
   // Editor-layer files per section, keyed by projectId ?? 'home'. Session-
   // lifetime only — deliberately not persisted to the projects file.
@@ -101,6 +112,7 @@ export function App(): React.JSX.Element {
   const selectedNotePathRef = useRef<string | null>(null)
   selectedNotePathRef.current = selectedNotePath
   const notesRoot = useRef<string | undefined>(undefined)
+  const todoHotkey = useRef<string | undefined>(undefined)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
   // Last-viewed terminal per section, so switching sections lands you back
@@ -195,6 +207,7 @@ export function App(): React.JSX.Element {
       setWorktrees(file.worktrees)
       setWorkflow(file.workflow ?? 'code')
       notesRoot.current = file.notesRoot
+      todoHotkey.current = file.todoHotkey
       loaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
@@ -294,7 +307,8 @@ export function App(): React.JSX.Element {
       homeSettings,
       worktrees,
       workflow,
-      notesRoot: notesRoot.current
+      notesRoot: notesRoot.current,
+      todoHotkey: todoHotkey.current
     }
     void window.api.saveProjects(file)
   }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees, workflow])
@@ -824,6 +838,64 @@ export function App(): React.JSX.Element {
     [refreshNotes, showToast]
   )
 
+  // ---------- todo workflow ----------
+
+  // A deleted project's scope falls back to General (board files are kept on
+  // disk — cheap, revisit in T4)
+  const todoProject = todoScopeId ? (projects.find((p) => p.id === todoScopeId) ?? null) : null
+  const todoScopeDir = todoProject
+    ? projectScopeDir(todoProject.name, todoProject.path)
+    : GENERAL_SCOPE
+  const todoScopeDirRef = useRef(todoScopeDir)
+  todoScopeDirRef.current = todoScopeDir
+
+  useEffect(() => {
+    if (workflow !== 'todo') return
+    let alive = true
+    void window.api.todosBoard(todoScopeDir).then((b) => {
+      if (alive) setTodoBoard(b)
+    })
+    return () => {
+      alive = false
+    }
+  }, [workflow, todoScopeDir])
+
+  // Voice commands (T2) and MCP tools (T3) mutate from main — pushed state
+  // is the source of truth, so re-fetch when the visible board changes
+  useEffect(
+    () =>
+      window.api.onTodosChanged(({ scopeDir }) => {
+        if (scopeDir !== todoScopeDirRef.current) return
+        void window.api.todosBoard(scopeDir).then(setTodoBoard)
+      }),
+    []
+  )
+
+  const addTodoCard = useCallback(
+    (title: string, status: TodoStatus) =>
+      void window.api.todosAddCard({ scopeDir: todoScopeDir, title, status }).then(setTodoBoard),
+    [todoScopeDir]
+  )
+  const moveTodoCard = useCallback(
+    (cardId: string, to: TodoStatus) =>
+      void window.api.todosMoveCard({ scopeDir: todoScopeDir, cardId, to }).then(setTodoBoard),
+    [todoScopeDir]
+  )
+  const updateTodoCard = useCallback(
+    async (args: UpdateCardPayload) =>
+      setTodoBoard(await window.api.todosUpdateCard({ scopeDir: todoScopeDir, ...args })),
+    [todoScopeDir]
+  )
+  const deleteTodoCard = useCallback(
+    (cardId: string) =>
+      void window.api.todosDeleteCard({ scopeDir: todoScopeDir, cardId }).then(setTodoBoard),
+    [todoScopeDir]
+  )
+  const clearTodoDone = useCallback(
+    () => void window.api.todosClearDone(todoScopeDir).then(setTodoBoard),
+    [todoScopeDir]
+  )
+
   const createProject = useCallback(async () => {
     const path = await window.api.pickFolder()
     if (!path) return
@@ -869,6 +941,8 @@ export function App(): React.JSX.Element {
             onCreateSubject={createSubject}
             onCreateTopic={createTopic}
           />
+        ) : workflow === 'todo' ? (
+          <TodoSidebar projects={projects} selectedId={todoScopeId} onSelect={setTodoScopeId} />
         ) : (
       <Sidebar
         sessions={visibleSessions}
@@ -1052,6 +1126,19 @@ export function App(): React.JSX.Element {
                 onClose={() => setChatOpen(false)}
               />
             </div>
+          )}
+
+          {workflow === 'todo' && (
+            <TodoBoard
+              scopeDir={todoScopeDir}
+              scopeName={todoProject?.name ?? 'General'}
+              board={todoBoard}
+              onAddCard={addTodoCard}
+              onMoveCard={moveTodoCard}
+              onUpdateCard={updateTodoCard}
+              onDeleteCard={deleteTodoCard}
+              onClearDone={clearTodoDone}
+            />
           )}
 
           {workflow === 'code' && !editorVisible && view.kind === 'empty' && (

@@ -16,6 +16,7 @@ import type {
 } from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
+import type { BoardFile, TodoStatus } from '../shared/todos'
 
 export interface TermDataEvent {
   id: number
@@ -141,6 +142,33 @@ const api = {
     const listener = (_e: IpcRendererEvent, payload: Record<string, unknown>): void => cb(payload)
     ipcRenderer.on('noteschat:event', listener)
     return () => ipcRenderer.removeListener('noteschat:event', listener)
+  },
+
+  todosBoard: (scopeDir: string) => ipcRenderer.invoke('todos:board', scopeDir) as Promise<BoardFile>,
+  todosAddCard: (args: { scopeDir: string; title: string; status?: TodoStatus }) =>
+    ipcRenderer.invoke('todos:addCard', args) as Promise<BoardFile>,
+  todosMoveCard: (args: { scopeDir: string; cardId: string; to: TodoStatus }) =>
+    ipcRenderer.invoke('todos:moveCard', args) as Promise<BoardFile>,
+  todosUpdateCard: (args: {
+    scopeDir: string
+    cardId: string
+    title: string
+    text: string
+    addImages: string[]
+    removeImages: string[]
+  }) => ipcRenderer.invoke('todos:updateCard', args) as Promise<BoardFile>,
+  todosDeleteCard: (args: { scopeDir: string; cardId: string }) =>
+    ipcRenderer.invoke('todos:deleteCard', args) as Promise<BoardFile>,
+  todosClearDone: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:clearDone', scopeDir) as Promise<BoardFile>,
+  todosReadAsset: (args: { scopeDir: string; fileName: string }) =>
+    ipcRenderer.invoke('todos:readAsset', args) as Promise<string | null>,
+  onTodosChanged: (cb: (e: { scopeDir: string }) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { scopeDir: string }): void => cb(payload)
+    ipcRenderer.on('todos:changed', listener)
+    return (): void => {
+      ipcRenderer.removeListener('todos:changed', listener)
+    }
   },
 
   fsReadDir: (path: string) => ipcRenderer.invoke('fs:readDir', path) as Promise<ReadDirResult>,
