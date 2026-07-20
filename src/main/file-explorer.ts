@@ -44,6 +44,7 @@ export type ReadDirResult = { ok: true; entries: DirEntry[] } | { ok: false; err
 export type ReadFileResult =
   | { ok: true; kind: 'text'; content: string; mtimeMs: number }
   | { ok: true; kind: 'image'; dataUrl: string; mtimeMs: number }
+  | { ok: true; kind: 'pdf'; dataUrl: string; mtimeMs: number }
   | { ok: false; error: string; reason: 'too-large' | 'binary' | 'not-found' | 'denied' | 'io' }
 
 const IMAGE_MIMES: Record<string, string> = {
@@ -57,6 +58,8 @@ const IMAGE_MIMES: Record<string, string> = {
   avif: 'image/avif'
 }
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+/** PDFs cross IPC as base64, so the string is ~4/3 of this */
+const MAX_PDF_BYTES = 25 * 1024 * 1024
 
 function allowedRoots(): string[] {
   const roots = [homedir(), WORKTREES_ROOT, ...loadProjects().projects.map((p) => p.path)]
@@ -144,7 +147,18 @@ export function readFile(path: string): ReadFileResult {
   }
   try {
     const stat = statSync(real)
-    const mime = IMAGE_MIMES[real.split('.').pop()?.toLowerCase() ?? '']
+    const ext = real.split('.').pop()?.toLowerCase() ?? ''
+    if (ext === 'pdf') {
+      if (stat.size > MAX_PDF_BYTES)
+        return {
+          ok: false,
+          error: `PDF too large (${Math.round(stat.size / 1024 / 1024)} MB)`,
+          reason: 'too-large'
+        }
+      const dataUrl = `data:application/pdf;base64,${readFileSync(real).toString('base64')}`
+      return { ok: true, kind: 'pdf', dataUrl, mtimeMs: stat.mtimeMs }
+    }
+    const mime = IMAGE_MIMES[ext]
     if (mime) {
       if (stat.size > MAX_IMAGE_BYTES)
         return {

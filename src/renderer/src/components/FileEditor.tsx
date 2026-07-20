@@ -39,11 +39,13 @@ interface FileEditorProps {
 }
 
 interface FileBuffer {
-  kind: 'text' | 'image'
+  kind: 'text' | 'image' | 'pdf'
   /** The working copy shown in CodeMirror — mutated on each keystroke */
   content: string
   /** data: URL, kind 'image' only */
   image?: string
+  /** blob: URL, kind 'pdf' only — revoked when the buffer is dropped */
+  pdf?: string
   mtimeMs: number
   /** Unreadable file (binary / too large / gone) — placeholder instead of CM */
   error?: string
@@ -67,10 +69,22 @@ const isMarkdown = (path: string): boolean => {
   return p.endsWith('.md') || p.endsWith('.markdown')
 }
 
+/**
+ * Chromium's PDF viewer won't load a `data:` URL, so the base64 the main
+ * process sends becomes a blob: URL the iframe can navigate to.
+ */
+const pdfBlobUrl = (dataUrl: string): string => {
+  const binary = atob(dataUrl.slice(dataUrl.indexOf(',') + 1))
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+}
+
 const bufferFrom = (res: ReadFileResult, path: string): FileBuffer => ({
   kind: res.ok ? res.kind : 'text',
   content: res.ok && res.kind === 'text' ? res.content : '',
   image: res.ok && res.kind === 'image' ? res.dataUrl : undefined,
+  pdf: res.ok && res.kind === 'pdf' ? pdfBlobUrl(res.dataUrl) : undefined,
   mtimeMs: res.ok ? res.mtimeMs : 0,
   error: res.ok ? undefined : res.error,
   dirty: false,
@@ -81,6 +95,11 @@ const bufferFrom = (res: ReadFileResult, path: string): FileBuffer => ({
   // Markdown opens rendered; the chip-bar toggle flips to code
   mdPreview: isMarkdown(path) || undefined
 })
+
+/** Release a buffer's blob: URL before it goes out of scope */
+const disposeBuffer = (buf: FileBuffer | undefined): void => {
+  if (buf?.pdf) URL.revokeObjectURL(buf.pdf)
+}
 
 /** Our own save comes back as a watcher event within this window */
 const SAVE_ECHO_MS = 1500
@@ -168,6 +187,7 @@ export function FileEditor({
         // a full controlled-CodeMirror doc replacement and reset the cursor.
         if (res.ok && res.kind === 'text' && prev.kind === 'text' && res.content === prev.content)
           return
+        disposeBuffer(prev)
         // Keep the preview mode across reloads of the same SVG / markdown
         buffers.current.set(path, {
           ...bufferFrom(res, path),
@@ -183,7 +203,7 @@ export function FileEditor({
   const save = useCallback(() => {
     const path = activePathRef.current
     const buf = path ? buffers.current.get(path) : undefined
-    if (!path || !buf || buf.error || buf.kind === 'image') return
+    if (!path || !buf || buf.error || buf.kind !== 'text') return
     void window.api.fsWriteFile({ path, content: buf.content }).then((res) => {
       if (res.ok) {
         buf.mtimeMs = res.mtimeMs
@@ -203,8 +223,10 @@ export function FileEditor({
   // the app session (this component never unmounts).
   useEffect(() => {
     const open = new Set(allOpenPaths)
-    for (const path of buffers.current.keys()) {
-      if (!open.has(path)) buffers.current.delete(path)
+    for (const [path, buf] of buffers.current) {
+      if (open.has(path)) continue
+      disposeBuffer(buf)
+      buffers.current.delete(path)
     }
     const sync = (id: number): void => {
       for (const path of open) {
@@ -409,6 +431,8 @@ export function FileEditor({
           </div>
         ) : buffer?.kind === 'image' ? (
           <ImageStage src={buffer.image ?? ''} alt={activePath ?? ''} active={visible} />
+        ) : buffer?.kind === 'pdf' ? (
+          <iframe className="file-editor-pdf" src={buffer.pdf} title={activePath ?? 'PDF'} />
         ) : buffer && activePath && isSvg(activePath) && buffer.svgPreview ? (
           <ImageStage
             src={`data:image/svg+xml;utf8,${encodeURIComponent(buffer.content)}`}

@@ -1115,6 +1115,13 @@ body {
   font-size: var(--fs-base);
 }
 
+/* Chromium's PDF viewer, filling the editor body */
+.file-editor-pdf {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 /* Rendered markdown preview — scrolls inside the editor body */
 .file-editor-md-preview {
   padding: var(--space-24);

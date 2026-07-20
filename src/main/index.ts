@@ -93,7 +93,9 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       // ESM preload scripts (.mjs) require an unsandboxed renderer
-      sandbox: false
+      sandbox: false,
+      // Chromium's built-in PDF viewer — the editor's .pdf preview iframe
+      plugins: true
     }
   })
 
