@@ -22,7 +22,7 @@ Cross-model context is a **tool, not a pipe**: the models call MCP tools to pull
 
 - **Unified session sidebar** — every Claude Code and Codex session, merged, grouped by project, searchable by title or first message, live-updating via file watchers. Click any session to resume it in its original working directory.
 - **Real embedded terminals** — the actual interactive `claude` / `codex` TUIs run in `node-pty` + `xterm.js` panes. Chewo wraps the CLIs; it doesn't reimplement them.
-- **Cross-model cohesion** (the spine) — a [`context-bridge`](packages/context-bridge) MCP server registered with both CLIs exposes `search_sessions`, `get_session`, `list_recent_sessions`, `handoff`, and `check_inbox`. Either agent can search the other's history, read a summarized transcript, and pass a note through a pull-based inbox.
+- **Cross-model cohesion** (the spine) — a [`context-bridge`](packages/context-bridge) MCP server registered with both CLIs exposes `search_sessions`, `get_session`, `list_recent_sessions`, `handoff`, and `check_inbox`, plus todo-board tools (`todos_list`, `todo_add`, `todo_move`, `todo_update`, `todo_delete`). Either agent can search the other's history, read a summarized transcript, and pass a note through a pull-based inbox.
 - **Opt-in worktree isolation** — spin up a `git worktree` + branch per agent task so multiple agents edit the same repo concurrently without touching the main checkout (where the dev servers live), then merge back through a guarded flow.
 - **Voice commands** — a global hotkey + local Whisper speech-to-text sidecar, interpreted by a small model into terminal actions.
 

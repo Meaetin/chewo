@@ -93,7 +93,9 @@ session history and hand context to each other** ("cohesion").
          │      context-bridge MCP server (stdio)
          │  spawned independently by each CLI at startup
          │  tools: search_sessions / get_session /
-         │         list_recent_sessions / handoff / check_inbox
+         │         list_recent_sessions / handoff / check_inbox /
+         │         todos_list / todo_add / todo_move / todo_update /
+         │         todo_delete
          └── shared inbox: ~/.context-bridge/inbox/<agent>/*.json
 ```
 
@@ -181,6 +183,16 @@ its **own instance**; instances share state only via the filesystem.
 | `list_recent_sessions` | `model?, project?, limit=10` | same shape as search results | The model's sidebar. |
 | `handoff` | `to: "claude"\|"codex", note, session_id?` | ack | Writes `~/.context-bridge/inbox/<to>/<ts>.json` with note + source-session pointer. |
 | `check_inbox` | — | pending handoffs for `--agent` me, then clears them | Pull-based. |
+| `todos_list` | `scope?, all?` | board columns with card ids + titles | Kanban board (SPEC-TODOS.md §9). |
+| `todo_add` | `title, text?, status?, scope?` | created card | Agents file follow-ups they aren't doing now. |
+| `todo_move` | `cardId, to, scope?` | moved card | Card lands at the top of the target column. |
+| `todo_update` | `cardId, title?, text?, scope?` | updated card | Omitted fields keep their value. |
+| `todo_delete` | `cardId, scope?` | deleted card | Prefer moving to `done`. |
+
+The todo tools write `~/.chewo/todos/<scope>/board.json` through the same
+store module the app's IPC handlers use; an omitted `scope` resolves from the
+CLI session's cwd via `~/.chewo/todos/scopes.json`, which the app maintains.
+Chewo watches the store and re-renders the board live.
 
 **Summary mode (the real engineering):**
 - v1 (cheap, no LLM): session title + all user messages + final assistant

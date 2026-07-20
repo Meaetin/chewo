@@ -48,10 +48,12 @@ import {
   moveCard,
   readAsset,
   setTodosWindow,
+  todosRootPath,
   updateCard,
   type UpdateCardArgs
 } from './todos'
-import type { TodoStatus } from '../shared/todos'
+import { GENERAL_SCOPE, projectScopeDir, type TodoStatus } from '../shared/todos'
+import { writeScopeIndex } from '../shared/todo-scopes'
 import { disposeSidecar, sttPrewarm, sttStart, sttStop } from './stt'
 import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
@@ -248,6 +250,7 @@ function registerIpc(): void {
   ipcMain.handle('projects:load', () => loadProjects())
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => {
     saveProjects(file)
+    publishScopeIndex(file)
     // Hotkey edits take effect immediately; failure surfaces as a toast
     const err = updateTodoHotkey(file.todoHotkey)
     if (err) safeSend(mainWindow, 'app:toast', err)
@@ -314,6 +317,50 @@ function watchNotesStore(): void {
   watcher.on('all', () => {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => safeSend(mainWindow, 'notes:changed'), 400)
+  })
+
+  app.on('before-quit', () => watcher.close())
+}
+
+/**
+ * Mirror the project list into ~/.chewo/todos/scopes.json so out-of-process
+ * callers (the context-bridge todo tools) can map a project name or cwd to a
+ * board directory — they can't read Electron's userData (SPEC-TODOS §9).
+ */
+function publishScopeIndex(file: ProjectsFile): void {
+  try {
+    writeScopeIndex(
+      file.projects.map((p) => ({
+        dir: projectScopeDir(p.name, p.path),
+        name: p.name,
+        path: p.path
+      }))
+    )
+  } catch {
+    /* index is a convenience — a failed write only costs scope resolution */
+  }
+}
+
+/**
+ * MCP tools and hand-edits write board files from outside this process, so
+ * the renderer can't rely on the in-process commit push alone.
+ */
+function watchTodosStore(): void {
+  const watcher = chokidar.watch(todosRootPath(), { ignoreInitial: true, depth: 2 })
+
+  const timers = new Map<string, NodeJS.Timeout>()
+  watcher.on('all', (_event, path) => {
+    if (!path.endsWith('board.json')) return
+    const scopeDir = basename(dirname(path))
+    if (scopeDir === GENERAL_SCOPE || scopeDir.startsWith('p-')) {
+      clearTimeout(timers.get(scopeDir))
+      // Debounce: our own writes fire here too, and JSON.stringify can land
+      // as more than one event
+      timers.set(
+        scopeDir,
+        setTimeout(() => safeSend(mainWindow, 'todos:changed', { scopeDir }), 250)
+      )
+    }
   })
 
   app.on('before-quit', () => watcher.close())
@@ -388,8 +435,10 @@ app.whenReady().then(() => {
     // window closes — it would swallow 'window-all-closed'
     mainWindow.on('closed', () => closeHud())
   }
+  publishScopeIndex(projectsFile)
   watchSessionStores()
   watchNotesStore()
+  watchTodosStore()
   watchHandoffInbox()
 
   app.on('activate', () => {

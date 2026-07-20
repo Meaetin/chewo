@@ -139,7 +139,7 @@ describe('MCP server integration (InMemoryTransport)', () => {
 
   const textOf = (result: any): string => result.content[0].text
 
-  test('exposes all five tools', async () => {
+  test('exposes the history, handoff, and todo tools', async () => {
     const client = await connect('claude')
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -147,7 +147,12 @@ describe('MCP server integration (InMemoryTransport)', () => {
       'get_session',
       'handoff',
       'list_recent_sessions',
-      'search_sessions'
+      'search_sessions',
+      'todo_add',
+      'todo_delete',
+      'todo_move',
+      'todo_update',
+      'todos_list'
     ])
   })
 
