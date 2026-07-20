@@ -994,8 +994,8 @@ export function App(): React.JSX.Element {
       void window.api.todosDeleteCard({ scopeDir: todoScopeDir, cardId }).then(setTodoBoard),
     [todoScopeDir]
   )
-  const clearTodoDone = useCallback(
-    () => void window.api.todosClearDone(todoScopeDir).then(setTodoBoard),
+  const archiveTodoDone = useCallback(
+    () => void window.api.todosArchiveDone(todoScopeDir).then(setTodoBoard),
     [todoScopeDir]
   )
 
@@ -1009,7 +1009,12 @@ export function App(): React.JSX.Element {
   }, [])
 
   const deleteProject = useCallback(
-    (id: string) => {
+    (id: string, deleteBoard = false, project?: { name: string; path: string }) => {
+      // Board files outlive the project entry unless the user opted in at the
+      // confirm — the folder may come back (SPEC-TODOS §8)
+      if (deleteBoard && project) {
+        void window.api.todosDeleteScope(projectScopeDir(project.name, project.path))
+      }
       // Closing a project fully tears it down: kill its live terminals and drop
       // their tabs, rather than orphaning them into Home.
       const doomed = tabs.filter((tab) => tab.projectId === id)
@@ -1293,7 +1298,7 @@ export function App(): React.JSX.Element {
               onMoveCard={moveTodoCard}
               onUpdateCard={updateTodoCard}
               onDeleteCard={deleteTodoCard}
-              onClearDone={clearTodoDone}
+              onArchiveDone={archiveTodoDone}
             />
           )}
 
@@ -1400,7 +1405,11 @@ export function App(): React.JSX.Element {
                 showWorktreeSetup={!!target}
                 onClose={() => setSettingsFor(null)}
                 onSave={(s, setup, run) => saveSectionSettings(settingsFor.id, s, setup, run)}
-                onRemove={target ? () => deleteProject(target.id) : undefined}
+                onRemove={
+                  target
+                    ? (deleteBoard) => deleteProject(target.id, deleteBoard, target)
+                    : undefined
+                }
               />
             )
           })()}

@@ -42,11 +42,16 @@ import type { SettingsFile } from '../shared/appearance'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
 import {
   addCard,
-  clearDone,
+  archiveDone,
+  deleteArchived,
   deleteCard,
+  deleteScope,
+  emptyArchiveFile,
+  loadArchive,
   loadBoard,
   moveCard,
   readAsset,
+  restoreArchived,
   setTodosWindow,
   todosRootPath,
   updateCard,
@@ -203,7 +208,16 @@ function registerIpc(): void {
   ipcMain.handle('todos:deleteCard', (_e, a: { scopeDir: string; cardId: string }) =>
     deleteCard(a.scopeDir, a.cardId)
   )
-  ipcMain.handle('todos:clearDone', (_e, scopeDir: string) => clearDone(scopeDir))
+  ipcMain.handle('todos:archiveDone', (_e, scopeDir: string) => archiveDone(scopeDir))
+  ipcMain.handle('todos:archive', (_e, scopeDir: string) => loadArchive(scopeDir))
+  ipcMain.handle('todos:restoreArchived', (_e, a: { scopeDir: string; cardId: string }) =>
+    restoreArchived(a.scopeDir, a.cardId)
+  )
+  ipcMain.handle('todos:deleteArchived', (_e, a: { scopeDir: string; cardId: string }) =>
+    deleteArchived(a.scopeDir, a.cardId)
+  )
+  ipcMain.handle('todos:emptyArchive', (_e, scopeDir: string) => emptyArchiveFile(scopeDir))
+  ipcMain.handle('todos:deleteScope', (_e, scopeDir: string) => deleteScope(scopeDir))
   ipcMain.handle('todos:readAsset', (_e, a: { scopeDir: string; fileName: string }) =>
     readAsset(a.scopeDir, a.fileName)
   )

@@ -1,10 +1,20 @@
-import { useEffect, useState } from 'react'
-import { AlignLeft, Image as ImageIcon, Plus, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  AlignLeft,
+  Archive,
+  Image as ImageIcon,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+  X
+} from 'lucide-react'
 import { ModalShell } from './ModalShell'
 import { Button, IconButton } from './ui'
 import {
   TODO_STATUSES,
   TODO_STATUS_LABELS,
+  type ArchivedCard,
   type BoardFile,
   type TodoCard,
   type TodoStatus
@@ -28,7 +38,16 @@ interface TodoBoardProps {
   onMoveCard: (cardId: string, to: TodoStatus) => void
   onUpdateCard: (args: UpdateCardPayload) => Promise<void>
   onDeleteCard: (cardId: string) => void
-  onClearDone: () => void
+  onArchiveDone: () => void
+}
+
+/** Case-insensitive substring over title + text — a filter, not a ranker. */
+const matchesQuery = (card: TodoCard, query: string): boolean => {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return (
+    card.title.toLowerCase().includes(q) || (card.text ?? '').toLowerCase().includes(q)
+  )
 }
 
 /** Inline title input shown at the top of a column after "+ Add". */
@@ -73,34 +92,93 @@ export function TodoBoard({
   onMoveCard,
   onUpdateCard,
   onDeleteCard,
-  onClearDone
+  onArchiveDone
 }: TodoBoardProps): React.JSX.Element {
   const [dragOver, setDragOver] = useState<TodoStatus | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [addingIn, setAddingIn] = useState<TodoStatus | null>(null)
   const [editing, setEditing] = useState<TodoCard | null>(null)
+  const [query, setQuery] = useState('')
+  const [showArchive, setShowArchive] = useState(false)
+  const [archived, setArchived] = useState<ArchivedCard[]>([])
 
   // A rescan (move/delete from another surface) can outdate the open modal
   useEffect(() => {
     if (editing && board && !board.cards[editing.id]) setEditing(null)
   }, [board, editing])
 
-  if (!board) return <div className="todo-board" />
+  // The count in the header must survive archiving from any surface, so it
+  // reloads whenever the board does
+  const refreshArchive = useCallback(() => {
+    void window.api.todosArchive(scopeDir).then((a) => setArchived(a.cards))
+  }, [scopeDir])
+  useEffect(refreshArchive, [refreshArchive, board])
+
+  // Switching boards must not carry a filter across — the new board would
+  // look half-empty for no visible reason
+  useEffect(() => {
+    setQuery('')
+    setShowArchive(false)
+  }, [scopeDir])
+
+  const filtered = useMemo(() => {
+    if (!board) return null
+    return Object.fromEntries(
+      TODO_STATUSES.map((status) => [
+        status,
+        board.columns[status].filter((id) => {
+          const card = board.cards[id]
+          return card && matchesQuery(card, query)
+        })
+      ])
+    ) as Record<TodoStatus, string[]>
+  }, [board, query])
+
+  if (!board || !filtered) return <div className="todo-board" />
+
+  const filtering = query.trim().length > 0
+  const matchCount = TODO_STATUSES.reduce((n, status) => n + filtered[status].length, 0)
 
   return (
     <div className="todo-board">
       <header className="todo-board-header">
         <h2 className="todo-board-title">{scopeName}</h2>
+        <div className="todo-board-search">
+          <Search size={13} strokeWidth={1.75} className="todo-board-search-icon" />
+          <input
+            className="todo-board-search-input"
+            placeholder="Filter cards…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('')
+            }}
+          />
+          {filtering && (
+            <IconButton label="Clear filter" dense onClick={() => setQuery('')}>
+              <X size={12} strokeWidth={2} />
+            </IconButton>
+          )}
+        </div>
+        {archived.length > 0 && (
+          <Button
+            size="compact"
+            onClick={() => setShowArchive(true)}
+            leadingIcon={<Archive size={13} strokeWidth={1.75} />}
+          >
+            Archived {archived.length}
+          </Button>
+        )}
         {board.columns.done.length > 0 && (
-          <Button size="compact" onClick={onClearDone}>
-            Clear done
+          <Button size="compact" onClick={onArchiveDone}>
+            Archive done
           </Button>
         )}
       </header>
 
       <div className="todo-columns">
         {TODO_STATUSES.map((status) => {
-          const ids = board.columns[status]
+          const ids = filtered[status]
           return (
             <section
               key={status}
@@ -126,7 +204,9 @@ export function TodoBoard({
                 <span className={`todo-column-name todo-column-name--${status}`}>
                   {TODO_STATUS_LABELS[status]}
                 </span>
-                <span className="todo-column-count">{ids.length}</span>
+                <span className="todo-column-count">
+                  {filtering ? `${ids.length}/${board.columns[status].length}` : ids.length}
+                </span>
                 <IconButton
                   label={`Add card to ${TODO_STATUS_LABELS[status]}`}
                   dense
@@ -140,7 +220,12 @@ export function TodoBoard({
               <div className="todo-column-cards">
                 {addingIn === status && (
                   <AddCardInput
-                    onSubmit={(title) => onAddCard(title, status)}
+                    onSubmit={(title) => {
+                      // A new card that doesn't match the live filter would
+                      // vanish on commit — drop the filter instead
+                      setQuery('')
+                      onAddCard(title, status)
+                    }}
                     onCancel={() => setAddingIn(null)}
                   />
                 )}
@@ -184,6 +269,13 @@ export function TodoBoard({
         })}
       </div>
 
+      {filtering && matchCount === 0 && (
+        <p className="todo-board-empty">
+          No cards match “{query.trim()}”
+          {archived.length > 0 && ' on this board — the archive isn’t searched'}.
+        </p>
+      )}
+
       {editing && (
         <TodoCardModal
           scopeDir={scopeDir}
@@ -193,7 +285,119 @@ export function TodoBoard({
           onClose={() => setEditing(null)}
         />
       )}
+
+      {showArchive && (
+        <ArchiveModal
+          scopeName={scopeName}
+          cards={archived}
+          onRestore={async (cardId) => {
+            await window.api.todosRestoreArchived({ scopeDir, cardId })
+            refreshArchive()
+          }}
+          onDelete={async (cardId) => {
+            const archive = await window.api.todosDeleteArchived({ scopeDir, cardId })
+            setArchived(archive.cards)
+          }}
+          onEmpty={async () => {
+            const archive = await window.api.todosEmptyArchive(scopeDir)
+            setArchived(archive.cards)
+          }}
+          onClose={() => setShowArchive(false)}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * The archive drawer (T4). "Archive done" is reversible by design, so this is
+ * where restores live — and the only place a card can be destroyed, one
+ * explicit confirm at a time.
+ */
+function ArchiveModal({
+  scopeName,
+  cards,
+  onRestore,
+  onDelete,
+  onEmpty,
+  onClose
+}: {
+  scopeName: string
+  cards: ArchivedCard[]
+  onRestore: (cardId: string) => Promise<void>
+  onDelete: (cardId: string) => Promise<void>
+  onEmpty: () => Promise<void>
+  onClose: () => void
+}): React.JSX.Element {
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  const [confirmingEmpty, setConfirmingEmpty] = useState(false)
+
+  useEffect(() => {
+    if (cards.length === 0) onClose()
+  }, [cards.length, onClose])
+
+  return (
+    <ModalShell
+      title={`${scopeName} archive`}
+      subtitle="Cards retired from Done — restore puts one back at the top of Todo"
+      onClose={onClose}
+      footer={
+        <>
+          <Button
+            intent="danger"
+            onClick={() => {
+              if (!confirmingEmpty) {
+                setConfirmingEmpty(true)
+                return
+              }
+              void onEmpty()
+            }}
+            leadingIcon={<Trash2 size={14} strokeWidth={1.75} />}
+          >
+            {confirmingEmpty ? `Really delete all ${cards.length}?` : 'Delete all'}
+          </Button>
+          <div className="wt-footer-spacer" />
+          <Button intent="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      }
+    >
+      <ul className="todo-archive-list">
+        {cards.map((card) => (
+          <li key={card.id} className="todo-archive-item">
+            <div className="todo-archive-card">
+              <span className="todo-archive-title">{card.title}</span>
+              <span className="todo-archive-meta">
+                archived {new Date(card.archivedAt).toLocaleDateString()}
+                {card.images?.length ? ` · ${card.images.length} image` : ''}
+                {(card.images?.length ?? 0) > 1 ? 's' : ''}
+              </span>
+            </div>
+            <Button
+              size="compact"
+              onClick={() => void onRestore(card.id)}
+              leadingIcon={<RotateCcw size={13} strokeWidth={1.75} />}
+            >
+              Restore
+            </Button>
+            <Button
+              size="compact"
+              intent="danger"
+              onClick={() => {
+                if (confirmingDelete !== card.id) {
+                  setConfirmingDelete(card.id)
+                  return
+                }
+                void onDelete(card.id)
+              }}
+            >
+              {confirmingDelete === card.id ? 'Really?' : 'Delete'}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </ModalShell>
   )
 }
 

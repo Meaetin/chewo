@@ -2,7 +2,14 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { emptyBoard, TODO_STATUSES, type BoardFile, type TodoStatus } from './todos'
+import {
+  emptyArchive,
+  emptyBoard,
+  TODO_STATUSES,
+  type ArchiveFile,
+  type BoardFile,
+  type TodoStatus
+} from './todos'
 
 /**
  * Todo store (SPEC-TODOS.md §4): ~/.chewo/todos/<scope>/board.json + assets/.
@@ -175,15 +182,89 @@ export function deleteCard(scopeDir: string, cardId: string): BoardFile {
   return commit(scopeDir, board)
 }
 
-export function clearDone(scopeDir: string): BoardFile {
+// ---------- archive (T4) ----------
+
+export function loadArchive(scopeDir: string): ArchiveFile {
+  const dir = scopePath(scopeDir)
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, 'archive.json'), 'utf8')) as ArchiveFile
+    return { version: 1, cards: (parsed.cards ?? []).filter((c) => c?.id && c.title) }
+  } catch {
+    return emptyArchive()
+  }
+}
+
+function saveArchive(scopeDir: string, archive: ArchiveFile): void {
+  writeFileSync(join(scopePath(scopeDir), 'archive.json'), JSON.stringify(archive, null, 2))
+}
+
+/**
+ * Retire the Done column into archive.json. Images stay on disk so a restore
+ * is lossless — an archived card is out of the way, not gone.
+ */
+export function archiveDone(scopeDir: string): BoardFile {
   const board = loadBoard(scopeDir)
-  const assetsDir = join(scopePath(scopeDir), 'assets')
+  if (board.columns.done.length === 0) return board
+  const archive = loadArchive(scopeDir)
+  const archivedAt = new Date().toISOString()
   for (const id of board.columns.done) {
-    for (const name of board.cards[id]?.images ?? []) rmSync(join(assetsDir, name), { force: true })
+    const card = board.cards[id]
+    if (!card) continue
+    archive.cards.unshift({ ...card, archivedAt })
     delete board.cards[id]
   }
   board.columns.done = []
+  saveArchive(scopeDir, archive)
   return commit(scopeDir, board)
+}
+
+/** Archived cards come back to the top of Todo — where you'd act on them. */
+export function restoreArchived(scopeDir: string, cardId: string): BoardFile {
+  const archive = loadArchive(scopeDir)
+  const card = archive.cards.find((c) => c.id === cardId)
+  if (!card) return loadBoard(scopeDir)
+  archive.cards = archive.cards.filter((c) => c.id !== cardId)
+  const board = loadBoard(scopeDir)
+  const { archivedAt: _archivedAt, ...restored } = card
+  board.cards[card.id] = { ...restored, updatedAt: new Date().toISOString() }
+  board.columns.todo.unshift(card.id)
+  saveArchive(scopeDir, archive)
+  return commit(scopeDir, board)
+}
+
+/** The only destructive path left: an explicit delete from the archive. */
+export function deleteArchived(scopeDir: string, cardId: string): ArchiveFile {
+  const archive = loadArchive(scopeDir)
+  const card = archive.cards.find((c) => c.id === cardId)
+  if (!card) return archive
+  const assetsDir = join(scopePath(scopeDir), 'assets')
+  for (const name of card.images ?? []) rmSync(join(assetsDir, name), { force: true })
+  archive.cards = archive.cards.filter((c) => c.id !== cardId)
+  saveArchive(scopeDir, archive)
+  onCommit?.(scopeDir)
+  return archive
+}
+
+export function emptyArchiveFile(scopeDir: string): ArchiveFile {
+  const archive = loadArchive(scopeDir)
+  const assetsDir = join(scopePath(scopeDir), 'assets')
+  for (const card of archive.cards) {
+    for (const name of card.images ?? []) rmSync(join(assetsDir, name), { force: true })
+  }
+  const emptied = emptyArchive()
+  saveArchive(scopeDir, emptied)
+  onCommit?.(scopeDir)
+  return emptied
+}
+
+/**
+ * Remove a scope's board, archive, and images (T4 project-removal cleanup).
+ * Only ever called with the user's explicit consent at removal time — the
+ * default is to keep the files, since the folder may come back.
+ */
+export function deleteScope(scopeDir: string): void {
+  rmSync(scopePath(scopeDir), { recursive: true, force: true })
+  onCommit?.(scopeDir)
 }
 
 /**

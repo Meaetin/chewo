@@ -17,7 +17,7 @@ import type {
 import type { StructureArgs, StructureResult } from '../main/structure'
 import type { NotesTree, SttEvent } from '../shared/notes'
 import type { SettingsFile } from '../shared/appearance'
-import type { BoardFile, HudState, TodoStatus } from '../shared/todos'
+import type { ArchiveFile, BoardFile, HudState, TodoStatus } from '../shared/todos'
 
 export interface TermDataEvent {
   id: number
@@ -179,8 +179,18 @@ const api = {
   }) => ipcRenderer.invoke('todos:updateCard', args) as Promise<BoardFile>,
   todosDeleteCard: (args: { scopeDir: string; cardId: string }) =>
     ipcRenderer.invoke('todos:deleteCard', args) as Promise<BoardFile>,
-  todosClearDone: (scopeDir: string) =>
-    ipcRenderer.invoke('todos:clearDone', scopeDir) as Promise<BoardFile>,
+  todosArchiveDone: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:archiveDone', scopeDir) as Promise<BoardFile>,
+  todosArchive: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:archive', scopeDir) as Promise<ArchiveFile>,
+  todosRestoreArchived: (args: { scopeDir: string; cardId: string }) =>
+    ipcRenderer.invoke('todos:restoreArchived', args) as Promise<BoardFile>,
+  todosDeleteArchived: (args: { scopeDir: string; cardId: string }) =>
+    ipcRenderer.invoke('todos:deleteArchived', args) as Promise<ArchiveFile>,
+  todosEmptyArchive: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:emptyArchive', scopeDir) as Promise<ArchiveFile>,
+  todosDeleteScope: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:deleteScope', scopeDir) as Promise<void>,
   todosReadAsset: (args: { scopeDir: string; fileName: string }) =>
     ipcRenderer.invoke('todos:readAsset', args) as Promise<string | null>,
   onTodosChanged: (cb: (e: { scopeDir: string }) => void) => {

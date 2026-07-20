@@ -32,6 +32,24 @@ export interface BoardFile {
   cards: Record<string, TodoCard>
 }
 
+/**
+ * A card retired from Done (T4). "Archive done" replaces the old destructive
+ * clear: cards leave board.json for archive.json in the same folder, keeping
+ * their images, and can be restored to Todo. Nothing on this board is ever
+ * lost to a single click — deleting an archived card is a second, explicit act.
+ */
+export interface ArchivedCard extends TodoCard {
+  archivedAt: string
+}
+
+export interface ArchiveFile {
+  version: 1
+  /** Newest first */
+  cards: ArchivedCard[]
+}
+
+export const emptyArchive = (): ArchiveFile => ({ version: 1, cards: [] })
+
 export const emptyBoard = (): BoardFile => ({
   version: 1,
   columns: { blocked: [], todo: [], 'in-progress': [], done: [] },

@@ -4,7 +4,7 @@
 **Platform:** macOS desktop app (Electron) — extends Chewo
 **Author:** Martin
 **Date:** 2026-07-19
-**Status:** Draft v1 — decisions locked via Q&A 2026-07-19. **T1 (board) implemented 2026-07-19**, **T2 (voice) 2026-07-19**, **T3 (MCP) 2026-07-20**; T4 polish next. Drag-to-run (§10, phase T5) specced via Q&A 2026-07-20
+**Status:** Draft v1 — decisions locked via Q&A 2026-07-19. **T1 (board) implemented 2026-07-19**, **T2 (voice) 2026-07-19**, **T3 (MCP) 2026-07-20**, **T4 (polish) 2026-07-20**. Drag-to-run (§10, phase T5) specced via Q&A 2026-07-20
 
 ---
 
@@ -58,7 +58,7 @@ ordinary manual entry.
 
 | # | Question | Proposed default |
 |---|---|---|
-| Q6 | Done-column growth | Unbounded in v1; "Clear done" button. Auto-archive is T4 |
+| Q6 | Done-column growth | **Resolved in T4 (2026-07-20):** no timer, no cap. "Clear done" became **"Archive done"** — cards move to `archive.json` in the same scope folder, keeping their images, and an "Archived N" drawer restores them to the top of Todo. The problem was never clutter, it was that clearing (and voice/MCP delete) was irreversible; a timer would make cards vanish unwatched. Deleting an archived card is the one destructive path left, behind its own confirm. Rejected: age-based auto-archive, newest-N cap |
 | Q7 | Ordering within a column | Any drop (including same-column) inserts **at top**; no fine-grained reordering in v1 |
 | Q8 | Card face | Title always; if the card has text/images, show small indicator icons (no thumbnails on the card face in v1) |
 | Q9 | Drag implementation | Hand-rolled pointer-event drag (dependency-light, requirements are simple). Fallback: dnd-kit if hand-rolling fights us |
@@ -112,7 +112,9 @@ env scrubbed via `buildPtyEnv`).
     assets/9f2c….png
   p-<slug>-<hash8>/          # slug + hash of project path, stable per project
     board.json
+    archive.json             # cards retired from Done (T4) — restorable
     assets/
+  scopes.json                # name/path → scope dir index for MCP (T3, §9)
 ```
 
 ```ts
@@ -133,18 +135,25 @@ interface BoardFile {
   columns: Record<TodoStatus, string[]>   // ordered card ids, index 0 = top
   cards: Record<string, TodoCard>
 }
+
+interface ArchiveFile {                   // T4
+  version: 1
+  cards: Array<TodoCard & { archivedAt: string }>   // newest first
+}
 ```
 
 - Column order is the array — "drop at top" = `unshift`. Status is derived
   from which column array holds the id (no duplicated `status` field to drift).
 - Images: pasted `image/*` clipboard data written to `assets/` as PNG,
-  referenced by filename. Deleting a card deletes its assets.
+  referenced by filename. Deleting a card deletes its assets — but
+  **archiving never does**, so a restore is lossless (T4).
 - All reads/writes go through main (`todos:*` IPC); main pushes
   `todos:changed` after every mutation (voice commands mutate from main, so
   the renderer must render from pushed state, not local optimism).
-- MCP-readiness: the store module in main exposes plain functions
-  (`listBoards`, `getBoard`, `addCard`, `moveCard`, `updateCard`,
-  `deleteCard`) that both IPC handlers and future context-bridge tools call.
+- The store module (`src/shared/todos-store.ts` since T3) exposes plain
+  functions — `loadBoard`, `addCard`, `moveCard`, `updateCard`, `deleteCard`,
+  `archiveDone`, `restoreArchived`, `deleteArchived`, `deleteScope` — that
+  IPC handlers, voice commands, and context-bridge MCP tools all call.
 
 ---
 
@@ -167,6 +176,18 @@ interface BoardFile {
   no autosave, this is the one place in Chewo with explicit save semantics.
 - **Manual add**: an input at the top of each column (`+ Add` → inline
   input, Enter commits title-only card at top, Esc cancels).
+- **Filter** (T4): a search box in the board header narrows the current
+  board's four columns by title + text, case-insensitive substring. Column
+  counts read `matches/total` while filtering; Esc or ✕ clears. Deliberately
+  scoped to the visible board — a cross-scope result list is a second UI for
+  a board that holds tens of cards, not thousands. Committing a new card
+  clears the filter, since a non-matching card would otherwise vanish on
+  save. The archive is not searched.
+- **Archive** (T4): header shows "Archive done" while Done has cards, and
+  "Archived N" once anything is archived. The drawer lists archived cards
+  newest-first with **Restore** (back to the top of Todo, images intact) and
+  a two-step **Delete**; "Delete all" is likewise two-step. It closes itself
+  when the last card leaves.
 - Styling in `styles.css`, BEM-ish (`.todo-board`, `.todo-column`,
   `.todo-card`, `.todo-card-modal`), token architecture from `design/04`.
 
@@ -229,7 +250,9 @@ unbuilt.
 - **General** = home-level board, mirrors the existing Home section concept
   (`src/shared/projects.ts` — Home is a section like any project).
 - **Project boards** are keyed by project path (slug+hash, §4). Removing a
-  project from Chewo keeps its board files (cheap; revisit in T4).
+  project from Chewo **keeps its board files by default**; the remove confirm
+  offers "Also delete its todo board (N cards)", unchecked (T4). The confirm
+  moved from `window.confirm` into the settings modal to carry that checkbox.
 - Voice targeting per Q3: explicit project name in the utterance wins;
   otherwise General.
 
@@ -351,8 +374,9 @@ Reference images (read these files):
   `globalShortcut` toggle + HUD window; sidecar conflict rule; Sonnet
   interpreter (`--json-schema`) + validation + undo toast.
 - **T3 — MCP:** context-bridge todo tools over the same store module. ✅
-- **T4 — Polish:** done-column auto-archive;
-  board search/filter; project-removal cleanup; maybe card thumbnails.
+- **T4 — Polish:** archive-on-clear + archive drawer; board filter;
+  opt-in project-removal cleanup. ✅ Card thumbnails dropped — Q8's indicator
+  icons keep card heights even, which matters more at four columns.
 - **T5 — Drag-to-run (§10):** `shellQuote` + `initialPrompt`/`extraDirs`
   in `terminals.ts` → preload → `openTerminal`; drop strip in
   `TodoBoard.tsx`; move-to-In-Progress + `lastRunAt`; ▶ badge +
@@ -431,6 +455,15 @@ Reference images (read these files):
   hotkey is rejected.
 - **T3:** from a coding agent terminal, call `todo_add` via context-bridge
   and watch the card appear live on the board.
+- **T4:** move two cards to Done, hit "Archive done" — Done empties, the
+  header shows "Archived 2". Open the drawer, restore one with an image —
+  it lands at the top of Todo with the image still attached. Delete the
+  other from the drawer (two clicks) and confirm its PNG is gone from
+  `assets/`. Type in the filter — columns narrow, counts read `n/total`,
+  Esc clears. Add a card while filtered and confirm the filter drops so the
+  new card is visible. Remove a project with the box unchecked and confirm
+  `~/.chewo/todos/p-…/` survives; remove another with it checked and confirm
+  the folder is gone.
 - **T5:** drag a card with title+text+image on a project board — strip
   appears only during drag; drop → card lands at top of In Progress, code
   workflow focuses a new tab in the project cwd, claude is already working

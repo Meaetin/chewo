@@ -5,8 +5,13 @@ import { join } from 'node:path'
 import { emptyBoard, projectScopeDir, statusOf } from '../src/shared/todos'
 import {
   addCard,
-  clearDone,
+  archiveDone,
+  deleteArchived,
   deleteCard,
+  deleteScope,
+  emptyArchiveFile,
+  loadArchive,
+  restoreArchived,
   loadBoard,
   moveCard,
   readAsset,
@@ -116,10 +121,10 @@ describe('board mutations', () => {
     expect(readdirSync(join(tmp, 'general', 'assets'))).toHaveLength(0)
   })
 
-  test('clearDone empties only the done column', () => {
+  test('archiveDone empties only the done column', () => {
     addCard('general', 'keep')
     let board = addCard('general', 'finish me', 'done')
-    board = clearDone('general')
+    board = archiveDone('general')
     expect(board.columns.done).toEqual([])
     expect(board.columns.todo).toHaveLength(1)
   })
@@ -194,3 +199,127 @@ describe('loadBoard resilience', () => {
     expect(readAsset('general', '../board.json')).toBeNull()
   })
 })
+
+describe('archive (T4)', () => {
+  /** Stage a done card with an image and return its id. */
+  const doneCardWithImage = (title: string): string => {
+    const board = addCard('general', title, 'done')
+    const id = board.columns.done[0]
+    updateCard({
+      scopeDir: 'general',
+      cardId: id,
+      title,
+      text: 'notes',
+      addImages: [PNG_B64],
+      removeImages: []
+    })
+    return id
+  }
+
+  test('archiveDone moves done cards out of the board, keeping their assets', () => {
+    const id = doneCardWithImage('finished')
+    addCard('general', 'still going')
+
+    const board = archiveDone('general')
+    expect(board.columns.done).toEqual([])
+    expect(board.cards[id]).toBeUndefined()
+    expect(board.columns.todo).toHaveLength(1)
+
+    const archive = loadArchive('general')
+    expect(archive.cards).toHaveLength(1)
+    expect(archive.cards[0]).toMatchObject({ id, title: 'finished', text: 'notes' })
+    expect(archive.cards[0].archivedAt).toMatch(/^\d{4}-/)
+    // the point of archiving over clearing: nothing was destroyed
+    expect(readdirSync(join(tmp, 'general', 'assets'))).toHaveLength(1)
+  })
+
+  test('archiveDone on an empty done column is a no-op', () => {
+    addCard('general', 'todo card')
+    archiveDone('general')
+    expect(loadArchive('general').cards).toHaveLength(0)
+  })
+
+  test('successive archives stack newest-first', () => {
+    addCard('general', 'first', 'done')
+    archiveDone('general')
+    addCard('general', 'second', 'done')
+    archiveDone('general')
+    expect(loadArchive('general').cards.map((c) => c.title)).toEqual(['second', 'first'])
+  })
+
+  test('restore puts a card back at the top of Todo with its images intact', () => {
+    const id = doneCardWithImage('resurrect me')
+    archiveDone('general')
+    addCard('general', 'already here')
+
+    const board = restoreArchived('general', id)
+    expect(board.columns.todo[0]).toBe(id)
+    expect(board.cards[id].images).toHaveLength(1)
+    expect(readAsset('general', board.cards[id].images![0])).toContain('base64,')
+    expect(loadArchive('general').cards).toHaveLength(0)
+    // archivedAt is archive-only bookkeeping — it must not ride back onto the board
+    expect((board.cards[id] as unknown as Record<string, unknown>).archivedAt).toBeUndefined()
+  })
+
+  test('restoring an unknown id leaves the board alone', () => {
+    addCard('general', 'untouched')
+    const board = restoreArchived('general', 'nope')
+    expect(board.columns.todo).toHaveLength(1)
+  })
+
+  test('deleting an archived card destroys it and its assets', () => {
+    const id = doneCardWithImage('doomed')
+    archiveDone('general')
+    const archive = deleteArchived('general', id)
+    expect(archive.cards).toHaveLength(0)
+    expect(readdirSync(join(tmp, 'general', 'assets'))).toHaveLength(0)
+  })
+
+  test('emptying the archive clears every card and asset', () => {
+    doneCardWithImage('one')
+    archiveDone('general')
+    doneCardWithImage('two')
+    archiveDone('general')
+    expect(loadArchive('general').cards).toHaveLength(2)
+
+    expect(emptyArchiveFile('general').cards).toHaveLength(0)
+    expect(loadArchive('general').cards).toHaveLength(0)
+    expect(readdirSync(join(tmp, 'general', 'assets'))).toHaveLength(0)
+  })
+
+  test('a corrupt archive.json reads as empty rather than throwing', () => {
+    addCard('general', 'x')
+    writeFileSync(join(tmp, 'general', 'archive.json'), '{ not json')
+    expect(loadArchive('general').cards).toEqual([])
+  })
+})
+
+describe('deleteScope (T4 project-removal cleanup)', () => {
+  test('removes the board, archive, and assets of one scope only', () => {
+    const scope = projectScopeDir('pie', '/Users/x/pie')
+    doneCard(scope)
+    addCard('general', 'survivor')
+
+    deleteScope(scope)
+    expect(existsSync(join(tmp, scope))).toBe(false)
+    expect(loadBoard('general').columns.todo).toHaveLength(1)
+  })
+
+  test('a scope that was never used deletes without error', () => {
+    expect(() => deleteScope(projectScopeDir('ghost', '/nope'))).not.toThrow()
+  })
+})
+
+/** A done card with an image, in an arbitrary scope. */
+function doneCard(scope: string): void {
+  const board = addCard(scope, 'done thing', 'done')
+  updateCard({
+    scopeDir: scope,
+    cardId: board.columns.done[0],
+    title: 'done thing',
+    text: '',
+    addImages: [PNG_B64],
+    removeImages: []
+  })
+  archiveDone(scope)
+}

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   AgentSettings,
   ClaudePermissionMode,
   CodexApprovalPolicy
 } from '../../../shared/projects'
+import { projectScopeDir } from '../../../shared/todos'
 import { ModalShell } from './ModalShell'
 import { Select, type SelectOption } from './Select'
 import { Badge, Button, Input } from './ui'
@@ -46,7 +47,7 @@ interface SectionSettingsModalProps {
   onClose: () => void
   onSave: (settings: AgentSettings, worktreeSetup?: string, runCommand?: string) => void
   /** Projects only — Home can't be removed */
-  onRemove?: () => void
+  onRemove?: (deleteBoard: boolean) => void
 }
 
 /** Per-section settings: how agents launch here, worktree setup, remove project. */
@@ -79,14 +80,26 @@ export function SectionSettingsModal({
     onClose()
   }
 
-  const remove = (): void => {
-    if (
-      !window.confirm(
-        `Remove ${name} from Chewo?\n\nThe folder and its sessions are not deleted — only this project entry and its remembered terminals.`
-      )
+  // Confirming inline rather than via window.confirm: the todo-board choice
+  // needs a checkbox, and native dialogs can't carry one
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [deleteBoard, setDeleteBoard] = useState(false)
+  const [boardCards, setBoardCards] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!confirmingRemove) return
+    const scopeDir = projectScopeDir(name, path)
+    void Promise.all([window.api.todosBoard(scopeDir), window.api.todosArchive(scopeDir)]).then(
+      ([board, archive]) => setBoardCards(Object.keys(board.cards).length + archive.cards.length)
     )
+  }, [confirmingRemove, name, path])
+
+  const remove = (): void => {
+    if (!confirmingRemove) {
+      setConfirmingRemove(true)
       return
-    onRemove?.()
+    }
+    onRemove?.(deleteBoard)
     onClose()
   }
 
@@ -103,7 +116,7 @@ export function SectionSettingsModal({
               title="Remove this project from Chewo — the folder and its sessions stay"
               onClick={remove}
             >
-              Remove Project
+              {confirmingRemove ? `Really remove ${name}?` : 'Remove Project'}
             </Button>
           )}
           <div className="wt-footer-spacer" />
@@ -179,6 +192,22 @@ export function SectionSettingsModal({
           <div className="wt-field-hint">
             Runs visibly in a fresh worktree before the agent starts
           </div>
+        </div>
+      )}
+
+      {confirmingRemove && (
+        <div className="wt-banner wt-banner-warning">
+          <strong>Remove {name} from Chewo?</strong> The folder and its sessions are not deleted —
+          only this project entry and its remembered terminals.
+          <label className="wt-checkbox">
+            <input
+              type="checkbox"
+              checked={deleteBoard}
+              onChange={(e) => setDeleteBoard(e.target.checked)}
+            />
+            Also delete its todo board
+            {boardCards === null ? '' : ` (${boardCards} card${boardCards === 1 ? '' : 's'})`}
+          </label>
         </div>
       )}
 

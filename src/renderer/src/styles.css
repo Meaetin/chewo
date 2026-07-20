@@ -3675,6 +3675,93 @@ body {
   border-color: var(--accent);
 }
 
+/* board filter + archive (T4) */
+
+.todo-board-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 5px var(--space-8);
+  min-width: 180px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+}
+
+.todo-board-search:focus-within {
+  border-color: var(--accent);
+}
+
+.todo-board-search-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.todo-board-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+.todo-board-empty {
+  margin: 0;
+  padding: var(--space-8) var(--space-20) var(--space-16);
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+}
+
+.todo-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-archive-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  background: var(--bg-card);
+  border-radius: var(--radius-2);
+  box-shadow: var(--rim);
+}
+
+.todo-archive-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-archive-title {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.todo-archive-meta {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
+
+.wt-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-top: var(--space-8);
+  font-size: var(--fs-sm);
+  color: inherit;
+  cursor: pointer;
+}
+
 /* card edit modal */
 
 .todo-modal-body {
