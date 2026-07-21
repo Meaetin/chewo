@@ -1848,6 +1848,80 @@ body {
   transition: width 120ms linear;
 }
 
+.recording-source-label {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+/* session record menu (capture source + lecture/meeting picker) */
+
+.notes-record-session {
+  display: inline-flex;
+}
+
+.notes-record-menu {
+  position: fixed;
+  z-index: var(--z-modal-popover);
+  min-width: 260px;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.notes-record-group-label {
+  padding: var(--space-6) var(--space-8) var(--space-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.notes-record-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-8);
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+
+.notes-record-option:hover {
+  background: var(--bg-hover);
+}
+
+.notes-record-option-selected,
+.notes-record-option-selected:hover {
+  background: var(--bg-selected);
+  border-color: var(--border-strong);
+}
+
+.notes-record-start {
+  margin: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.notes-record-option-label {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.notes-record-option-detail {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  line-height: var(--lh-xs);
+}
+
 .recording-transcript {
   flex: 1;
   min-height: 0;

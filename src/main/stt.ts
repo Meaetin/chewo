@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import type { SttSource } from '../shared/notes'
 
 /**
  * Lifecycle for the STT sidecar (SPEC-NOTES.md §6, SPEC-TODOS.md §6): a
@@ -133,7 +134,12 @@ const send = (child: ChildProcessWithoutNullStreams, cmd: object): void => {
 }
 
 /** Error string when the mic is owned by the other surface, else null. */
-export function sttStart(model: string, who: SttOwner, eventSink: SttSink): string | null {
+export function sttStart(
+  model: string,
+  who: SttOwner,
+  eventSink: SttSink,
+  source: SttSource = 'mic'
+): string | null {
   if (owner && owner !== who)
     return owner === 'notes' ? 'a notes recording is running' : 'a voice command is running'
   const child = ensureSidecar()
@@ -144,7 +150,7 @@ export function sttStart(model: string, who: SttOwner, eventSink: SttSink): stri
   owner = who
   sink = eventSink
   touch()
-  send(child, { cmd: 'start', model })
+  send(child, { cmd: 'start', model, source })
   return null
 }
 

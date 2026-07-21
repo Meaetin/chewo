@@ -146,10 +146,19 @@ spawned by main via `child_process.spawn` (not node-pty), speaking
 
 stdin (commands):
 ```json
-{"cmd":"start","model":"large-v3-turbo"}
+{"cmd":"start","model":"large-v3-turbo","source":"mic"}
 {"cmd":"stop"}            // flush tail, emit final, stay alive
 {"cmd":"shutdown"}
 ```
+
+`source` picks the capture: `"mic"` (default, dictation), `"mix"` — device
+output + mic summed into one stream — or `"system"` — device output only.
+mix/system run through a Core Audio process tap + private aggregate device
+with drift compensation (macOS 14.2+; one-time System Audio Recording TCC
+permission, usage string embedded in the CLI's `__info_plist` section);
+`system` skips the mic entirely, including its permission prompt. The UI
+pairs source with an independent lecture/meeting choice that only affects
+the structuring prompt, not capture.
 
 stdout (events):
 ```json

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { ClipboardPaste, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
+import { ClipboardPaste, Headphones, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
 import { Button, Dot, IconButton, Row, WorkingText } from './ui'
 import type { Extension } from '@codemirror/state'
 import {
@@ -11,20 +12,26 @@ import {
   serializeNote,
   type NoteFrontmatter,
   type NoteSource,
-  type NotesTopic
+  type NoteStyle,
+  type NotesTopic,
+  type SttSource
 } from '../../../shared/notes'
 import type { TopicRef } from './NotesSidebar'
 
 const AUTOSAVE_MS = 800
 
 /** App-wide dictation state — one recording at a time, owned by App. A
- * recording is bound to the lesson it was started on and appends into it. */
+ * recording is bound to the lesson it was started on and appends into it.
+ * `source` is what the sidecar captures (mic vs device + mic); `style` is
+ * how the structuring pass reads the transcript (lecture vs meeting). */
 export type RecordingState =
-  | { phase: 'loading'; ref: TopicRef; notePath: string }
+  | { phase: 'loading'; ref: TopicRef; notePath: string; source: SttSource; style: NoteStyle }
   | {
       phase: 'recording'
       ref: TopicRef
       notePath: string
+      source: SttSource
+      style: NoteStyle
       confirmed: string
       tail: string
       level: number
@@ -110,7 +117,11 @@ function NoteEditor({
     )
   }, [path, title, body])
 
-  // Debounced autosave; also flush on unmount (lesson switch, workflow switch)
+  // Debounced autosave; also flush on unmount (lesson switch, workflow switch).
+  // The flush must go through a ref: cleanup of an effect depending on `save`
+  // would run the stale closure on every keystroke, saving one edit behind.
+  const saveRef = useRef(save)
+  saveRef.current = save
   useEffect(() => {
     if (!loaded || !dirty.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -119,7 +130,7 @@ function NoteEditor({
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
   }, [loaded, title, body, save])
-  useEffect(() => save, [save])
+  useEffect(() => () => saveRef.current(), [])
 
   if (!loaded) return <div className="notes-editor-loading">Loading…</div>
 
@@ -191,6 +202,134 @@ function RecordingClock({ startedAt }: { startedAt: number }): React.JSX.Element
   )
 }
 
+/**
+ * Session record button: a popover with the two independent choices — what
+ * to capture (mic alone for in-person, device + mic for online) and how the
+ * transcript is structured (lecture vs meeting). Any combination is valid;
+ * an in-person meeting is mic + meeting. Portalled like Select's menu so no
+ * ancestor overflow can clip it.
+ */
+function RecordSessionButton({
+  disabled,
+  label,
+  onStart
+}: {
+  disabled: boolean
+  label: string
+  onStart: (source: SttSource, style: NoteStyle) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const [source, setSource] = useState<SttSource>('mix')
+  const [style, setStyle] = useState<NoteStyle>('lecture')
+  const triggerRef = useRef<HTMLSpanElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const close = (): void => setOpen(false)
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [open])
+
+  const sources: { value: SttSource; label: string; detail: string }[] = [
+    { value: 'mic', label: 'Mic', detail: 'In-person — just your microphone' },
+    { value: 'mix', label: 'Device + mic', detail: 'Online — computer audio and your voice' },
+    { value: 'system', label: 'Device only', detail: "Computer audio — you won't be transcribed" }
+  ]
+  const styles: { value: NoteStyle; label: string; detail: string }[] = [
+    { value: 'lecture', label: 'Lecture', detail: 'Structured as lesson notes' },
+    { value: 'meeting', label: 'Meeting', detail: 'Topics, decisions, action items' }
+  ]
+
+  return (
+    <>
+      <span ref={triggerRef} className="notes-record-session">
+        <IconButton
+          label={label}
+          disabled={disabled}
+          onClick={() => {
+            const r = triggerRef.current?.getBoundingClientRect()
+            if (!r) return
+            setRect(r)
+            setOpen((o) => !o)
+          }}
+        >
+          <Headphones />
+        </IconButton>
+      </span>
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="notes-record-menu"
+            style={{ top: rect.bottom + 4, right: window.innerWidth - rect.right }}
+          >
+            <span className="notes-record-group-label">Capture</span>
+            {sources.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={`notes-record-option ${source === o.value ? 'notes-record-option-selected' : ''}`}
+                onClick={() => setSource(o.value)}
+              >
+                <span className="notes-record-option-label">{o.label}</span>
+                <span className="notes-record-option-detail">{o.detail}</span>
+              </button>
+            ))}
+            <span className="notes-record-group-label">Structure as</span>
+            {styles.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={`notes-record-option ${style === o.value ? 'notes-record-option-selected' : ''}`}
+                onClick={() => setStyle(o.value)}
+              >
+                <span className="notes-record-option-label">{o.label}</span>
+                <span className="notes-record-option-detail">{o.detail}</span>
+              </button>
+            ))}
+            <Button
+              intent="primary"
+              size="compact"
+              className="notes-record-start"
+              onClick={() => {
+                setOpen(false)
+                onStart(source, style)
+              }}
+            >
+              Start recording
+            </Button>
+          </div>,
+          document.body
+        )}
+    </>
+  )
+}
+
+const SOURCE_LABEL: Record<SttSource, string> = {
+  mic: 'Mic',
+  mix: 'Device + mic',
+  system: 'Device only'
+}
+
 /** Live transcript tab: level meter + confirmed text solid, in-flight tail dimmed. */
 function RecordingPanel({ rec }: { rec: RecordingState }): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -205,7 +344,9 @@ function RecordingPanel({ rec }: { rec: RecordingState }): React.JSX.Element {
       <div className="recording-panel">
         <div className="recording-status-row">
           <span className="recording-status">
-            Loading Whisper model… first run downloads it (~630 MB), later runs are instant.
+            {rec.source !== 'mic'
+              ? `Starting ${SOURCE_LABEL[rec.source].toLowerCase()} capture… the first use asks for the one-time System Audio Recording permission.`
+              : 'Loading Whisper model… first run downloads it (~630 MB), later runs are instant.'}
           </span>
         </div>
       </div>
@@ -233,6 +374,9 @@ function RecordingPanel({ rec }: { rec: RecordingState }): React.JSX.Element {
             style={{ width: `${Math.min(100, Math.round(rec.level * 100))}%` }}
           />
         </div>
+        <span className="recording-source-label">
+          {SOURCE_LABEL[rec.source]} · {rec.style}
+        </span>
       </div>
       <div className="recording-transcript" ref={scrollRef}>
         {!rec.confirmed && !rec.tail ? (
@@ -257,7 +401,7 @@ interface NotesWorkspaceProps {
   pendingAppend: PendingAppend | null
   onAppendApplied: (id: number) => void
   onToggleChat: () => void
-  onStartRecording: () => void
+  onStartRecording: (source: SttSource, style: NoteStyle) => void
   onStopRecording: () => void
   onSelectNote: (path: string | null) => void
   onCreateNote: (title: string, body?: string, source?: NoteSource) => Promise<void>
@@ -420,19 +564,32 @@ export function NotesWorkspace({
               )}
             </div>
           ) : (
-            <IconButton
-              label={
-                recording
-                  ? 'A recording is already in progress in another topic'
-                  : selectedNotePath
-                    ? 'Record — the dictation appends to this lesson on stop'
-                    : 'Select or create a lesson first'
-              }
-              disabled={!!recording || !selectedNotePath}
-              onClick={onStartRecording}
-            >
-              <Mic />
-            </IconButton>
+            <>
+              <IconButton
+                label={
+                  recording
+                    ? 'A recording is already in progress in another topic'
+                    : selectedNotePath
+                      ? 'Dictate — the dictation appends to this lesson on stop'
+                      : 'Select or create a lesson first'
+                }
+                disabled={!!recording || !selectedNotePath}
+                onClick={() => onStartRecording('mic', 'lecture')}
+              >
+                <Mic />
+              </IconButton>
+              <RecordSessionButton
+                disabled={!!recording || !selectedNotePath}
+                label={
+                  recording
+                    ? 'A recording is already in progress in another topic'
+                    : selectedNotePath
+                      ? 'Record a session — choose capture and lecture/meeting'
+                      : 'Select or create a lesson first'
+                }
+                onStart={onStartRecording}
+              />
+            </>
           )}
         </div>
 

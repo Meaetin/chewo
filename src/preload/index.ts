@@ -15,7 +15,7 @@ import type {
   WriteFileResult
 } from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
-import type { NotesTree, SttEvent } from '../shared/notes'
+import type { NotesTree, SttEvent, SttSource } from '../shared/notes'
 import type { SettingsFile } from '../shared/appearance'
 import type { ArchiveFile, BoardFile, HudState, TodoStatus } from '../shared/todos'
 
@@ -147,7 +147,8 @@ const api = {
     ipcRenderer.on('notes:changed', listener)
     return () => ipcRenderer.removeListener('notes:changed', listener)
   },
-  sttStart: (model: string) => ipcRenderer.send('stt:start', { model }),
+  sttStart: (model: string, source: SttSource = 'mic') =>
+    ipcRenderer.send('stt:start', { model, source }),
   sttStop: () => ipcRenderer.send('stt:stop'),
   sttPrewarm: (model: string) => ipcRenderer.send('stt:prewarm', { model }),
   onSttEvent: (cb: (e: SttEvent) => void) => {

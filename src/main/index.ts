@@ -22,6 +22,7 @@ import {
   writeNote,
   type CreateNoteArgs
 } from './notes'
+import type { SttSource } from '../shared/notes'
 import {
   copyEntry,
   deleteEntry,
@@ -228,10 +229,10 @@ function registerIpc(): void {
     readAsset(a.scopeDir, a.fileName)
   )
 
-  ipcMain.on('stt:start', (_e, { model }: { model: string }) => {
+  ipcMain.on('stt:start', (_e, { model, source }: { model: string; source?: SttSource }) => {
     const win = mainWindow
     if (!win) return
-    const err = sttStart(model, 'notes', (ev) => safeSend(win, 'stt:event', ev))
+    const err = sttStart(model, 'notes', (ev) => safeSend(win, 'stt:event', ev), source ?? 'mic')
     if (err) safeSend(win, 'stt:event', { event: 'error', message: `Mic is busy — ${err}.` })
   })
   ipcMain.on('stt:stop', () => sttStop())

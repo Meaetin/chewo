@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
-import { parseNote } from '../shared/notes'
+import { parseNote, type NoteStyle } from '../shared/notes'
 import { getNotesRoot } from './notes'
 import { buildPtyEnv } from './terminals'
 import { resolve, sep } from 'node:path'
@@ -22,6 +22,8 @@ export interface StructureArgs {
   transcript: string
   durationS: number
   sttModel: string
+  /** How to read the transcript: lecture material vs meeting discussion. */
+  style?: NoteStyle
 }
 
 export interface StructureResult {
@@ -49,6 +51,29 @@ Structure the new transcript into markdown that CONTINUES the current note:
 - "## " sections grouping the new material by theme, in the order it was taught
 - bullet the key points; put key terms in **bold** followed by their definition
 - keep the speaker's examples; be faithful to the transcript; never invent content
+- do not repeat or rewrite material already in the current note
+- no overall summary section, no preamble, no code fences
+
+Output ONLY the new markdown to append.`
+
+const MEETING_PROMPT = (existingBody: string, transcript: string): string => `You are extending a meeting note with the transcript of a newly recorded discussion.
+
+CURRENT NOTE (markdown, may be empty):
+<<<
+${existingBody}
+>>>
+
+NEW RAW TRANSCRIPT (speech-to-text of the latest recording; speakers are not labeled):
+<<<
+${transcript}
+>>>
+
+Structure the new transcript into markdown that CONTINUES the current note:
+- "## " sections grouping the discussion by topic, in the order it happened
+- bullet the key points; keep who-said-what only when the transcript makes it clear — never guess speakers
+- if decisions were made, end with a "## Decisions" section listing each one
+- if tasks or follow-ups were agreed, end with a "## Action items" section (checkbox bullets "- [ ] ...", with owner if stated)
+- omit the Decisions / Action items sections when the transcript has none; be faithful to the transcript; never invent content
 - do not repeat or rewrite material already in the current note
 - no overall summary section, no preamble, no code fences
 
@@ -124,7 +149,8 @@ export async function structureTranscript(args: StructureArgs): Promise<Structur
     }
 
     const cwd = resolve(lessonPath, '..')
-    const body = await runClaude(cwd, PROMPT(existingBody, args.transcript))
+    const prompt = args.style === 'meeting' ? MEETING_PROMPT : PROMPT
+    const body = await runClaude(cwd, prompt(existingBody, args.transcript))
     return { ok: true, body }
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) }

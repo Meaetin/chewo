@@ -11,7 +11,13 @@ import {
   type Workflow,
   type Worktree
 } from '../../shared/projects'
-import { DEFAULT_STT_MODEL, type NoteSource, type NotesTree } from '../../shared/notes'
+import {
+  DEFAULT_STT_MODEL,
+  type NoteSource,
+  type NoteStyle,
+  type NotesTree,
+  type SttSource
+} from '../../shared/notes'
 import {
   composeCardPrompt,
   GENERAL_SCOPE,
@@ -169,19 +175,22 @@ export function App(): React.JSX.Element {
         setRecording(null)
         return
       }
+      const style = rec.phase === 'structuring' ? 'lecture' : rec.style
+      const verb = rec.phase !== 'structuring' && rec.source !== 'mic' ? 'Recorded' : 'Dictated'
       setRecording({ phase: 'structuring', ref: rec.ref, notePath: rec.notePath })
       const res = await window.api.notesStructure({
         lessonPath: rec.notePath,
         transcript,
         durationS,
-        sttModel: DEFAULT_STT_MODEL
+        sttModel: DEFAULT_STT_MODEL,
+        style
       })
 
       // A failed pass still lands in the lesson — as the raw transcript
       const when = new Date().toLocaleString()
       const stamp = res.ok
-        ? `*Dictated ${when}*`
-        : `*Dictated ${when} — structuring failed, raw transcript:*`
+        ? `*${verb} ${when}*`
+        : `*${verb} ${when} — structuring failed, raw transcript:*`
       const addition = `---\n\n${stamp}\n\n${(res.ok ? (res.body ?? '') : transcript).trim()}`
 
       const editorMounted =
@@ -243,6 +252,8 @@ export function App(): React.JSX.Element {
                   phase: 'recording',
                   ref: r.ref,
                   notePath: r.notePath,
+                  source: r.source,
+                  style: r.style,
                   confirmed: '',
                   tail: '',
                   level: 0,
@@ -927,11 +938,14 @@ export function App(): React.JSX.Element {
     if (workflow === 'notes') window.api.sttPrewarm(DEFAULT_STT_MODEL)
   }, [workflow])
 
-  const startRecording = useCallback(() => {
-    if (!notesSel || !selectedNotePath || recordingRef.current) return
-    setRecording({ phase: 'loading', ref: notesSel, notePath: selectedNotePath })
-    window.api.sttStart(DEFAULT_STT_MODEL)
-  }, [notesSel, selectedNotePath])
+  const startRecording = useCallback(
+    (source: SttSource = 'mic', style: NoteStyle = 'lecture') => {
+      if (!notesSel || !selectedNotePath || recordingRef.current) return
+      setRecording({ phase: 'loading', ref: notesSel, notePath: selectedNotePath, source, style })
+      window.api.sttStart(DEFAULT_STT_MODEL, source)
+    },
+    [notesSel, selectedNotePath]
+  )
 
   const stopRecording = useCallback(() => {
     window.api.sttStop()
