@@ -16,6 +16,12 @@ npmRebuild: false
 mac:
   target:
     - dir
+  # TCC usage strings — mic for dictation, system audio for the notes
+  # device+mic (meeting/online lesson) capture. TCC may attribute the
+  # sidecar's capture to the parent app, so the app must carry them too.
+  extendInfo:
+    NSMicrophoneUsageDescription: Chewo transcribes your dictation and recordings locally with Whisper.
+    NSAudioCaptureUsageDescription: Chewo captures computer audio to transcribe online lessons and meetings into your notes.
   # Local dogfood builds: skip keychain identity (duplicated cert makes it
   # ambiguous); ad-hoc signature is enough for an app built on this machine.
   identity: null

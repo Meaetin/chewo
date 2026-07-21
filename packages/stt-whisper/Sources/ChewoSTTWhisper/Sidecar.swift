@@ -3,7 +3,10 @@ import Foundation
 /// Headless STT sidecar for Chewo (SPEC-NOTES.md §6, SPEC-TODOS.md §6):
 /// JSON-lines over stdio.
 ///
-/// stdin:  {"cmd":"start","model":"openai_whisper-large-v3-v20240930_turbo"}
+/// stdin:  {"cmd":"start","model":"openai_whisper-large-v3-v20240930_turbo","source":"mic"}
+///           source: "mic" (default, dictation) | "mix" (device output + mic)
+///           | "system" (device output only) — mix/system need macOS 14.2+
+///           and the System Audio Recording permission
 ///         {"cmd":"stop"}   {"cmd":"prewarm","model":"…"}   {"cmd":"unload"}
 ///         {"cmd":"shutdown"}
 /// stdout: {"event":"loading"} {"event":"ready"} {"event":"level","rms":0.3}
@@ -20,6 +23,7 @@ import Foundation
 struct Command: Decodable {
     let cmd: String
     let model: String?
+    let source: String?
 }
 
 struct Event: Encodable, Sendable {
@@ -102,19 +106,23 @@ actor Controller {
         await out.send(Event(event: "unloaded"))
     }
 
-    func start(model: String) async {
+    func start(model: String, source: CaptureKind) async {
         guard !recording else {
             await out.send(Event(event: "error", message: "Already recording"))
             return
         }
 
-        guard await engine.requestMicrophonePermission() else {
-            await out.send(Event(event: "error", message: "Microphone permission denied"))
-            return
+        // Device-only capture never opens the mic — don't gate it on (or
+        // prompt for) microphone permission.
+        if source != .system {
+            guard await engine.requestMicrophonePermission() else {
+                await out.send(Event(event: "error", message: "Microphone permission denied"))
+                return
+            }
         }
 
         do {
-            try await engine.startRecording()
+            try await engine.startRecording(kind: source)
         } catch {
             await out.send(Event(event: "error", message: "Recording failed: \(error.localizedDescription)"))
             return
@@ -204,7 +212,10 @@ struct ChewoSTTWhisper {
 
                 switch command.cmd {
                 case "start":
-                    await controller.start(model: command.model ?? "openai_whisper-base.en")
+                    await controller.start(
+                        model: command.model ?? "openai_whisper-base.en",
+                        source: CaptureKind(rawValue: command.source ?? "mic") ?? .mic
+                    )
                 case "stop":
                     await controller.stop()
                 case "prewarm":

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>so.argo.chewo.stt-whisper</string>
+	<key>CFBundleName</key>
+	<string>chewo-stt-whisper</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Chewo transcribes your dictation and recordings locally with Whisper.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Chewo captures computer audio to transcribe online lessons and meetings into your notes.</string>
+</dict>
+</plist>
