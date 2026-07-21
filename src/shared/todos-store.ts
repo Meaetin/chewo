@@ -182,6 +182,29 @@ export function deleteCard(scopeDir: string, cardId: string): BoardFile {
   return commit(scopeDir, board)
 }
 
+/** Absolute assets path — the renderer needs it to name images in a prompt. */
+export function assetsDir(scopeDir: string): string {
+  return join(scopePath(scopeDir), 'assets')
+}
+
+/**
+ * Drag-to-run (§10): the card moves to the top of In Progress and remembers
+ * when it was last launched. One store call so a run can't half-apply.
+ */
+export function markCardRun(scopeDir: string, cardId: string): BoardFile {
+  const board = loadBoard(scopeDir)
+  const card = board.cards[cardId]
+  if (!card) return board
+  for (const status of TODO_STATUSES) {
+    board.columns[status] = board.columns[status].filter((id) => id !== cardId)
+  }
+  board.columns['in-progress'].unshift(cardId)
+  const now = new Date().toISOString()
+  card.lastRunAt = now
+  card.updatedAt = now
+  return commit(scopeDir, board)
+}
+
 // ---------- archive (T4) ----------
 
 export function loadArchive(scopeDir: string): ArchiveFile {

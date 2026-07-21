@@ -8,6 +8,7 @@ import {
   CODEX_APPROVAL_POLICIES,
   type UnboundPane
 } from '../shared/projects'
+import { shellQuote } from '../shared/shell'
 import { safeSend } from './safe-send'
 
 /** What a pane runs: an agent CLI or a plain shell */
@@ -27,6 +28,10 @@ export interface CreateTerminalOptions {
   permissionMode?: string
   /** codex --ask-for-approval; omit for the CLI's own default */
   approvalPolicy?: string
+  /** Drag-to-run (§10): claude launches with this already submitted */
+  initialPrompt?: string
+  /** Extra --add-dir roots, e.g. a card's assets folder outside the cwd */
+  extraDirs?: string[]
 }
 
 interface PaneRecord {
@@ -75,6 +80,25 @@ function permissionFlag(source: Source, opts: CreateTerminalOptions): string {
     : ''
 }
 
+/**
+ * Card content reaches a shell command line, so it is quoted, never
+ * interpolated (§10.3). `--add-dir` roots get the same treatment: a project
+ * path can contain spaces, quotes, anything.
+ *
+ * Order matters: `--add-dir` is **variadic** (`<directories...>`), so it eats
+ * every following non-option argument. With the prompt after it, claude sees
+ * two directories and no prompt ("Input must be provided…", verified against
+ * CLI 2.1.x on 2026-07-20). Prompt first, dirs last.
+ */
+function promptFlags(opts: CreateTerminalOptions): string {
+  if (opts.source !== 'claude') return ''
+  // Positional argv, not stdin: claude starts its interactive REPL with the
+  // prompt already submitted — no pty writes, no synthetic Enter
+  const prompt = opts.initialPrompt?.trim()
+  const dirs = (opts.extraDirs ?? []).map((dir) => ` --add-dir ${shellQuote(dir)}`).join('')
+  return `${prompt ? ` ${shellQuote(prompt)}` : ''}${dirs}`
+}
+
 /** null = plain interactive shell, no command */
 export function buildCommand(opts: CreateTerminalOptions): string | null {
   if (opts.source === 'shell') {
@@ -84,11 +108,12 @@ export function buildCommand(opts: CreateTerminalOptions): string | null {
     return run ? `${run}; exec /bin/zsh -il` : null
   }
   const flags = permissionFlag(opts.source, opts)
+  const tail = promptFlags(opts)
   const agent =
     opts.source === 'claude'
       ? opts.sessionId
-        ? `claude --resume ${opts.sessionId}${flags}`
-        : `claude${flags}`
+        ? `claude --resume ${opts.sessionId}${flags}${tail}`
+        : `claude${flags}${tail}`
       : opts.sessionId
         ? `codex resume ${opts.sessionId}${flags}`
         : `codex${flags}`

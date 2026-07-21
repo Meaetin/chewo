@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import {
   addMcpToProjectFile,
   buildClaudeMcpAddCommand,
-  buildCodexMcpAddCommand,
-  shellQuote
+  buildCodexMcpAddCommand
 } from '../src/main/mcp-writer'
+import { shellQuote } from '../src/shared/shell'
 import { parseCodexMcp } from '../src/shared/capabilities/scan'
 import type { McpRef } from '../src/shared/capabilities/types'
 

@@ -24,6 +24,29 @@ export interface TodoCard {
   images?: string[]
   createdAt: string
   updatedAt: string
+  /** Last drag-to-run (§10); additive, file version stays 1 */
+  lastRunAt?: string
+}
+
+/**
+ * The prompt a dropped card hands to Claude (SPEC-TODOS §10.2). Minimal and
+ * unframed on purpose — it should read as if Martin typed it, not as if a
+ * machine assembled it. Images ride as absolute paths because the card's
+ * PNGs are already real files and Claude Code reads paths it finds in a
+ * prompt.
+ */
+export function composeCardPrompt(card: TodoCard, assetsDir: string): string {
+  const parts = [`Todo: ${card.title.trim()}`]
+  const text = card.text?.trim()
+  if (text) parts.push(text)
+  if (card.images?.length) {
+    parts.push(
+      ['Reference images (read these files):', ...card.images.map((n) => `- ${assetsDir}/${n}`)].join(
+        '\n'
+      )
+    )
+  }
+  return parts.join('\n\n')
 }
 
 export interface BoardFile {

@@ -83,6 +83,8 @@ const api = {
     runCommand?: string
     permissionMode?: string
     approvalPolicy?: string
+    initialPrompt?: string
+    extraDirs?: string[]
   }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
   termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
   termResize: (id: number, cols: number, rows: number) =>
@@ -191,6 +193,10 @@ const api = {
     ipcRenderer.invoke('todos:emptyArchive', scopeDir) as Promise<ArchiveFile>,
   todosDeleteScope: (scopeDir: string) =>
     ipcRenderer.invoke('todos:deleteScope', scopeDir) as Promise<void>,
+  todosAssetsDir: (scopeDir: string) =>
+    ipcRenderer.invoke('todos:assetsDir', scopeDir) as Promise<string>,
+  todosMarkRun: (args: { scopeDir: string; cardId: string }) =>
+    ipcRenderer.invoke('todos:markRun', args) as Promise<BoardFile>,
   todosReadAsset: (args: { scopeDir: string; fileName: string }) =>
     ipcRenderer.invoke('todos:readAsset', args) as Promise<string | null>,
   onTodosChanged: (cb: (e: { scopeDir: string }) => void) => {

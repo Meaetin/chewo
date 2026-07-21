@@ -43,12 +43,14 @@ import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat
 import {
   addCard,
   archiveDone,
+  assetsDir,
   deleteArchived,
   deleteCard,
   deleteScope,
   emptyArchiveFile,
   loadArchive,
   loadBoard,
+  markCardRun,
   moveCard,
   readAsset,
   restoreArchived,
@@ -218,6 +220,10 @@ function registerIpc(): void {
   )
   ipcMain.handle('todos:emptyArchive', (_e, scopeDir: string) => emptyArchiveFile(scopeDir))
   ipcMain.handle('todos:deleteScope', (_e, scopeDir: string) => deleteScope(scopeDir))
+  ipcMain.handle('todos:assetsDir', (_e, scopeDir: string) => assetsDir(scopeDir))
+  ipcMain.handle('todos:markRun', (_e, a: { scopeDir: string; cardId: string }) =>
+    markCardRun(a.scopeDir, a.cardId)
+  )
   ipcMain.handle('todos:readAsset', (_e, a: { scopeDir: string; fileName: string }) =>
     readAsset(a.scopeDir, a.fileName)
   )

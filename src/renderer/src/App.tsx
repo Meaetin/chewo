@@ -13,6 +13,7 @@ import {
 } from '../../shared/projects'
 import { DEFAULT_STT_MODEL, type NoteSource, type NotesTree } from '../../shared/notes'
 import {
+  composeCardPrompt,
   GENERAL_SCOPE,
   projectScopeDir,
   type BoardFile,
@@ -627,7 +628,9 @@ export function App(): React.JSX.Element {
       worktreeId?: string
       setupCommand?: string
       runCommand?: string
-    }) => {
+      initialPrompt?: string
+      extraDirs?: string[]
+    }): Promise<number> => {
       const { claudeMode, codexApproval } = settingsForSection(opts.projectId)
       const termId = await window.api.createTerminal({
         source: opts.source,
@@ -636,7 +639,9 @@ export function App(): React.JSX.Element {
         setupCommand: opts.setupCommand,
         runCommand: opts.runCommand,
         permissionMode: claudeMode,
-        approvalPolicy: codexApproval
+        approvalPolicy: codexApproval,
+        initialPrompt: opts.initialPrompt,
+        extraDirs: opts.extraDirs
       })
       setTabs((t) => [
         ...t,
@@ -651,6 +656,7 @@ export function App(): React.JSX.Element {
         }
       ])
       setView({ kind: 'terminal', termId })
+      return termId
     },
     [settingsForSection]
   )
@@ -999,6 +1005,51 @@ export function App(): React.JSX.Element {
     [todoScopeDir]
   )
 
+  /**
+   * "Run in Claude" in the card modal (SPEC-TODOS §10): launches an
+   * interactive Claude session with the card's content as the submitted
+   * prompt. Deliberately does NOT switch to the code workflow — you stay on
+   * the board to keep filing cards, and a toast says where it went. The
+   * card ↔ terminal link is renderer-only and dies with the app (§10.1).
+   */
+  const [cardRuns, setCardRuns] = useState<Map<string, number>>(new Map())
+  const runTodoCard = useCallback(
+    async (cardId: string) => {
+      // Re-read rather than trusting a card object from before the modal's
+      // save — the prompt must be the text the user just looked at
+      const [board, assetsDir] = await Promise.all([
+        window.api.todosBoard(todoScopeDir),
+        window.api.todosAssetsDir(todoScopeDir)
+      ])
+      const card = board.cards[cardId]
+      if (!card) return
+      const termId = await openTerminal({
+        source: 'claude',
+        // General runs in Home, like Home-section sessions
+        cwd: todoProject?.path ?? null,
+        projectId: todoProject?.id ?? null,
+        label: card.title.length > 30 ? `${card.title.slice(0, 30)}…` : card.title,
+        initialPrompt: composeCardPrompt(card, assetsDir),
+        // The assets folder is outside the cwd — without this the session's
+        // first Read of a pasted image hits a permission prompt
+        extraDirs: card.images?.length ? [assetsDir] : undefined
+      })
+      setCardRuns((prev) => new Map(prev).set(cardId, termId))
+      setTodoBoard(await window.api.todosMarkRun({ scopeDir: todoScopeDir, cardId }))
+      showToast(
+        `Running “${card.title}” in Claude — ${todoProject?.name ?? 'Home'}. It's in the Code tabs when you want it.`
+      )
+    },
+    [openTerminal, showToast, todoProject, todoScopeDir]
+  )
+
+  // A card's badge must not outlive its terminal
+  const liveTermIds = useMemo(() => new Set(tabs.map((t) => t.termId)), [tabs])
+  const focusCardRun = useCallback((termId: number) => {
+    setWorkflow('code')
+    setView({ kind: 'terminal', termId })
+  }, [])
+
   const createProject = useCallback(async () => {
     const path = await window.api.pickFolder()
     if (!path) return
@@ -1299,6 +1350,11 @@ export function App(): React.JSX.Element {
               onUpdateCard={updateTodoCard}
               onDeleteCard={deleteTodoCard}
               onArchiveDone={archiveTodoDone}
+              runTargetLabel={todoProject?.name ?? 'Home (~)'}
+              onRunCard={runTodoCard}
+              onFocusRun={focusCardRun}
+              runs={cardRuns}
+              liveTermIds={liveTermIds}
             />
           )}
 

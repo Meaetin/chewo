@@ -6,6 +6,7 @@ import { emptyBoard, projectScopeDir, statusOf } from '../src/shared/todos'
 import {
   addCard,
   archiveDone,
+  markCardRun,
   deleteArchived,
   deleteCard,
   deleteScope,
@@ -197,6 +198,37 @@ describe('loadBoard resilience', () => {
 
   test('asset reads reject non-asset filenames', () => {
     expect(readAsset('general', '../board.json')).toBeNull()
+  })
+})
+
+describe('markCardRun (T5 drag-to-run)', () => {
+  test('moves the card to the top of In Progress and stamps lastRunAt', () => {
+    addCard('general', 'already running', 'in-progress')
+    const seeded = addCard('general', 'run me')
+    const id = seeded.columns.todo[0]
+
+    const board = markCardRun('general', id)
+    expect(board.columns['in-progress'][0]).toBe(id)
+    expect(board.columns.todo).toEqual([])
+    expect(board.cards[id].lastRunAt).toMatch(/^\d{4}-/)
+  })
+
+  test('re-running an in-progress card resurfaces it and re-stamps', () => {
+    const id = addCard('general', 'again').columns.todo[0]
+    const first = markCardRun('general', id).cards[id].lastRunAt
+    addCard('general', 'newer', 'in-progress')
+
+    const board = markCardRun('general', id)
+    expect(board.columns['in-progress'][0]).toBe(id)
+    expect(board.columns['in-progress']).toHaveLength(2)
+    expect(board.cards[id].lastRunAt! >= first!).toBe(true)
+  })
+
+  test('an unknown card id changes nothing', () => {
+    addCard('general', 'untouched')
+    const board = markCardRun('general', 'nope')
+    expect(board.columns.todo).toHaveLength(1)
+    expect(board.columns['in-progress']).toEqual([])
   })
 })
 

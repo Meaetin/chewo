@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { CopyDestination, CopyResult, McpRef } from '../shared/capabilities/types'
+import { shellQuote } from '../shared/shell'
 
 const execFileAsync = promisify(execFile)
 
@@ -16,8 +17,6 @@ const execFileAsync = promisify(execFile)
  * - Codex + project → unsupported by Codex, always an error result
  * - env VALUES are never copied — result carries the key names to re-enter
  */
-
-export const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
 
 export function buildClaudeMcpAddCommand(ref: McpRef): string | null {
   if (ref.raw?.url) {

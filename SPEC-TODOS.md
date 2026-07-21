@@ -4,7 +4,7 @@
 **Platform:** macOS desktop app (Electron) — extends Chewo
 **Author:** Martin
 **Date:** 2026-07-19
-**Status:** Draft v1 — decisions locked via Q&A 2026-07-19. **T1 (board) implemented 2026-07-19**, **T2 (voice) 2026-07-19**, **T3 (MCP) 2026-07-20**, **T4 (polish) 2026-07-20**. Drag-to-run (§10, phase T5) specced via Q&A 2026-07-20
+**Status:** Draft v1 — decisions locked via Q&A 2026-07-19. **T1 (board) implemented 2026-07-19**, **T2 (voice) 2026-07-19**, **T3 (MCP) 2026-07-20**, **T4 (polish) 2026-07-20**, **T5 (drag-to-run) 2026-07-20**. Spec complete
 
 ---
 
@@ -49,7 +49,7 @@ ordinary manual entry.
 | Storage location | **`~/.chewo/todos/<scope>/`** — global dotfolder: human-greppable, survives app-data resets, readable by agents/MCP without going through the app | `userData` (buried in `~/Library/Application Support`); in-repo `.chewo/` per project (pollutes repos) |
 | STT cold start | **Overlap capture with load + idle unload** (revised 2026-07-19): the hotkey opens the mic *immediately* — the sidecar buffers audio while the model loads in parallel, and transcription catches up ~2–4 s later, so perceived latency is ~0. Model stays resident **15 min after last use** (covers bursts), then a new mic-less `unload` command frees it — RAM cost between sparse uses is ~0. Same `prewarm` command fires on opening the notes recording view (load overlaps subject/topic picking). Single model shared with notes (default `large-v3-turbo`) | Always-resident prewarm at launch (~1–1.5 GB held for once-every-2 h usage — wasteful); lazy first-use load with a blocking wait (today's notes behavior); a smaller dedicated command model (`base.en` already measured ~90% on Martin's accented speech — misses land in card titles) |
 | Interpreter invocation | `claude -p --model sonnet --output-format json --json-schema <schema>` — `--json-schema` enforces the command JSON (result in `structured_output`), replacing prompt-begged JSON. Verified vs docs 2026-07-19: print mode is strictly one-shot — **no persistent stream-json input mode exists**, so per-call process cold start is unavoidable. Measured 2026-07-19: ~4–5 s end-to-end per command | `--bare` (tested 2026-07-19 on CLI 2.1.215: breaks keychain auth — "Not logged in" — so dropped); resident multi-turn `claude` process (unsupported); direct Anthropic API (kept as fallback — needs an API key billed separately from the CLI's subscription auth) |
-| Drag-to-run trigger | **Dedicated drop strip** ("▶ Run in Claude") revealed only while a card drag is live; dropping there spawns the session and moves the card to In Progress. Ordinary column drags stay side-effect-free | Drop-into-In-Progress as the trigger (every bookkeeping move would launch a session); modifier-key drop (undiscoverable) |
+| Run trigger | **Revised 2026-07-21 — "Run in Claude" button in the card modal.** You open the card, read the full title/text/images you're about to send, and click. The original drop strip was built and rejected in use: it hid the detail you're launching, and mounting it at `dragstart` reflowed the board and killed native card dragging outright (see §12) | Drop strip (built 2026-07-20, removed 2026-07-21); drop-into-In-Progress as the trigger (every bookkeeping move would launch a session); modifier-key drop (undiscoverable) |
 | Drag-to-run submit | **Auto-submit**: the prompt rides as `claude`'s positional argv, so the session launches already working. User-initiated action on the user's own content — distinct from the no-auto-Enter `nudgeAgentPane` convention, which governs injecting into *running* sessions | Pre-fill without Enter (review-then-submit) |
 | General-board cwd | General cards run in **Home (`~`)**, like Home-section sessions | Project picker on drop; disabling the strip on General |
 | Card ↔ session link | **Move + link**: card moves to top of In Progress; renderer keeps a `cardId → termId` map for a ▶ badge that jumps to the live tab; `lastRunAt` persisted on the card. No auto-move to Done — there is no reliable "task finished" signal | Move only (no badge/jump); no side effects at all |
@@ -63,7 +63,7 @@ ordinary manual entry.
 | Q8 | Card face | Title always; if the card has text/images, show small indicator icons (no thumbnails on the card face in v1) |
 | Q9 | Drag implementation | Hand-rolled pointer-event drag (dependency-light, requirements are simple). Fallback: dnd-kit if hand-rolling fights us |
 | Q10 | Wake word "che-wo" | Cosmetic only — the hotkey is the trigger; Sonnet is told to ignore a leading wake word. No always-on listening |
-| Q11 | Post-drop navigation | On drop, switch to the **code workflow and focus the new tab** — immediate confirmation the drop worked; the board is one workflow-switch away |
+| Q11 | Post-run navigation | **Revised 2026-07-21 — stay on the board.** A toast names the card and where it's running; the session waits in the Code tabs. Jumping to the terminal broke the flow of filing several cards in a row, which is exactly when you're on this screen. The card's ▶ badge and the modal's "Open session" button are the ways in |
 | Q12 | Spawned tab label | Card title, truncated ~30 chars (same treatment as other tab labels) |
 | Q13 | Prompt framing | Minimal template (§10.2): title, text verbatim, image paths. No system-y preamble — the card should read as if Martin typed it |
 | Q14 | Re-running a card | Allowed; each drop spawns a fresh session, the ▶ badge points at the latest. No concurrency guard |
@@ -287,7 +287,7 @@ Three things T3 needed beyond the wrappers:
 
 ---
 
-## 10. Drag-to-run: card → Claude session (phase T5)
+## 10. Drag-to-run: card → Claude session (implemented 2026-07-20)
 
 Drop a card on a dedicated run strip and Chewo spins up an **interactive
 Claude Code session** in the card's scope with the card's content as the
@@ -296,27 +296,30 @@ defaults Q11–Q15 (§2.2).
 
 ### 10.1 UX flow
 
-1. Starting a card drag (existing `application/x-chewo-card` payload,
-   `TodoBoard.tsx`) reveals a **drop strip** above the columns — emerald
-   accent, highlights on hover exactly like columns do; hidden when no drag
-   is live. Label names the target so there are no surprises:
-   - project board → "▶ Run in Claude — <project name>"
-   - General board → "▶ Run in Claude — Home (~)"
-2. On drop:
-   - The card moves to the **top of In Progress** (normal move semantics,
-     `todos:*` IPC), and `lastRunAt` is stamped.
+1. Click a card → the edit modal (§5), where the full title, text, and
+   images are visible. Its footer carries **"Run in Claude"**, tooltipped
+   with the target ("…in <project>" / "…in Home (~)") so there are no
+   surprises about where it lands.
+2. On click:
+   - **Pending edits save first**, then the run uses the freshly re-read
+     card — the prompt can never be built from text the user has already
+     rewritten in front of them.
+   - The card moves to the **top of In Progress** and `lastRunAt` is
+     stamped (`markCardRun`, one store call so it can't half-apply).
    - The renderer resolves scope → `{cwd, projectId}` (project board →
      project path/id; General → `homedir`/null) and calls `openTerminal`
      with the composed prompt (§10.2) — same defaults as `newTerminal`
      (permission mode, env scrub), **no worktree** (Q15).
-   - The app switches to the **code workflow** and focuses the new tab
-     (Q11); tab label = truncated card title (Q12).
+   - The modal closes and a **toast** names the card and target. The
+     workflow stays on **todo** (Q11) — filing cards is a batch activity,
+     and being thrown into a terminal after each one breaks it. Tab label =
+     truncated card title (Q12).
 3. While the spawned terminal is alive, the card face shows a small
-   **▶ badge**; clicking it jumps to that tab. This link is renderer state
-   only (`cardId → termId` map) — gone after app restart, and that's fine
-   for v1 (§12).
-4. Re-dropping the same card spawns a fresh session; the badge tracks the
-   latest (Q14). Dropping outside strip and columns stays a no-op.
+   **▶ badge** and the modal shows **"Open session"**; either jumps to that
+   tab. This link is renderer state only (`cardId → termId` map) — gone
+   after app restart, and that's fine for v1 (§12).
+4. Running the same card again spawns a fresh session; the badge tracks the
+   latest (Q14).
 
 ### 10.2 Prompt composition
 
@@ -347,14 +350,29 @@ Reference images (read these files):
   submitted. That is the whole auto-submit mechanism: no post-spawn pty
   writes, no synthetic Enter.
 - **Escaping is the critical detail:** the command runs through
-  `zsh -il -c`, so the prompt must be strictly single-quoted
-  (`'` → `'\''`; newlines are safe inside single quotes). One
-  `shellQuote()` helper next to `buildCommand`, unit-tested against
-  quotes, newlines, backticks, and `$(…)` in card text — a quoting bug
-  here executes card content as shell.
-- Thread `initialPrompt`/`extraDirs` through `preload` `createTerminal`
-  and `openTerminal` (`App.tsx`) untouched — the renderer composes the
-  prompt (it has the board + scope), main only quotes and spawns.
+  `zsh -il -c`, so the prompt is strictly single-quoted (`'` → `'\''`;
+  newlines are safe inside single quotes). `shellQuote()` moved to
+  `src/shared/shell.ts` — it already existed in `mcp-writer.ts`, and a
+  security boundary gets one implementation, not two. Unit-tested against
+  quotes, newlines, backticks, `$(…)`, and `;`/`&&` in card text.
+- **Flag order is load-bearing (found in implementation):** `--add-dir` is
+  **variadic** (`<directories...>`), so it swallows every following
+  non-option argument. `claude --add-dir <assets> '<prompt>'` — the order
+  §10.3 originally specified — parses the prompt as a second directory and
+  starts claude with no prompt at all ("Input must be provided either
+  through stdin or as a prompt argument", reproduced on CLI 2.1.x
+  2026-07-20). The prompt therefore goes **first**, `--add-dir` last:
+  `claude [flags] '<prompt>' --add-dir '<assets>'`.
+- `initialPrompt`/`extraDirs` thread through `preload` `createTerminal` into
+  `openTerminal` (`App.tsx`), which now returns the `termId` so the badge map
+  can key off it. `openTerminal` still sets the terminal view, so switching to
+  the code workflow later lands on the session rather than an empty state. The renderer composes the prompt (it has the board and
+  scope) via `composeCardPrompt` in `shared/todos.ts`; main only quotes and
+  spawns. The absolute assets path comes from `todos:assetsDir` rather than
+  being rebuilt renderer-side, keeping one definition of where boards live.
+- The card's move + `lastRunAt` stamp is one store call (`markCardRun`), so a
+  run can't half-apply, and the ▶ badge resolves through the live tab list —
+  a card whose session was closed shows no badge.
 - Relationship to the "no stdin injection" rule (SPEC.md): that rule keeps
   agent-to-agent context out of ptys; this is a user-initiated launch of
   the user's own content via argv. The `nudgeAgentPane` no-auto-Enter
@@ -380,7 +398,7 @@ Reference images (read these files):
 - **T5 — Drag-to-run (§10):** `shellQuote` + `initialPrompt`/`extraDirs`
   in `terminals.ts` → preload → `openTerminal`; drop strip in
   `TodoBoard.tsx`; move-to-In-Progress + `lastRunAt`; ▶ badge +
-  jump-to-tab. Independent of T2–T4 — can ship next.
+  jump-to-tab. ✅
 
 ---
 
@@ -421,8 +439,9 @@ Reference images (read these files):
   #1 — isolate parsing in one adapter module next to the notes-chat parser.
 - **Drag-to-run shell quoting (T5):** card text reaches `zsh -il -c` as
   argv; `shellQuote` must be airtight or card content executes as shell.
-  Unit tests are non-negotiable, and the T5 verification includes a
-  hostile-title check (§13).
+  Covered by `tests/drag-to-run.test.ts`, which round-trips hostile payloads
+  (`$(…)`, backticks, `;`, `&&`, embedded quotes, newlines) back through a
+  zsh-quoting parser; the §13 hostile-title check remains for the real app.
 - **Auto-submit executes unreviewed content (T5):** cards now arrive from
   three sources — typing, voice (STT mishears land verbatim), and, since
   T3, **MCP-writing agents**. Drag-to-run turns card text into an executed
@@ -430,13 +449,23 @@ Reference images (read these files):
   Martin-initiated and the session still runs under the normal permission
   mode; revisit if cards ever arrive from outside (shared boards, webhooks)
   — the prompt-injection posture of SPEC.md/KNOWN-ISSUES applies then.
+- **Never mutate the drag source's layout from `onDragStart` (learned
+  2026-07-21):** the T5 drop strip was mounted by a `draggingId` state
+  change inside `onDragStart`; the resulting reflow of the column grid made
+  Chromium abort the drag silently — cards went inert, exactly like the
+  `user-select: none` trap already recorded in CLAUDE.md. The strip is gone
+  now (§2.1), but the rule stands for any future drag affordance: keep it
+  mounted and absolutely positioned, animate only `opacity`/`pointer-events`.
 - **Fresh-terminal → sessionId binding (T5):** the claude `sessionId`
   doesn't exist at spawn time and Chewo has no binding for fresh spawns, so
   the card↔session link is ephemeral renderer state. If a persistent
   "reopen the session this card ran in" is ever wanted, that binding is the
   prerequisite.
-- **`--add-dir` behavior:** verify on the current CLI that it grants image
-  reads without a prompt; flag semantics may drift across CLI updates.
+- **`--add-dir` behavior:** it is variadic, which already bit the original
+  §10.3 flag order (fixed — prompt first, dirs last; see §10.3). Both the
+  order and the flag's existence are CLI-version-coupled: retest after CLI
+  updates. Whether it actually suppresses the permission prompt on the first
+  image Read is still unverified in the real app.
 - Open: everything in §2.
 
 ---
@@ -464,12 +493,16 @@ Reference images (read these files):
   new card is visible. Remove a project with the box unchecked and confirm
   `~/.chewo/todos/p-…/` survives; remove another with it checked and confirm
   the folder is gone.
-- **T5:** drag a card with title+text+image on a project board — strip
-  appears only during drag; drop → card lands at top of In Progress, code
-  workflow focuses a new tab in the project cwd, claude is already working
-  on the prompt with title/text verbatim and the image read without a
-  permission prompt. Drop a General card → session cwd is `~`. Create a
-  card titled `test '$(touch /tmp/pwned)' \`id\`` and drop it — the string
-  arrives verbatim in the prompt and nothing executes in the shell. ▶ badge
-  jumps to the tab; re-drop spawns a second session; drops outside
-  strip/columns remain no-ops.
+- **T5:** open a card with title+text+image on a project board and hit
+  "Run in Claude" — the card lands at top of In Progress, a toast names it,
+  **the board stays on screen**, and the new tab (found via the ▶ badge or
+  the Code workflow) shows claude already working on the prompt with
+  title/text verbatim and the image read without a permission prompt. Edit
+  the text and hit Run without saving first — the edited text is what
+  arrives. Run a General card → session cwd is `~`. Create a card titled
+  `test '$(touch /tmp/pwned)' \`id\`` and run it — the string arrives
+  verbatim in the prompt and nothing executes in the shell. Also confirm
+  plain card dragging between columns still works (it was broken by the
+  removed drop strip). The ▶ badge and the modal's "Open session" both jump
+  to the tab; running again spawns a second session and the badge follows
+  the newer one.

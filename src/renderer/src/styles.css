@@ -3675,6 +3675,26 @@ body {
   border-color: var(--accent);
 }
 
+/* run-in-claude badge (T5) */
+
+.todo-card-run {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.todo-card-run:hover {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
 /* board filter + archive (T4) */
 
 .todo-board-search {

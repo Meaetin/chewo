@@ -3,6 +3,7 @@ import {
   AlignLeft,
   Archive,
   Image as ImageIcon,
+  Play,
   Plus,
   RotateCcw,
   Search,
@@ -39,6 +40,14 @@ interface TodoBoardProps {
   onUpdateCard: (args: UpdateCardPayload) => Promise<void>
   onDeleteCard: (cardId: string) => void
   onArchiveDone: () => void
+  /** Where a run lands — the project name, or "Home (~)" for General */
+  runTargetLabel: string
+  /** "Run in Claude" in the card modal → interactive Claude session (§10) */
+  onRunCard: (cardId: string) => Promise<void>
+  onFocusRun: (termId: number) => void
+  /** cardId → termId of its latest run; renderer-only, dies with the app */
+  runs: Map<string, number>
+  liveTermIds: Set<number>
 }
 
 /** Case-insensitive substring over title + text — a filter, not a ranker. */
@@ -92,7 +101,12 @@ export function TodoBoard({
   onMoveCard,
   onUpdateCard,
   onDeleteCard,
-  onArchiveDone
+  onArchiveDone,
+  runTargetLabel,
+  onRunCard,
+  onFocusRun,
+  runs,
+  liveTermIds
 }: TodoBoardProps): React.JSX.Element {
   const [dragOver, setDragOver] = useState<TodoStatus | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -137,6 +151,11 @@ export function TodoBoard({
   if (!board || !filtered) return <div className="todo-board" />
 
   const filtering = query.trim().length > 0
+  /** The card's latest run, if that terminal is still open (§10.1). */
+  const runningTerm = (cardId: string): number | null => {
+    const termId = runs.get(cardId)
+    return termId !== undefined && liveTermIds.has(termId) ? termId : null
+  }
   const matchCount = TODO_STATUSES.reduce((n, status) => n + filtered[status].length, 0)
 
   return (
@@ -249,7 +268,7 @@ export function TodoBoard({
                       onClick={() => setEditing(card)}
                     >
                       <span className="todo-card-title">{card.title}</span>
-                      {(card.text || card.images?.length) && (
+                      {(card.text || card.images?.length || runningTerm(id) !== null) && (
                         <span className="todo-card-indicators">
                           {card.text && <AlignLeft size={12} strokeWidth={1.75} />}
                           {!!card.images?.length && (
@@ -257,6 +276,19 @@ export function TodoBoard({
                               <ImageIcon size={12} strokeWidth={1.75} />
                               {card.images.length > 1 && card.images.length}
                             </>
+                          )}
+                          {runningTerm(id) !== null && (
+                            <button
+                              type="button"
+                              className="todo-card-run"
+                              title="Jump to this card’s Claude session"
+                              onClick={(e) => {
+                                e.stopPropagation() // don't open the edit modal
+                                onFocusRun(runningTerm(id)!)
+                              }}
+                            >
+                              <Play size={10} strokeWidth={2.5} />
+                            </button>
                           )}
                         </span>
                       )}
@@ -280,7 +312,11 @@ export function TodoBoard({
         <TodoCardModal
           scopeDir={scopeDir}
           card={editing}
+          runTargetLabel={runTargetLabel}
+          runningTermId={runningTerm(editing.id)}
           onSave={onUpdateCard}
+          onRun={onRunCard}
+          onFocusRun={onFocusRun}
           onDelete={() => onDeleteCard(editing.id)}
           onClose={() => setEditing(null)}
         />
@@ -431,13 +467,21 @@ const readImage = (file: File): Promise<StagedImage> =>
 function TodoCardModal({
   scopeDir,
   card,
+  runTargetLabel,
+  runningTermId,
   onSave,
+  onRun,
+  onFocusRun,
   onDelete,
   onClose
 }: {
   scopeDir: string
   card: TodoCard
+  runTargetLabel: string
+  runningTermId: number | null
   onSave: (args: UpdateCardPayload) => Promise<void>
+  onRun: (cardId: string) => Promise<void>
+  onFocusRun: (termId: number) => void
   onDelete: () => void
   onClose: () => void
 }): React.JSX.Element {
@@ -450,6 +494,7 @@ function TodoCardModal({
   const [staged, setStaged] = useState<StagedImage[]>([])
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [running, setRunning] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -476,8 +521,7 @@ function TodoCardModal({
     }
   }
 
-  const save = async (): Promise<void> => {
-    setSaving(true)
+  const commit = async (): Promise<void> => {
     await onSave({
       cardId: card.id,
       title,
@@ -485,6 +529,24 @@ function TodoCardModal({
       addImages: staged.map((s) => s.base64),
       removeImages: [...removed]
     })
+  }
+
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    await commit()
+    onClose()
+  }
+
+  /**
+   * Run what's on screen: pending edits are saved first, so the prompt can
+   * never be built from stale text the user has already rewritten. Closes
+   * the modal — the toast reports where it landed, and the board stays put
+   * so the next card can be written straight away.
+   */
+  const run = async (): Promise<void> => {
+    setRunning(true)
+    await commit()
+    await onRun(card.id)
     onClose()
   }
 
@@ -494,13 +556,13 @@ function TodoCardModal({
     <ModalShell
       title="Edit card"
       subtitle="Paste an image into the text box to attach it"
-      busy={saving}
+      busy={saving || running}
       onClose={onClose}
       footer={
         <>
           <Button
             intent="danger"
-            disabled={saving}
+            disabled={saving || running}
             onClick={() => {
               if (!confirmingDelete) {
                 setConfirmingDelete(true)
@@ -514,10 +576,35 @@ function TodoCardModal({
             {confirmingDelete ? 'Really delete?' : 'Delete'}
           </Button>
           <div className="wt-footer-spacer" />
-          <Button disabled={saving} onClick={onClose}>
+          {runningTermId !== null && (
+            <Button
+              disabled={saving || running}
+              onClick={() => onFocusRun(runningTermId)}
+              leadingIcon={<Play size={13} strokeWidth={2} />}
+            >
+              Open session
+            </Button>
+          )}
+          <Button
+            disabled={saving || running}
+            loading={running}
+            loadingText="Starting…"
+            onClick={() => void run()}
+            title={`Start a Claude session in ${runTargetLabel} with this card as the prompt`}
+            leadingIcon={<Play size={13} strokeWidth={2} />}
+          >
+            Run in Claude
+          </Button>
+          <Button disabled={saving || running} onClick={onClose}>
             Cancel
           </Button>
-          <Button intent="primary" loading={saving} loadingText="Saving…" onClick={() => void save()}>
+          <Button
+            intent="primary"
+            loading={saving}
+            loadingText="Saving…"
+            disabled={running}
+            onClick={() => void save()}
+          >
             Save
           </Button>
         </>
