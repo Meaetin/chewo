@@ -77,7 +77,7 @@ function allowedRoots(): string[] {
  * can't escape the allowed roots. Returns the real path, or null if the
  * target is outside every root.
  */
-function resolveInsideRoots(path: string): string | null {
+export function resolveInsideRoots(path: string): string | null {
   let real: string
   try {
     real = realpathSync(path)

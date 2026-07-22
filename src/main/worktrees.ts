@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
+import { gitErrorOf as gitError, runGit as git } from './git'
 
 /**
  * Git operations for isolated agent worktrees (SPEC §10). Everything runs
@@ -29,27 +29,6 @@ export const branchFor = (taskName: string): string => `agent/${taskName}`
 export function worktreeDirFor(projectPath: string, taskName: string): string {
   return join(WORKTREES_ROOT, basename(projectPath), taskName)
 }
-
-interface GitResult {
-  ok: boolean
-  stdout: string
-  stderr: string
-}
-
-function git(cwd: string, args: string[], timeoutMs = 60_000): Promise<GitResult> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      ['-C', cwd, ...args],
-      { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) })
-      }
-    )
-  })
-}
-
-const gitError = (r: GitResult): string => r.stderr.trim() || r.stdout.trim() || 'git failed'
 
 export type CreateWorktreeResult =
   | { ok: true; path: string; branch: string; baseBranch: string }

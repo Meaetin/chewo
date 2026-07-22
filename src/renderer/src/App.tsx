@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTree, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
+import { FolderTree, GitBranch, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
@@ -41,6 +41,9 @@ import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
+import { GitPanel, type GitSelection } from './components/GitPanel'
+import { GitDiffView } from './components/GitDiffView'
+import { useGitDirtyCount, useGitStatus } from './useGitStatus'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
 import { AppSettings } from './components/settings/AppSettings'
@@ -93,6 +96,20 @@ interface SectionFiles {
 
 const EMPTY_SECTION_FILES: SectionFiles = { openFiles: [], activePath: null }
 
+/** Passive dirty-count pill on a worktree session tab — polled, no watcher */
+function TabDirtyPill({ root }: { root: string | null }): React.JSX.Element | null {
+  const count = useGitDirtyCount(root)
+  if (count === 0) return null
+  return (
+    <span
+      className="terminal-tab-dirty"
+      title={`${count} uncommitted change${count === 1 ? '' : 's'} in this worktree`}
+    >
+      {count}
+    </span>
+  )
+}
+
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -122,6 +139,9 @@ export function App(): React.JSX.Element {
   const [todoScopeId, setTodoScopeId] = useState<string | null>(null)
   const [todoBoard, setTodoBoard] = useState<BoardFile | null>(null)
   const [fileTreeOpen, setFileTreeOpen] = useState(false)
+  const [gitOpen, setGitOpen] = useState(false)
+  /** What the git diff layer shows — a working-tree file or a commit */
+  const [gitSel, setGitSel] = useState<GitSelection | null>(null)
   // Editor-layer files per section, keyed by projectId ?? 'home'. Session-
   // lifetime only — deliberately not persisted to the projects file.
   const [filesBySection, setFilesBySection] = useState<Map<string, SectionFiles>>(new Map())
@@ -395,6 +415,20 @@ export function App(): React.JSX.Element {
     ? `⎇ ${activeWorktree.taskName}`
     : (selectedProject?.name ?? 'Home')
 
+  // ---------- git panel ----------
+
+  // Git visibility follows the same root as the file tree, but only for
+  // project/worktree sections — never a recursive watcher on $HOME itself
+  const gitRoot =
+    workflow === 'code' && (activeWorktree || selectedProject) ? treeRoot : null
+  const repoStatus = useGitStatus(gitRoot)
+  const gitRootRef = useRef<string | null>(null)
+  gitRootRef.current = gitRoot
+  const dirtyCount = repoStatus?.ok && repoStatus.isRepo ? repoStatus.files.length : 0
+
+  // The diff layer describes one root's state — switching tab/section drops it
+  useEffect(() => setGitSel(null), [treeRoot])
+
   const gotoSeq = useRef(0)
   const [gotoTarget, setGotoTarget] = useState<GotoTarget | null>(null)
 
@@ -408,6 +442,8 @@ export function App(): React.JSX.Element {
         return new Map(prev).set(sectionKey, { openFiles, activePath: path })
       })
       if (goto) setGotoTarget({ path, line: goto.line, col: goto.col, seq: ++gotoSeq.current })
+      // The editor and the diff layer share the space over the terminal
+      setGitSel(null)
     },
     [sectionKey]
   )
@@ -515,13 +551,24 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
-  // ⌘⇧E toggles the file tree anywhere in the code workflow — including with
-  // terminal focus (xterm doesn't swallow it; see TerminalPane key handler)
+  // ⌘⇧E toggles the file tree, ⌘⇧G the git panel (mutually exclusive — one
+  // left rail) anywhere in the code workflow — including with terminal focus
+  // (xterm doesn't swallow them; see TerminalPane key handler)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
-        if (workflowRef.current === 'code') setFileTreeOpen((o) => !o)
+        if (workflowRef.current === 'code') {
+          setFileTreeOpen((o) => !o)
+          setGitOpen(false)
+        }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        if (workflowRef.current === 'code' && gitRootRef.current) {
+          setGitOpen((o) => !o)
+          setFileTreeOpen(false)
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
@@ -1168,9 +1215,27 @@ export function App(): React.JSX.Element {
           <IconButton
             label="Files (⌘⇧E)"
             className="file-tree-toggle"
-            onClick={() => setFileTreeOpen((o) => !o)}
+            onClick={() => {
+              setFileTreeOpen((o) => !o)
+              setGitOpen(false)
+            }}
           >
             <FolderTree size={16} strokeWidth={1.75} />
+          </IconButton>
+          <IconButton
+            label={gitRoot ? 'Git — changes & history (⌘⇧G)' : 'Git — select a project first'}
+            className="git-toggle"
+            active={gitOpen}
+            disabled={!gitRoot}
+            onClick={() => {
+              setGitOpen((o) => !o)
+              setFileTreeOpen(false)
+            }}
+          >
+            <GitBranch size={16} strokeWidth={1.75} />
+            {dirtyCount > 0 && (
+              <span className="git-toggle-count">{dirtyCount > 99 ? '99+' : dirtyCount}</span>
+            )}
           </IconButton>
           <div className="terminal-tabs">
           {visibleTabs.map((tab) => (
@@ -1203,14 +1268,20 @@ export function App(): React.JSX.Element {
               onDrop={(e) => e.preventDefault()}
               onDragEnd={() => setDraggedTermId(null)}
               onClick={() => {
-                // Clicking the session tab also dismisses the editor layer
+                // Clicking the session tab also dismisses the editor + diff layers
                 activateFile(null)
+                setGitSel(null)
                 setView({ kind: 'terminal', termId: tab.termId })
               }}
             >
               {!tab.exited && <Dot tone="live" className="terminal-tab-dot" />}
               <Badge source={tab.source} />
               <span className="terminal-tab-label">{tab.label}</span>
+              {tab.worktreeId && (
+                <TabDirtyPill
+                  root={worktrees.find((w) => w.id === tab.worktreeId)?.path ?? null}
+                />
+              )}
               {tab.worktreeId && (
                 <IconButton
                   label="Review & merge this worktree into the main checkout"
@@ -1307,6 +1378,22 @@ export function App(): React.JSX.Element {
           onError={showToast}
           onDeleted={closeFilesUnder}
           onRenamed={renameOpenFiles}
+        />
+        <GitPanel
+          visible={workflow === 'code' && gitOpen && gitRoot !== null}
+          root={treeRoot}
+          rootLabel={treeRootLabel}
+          status={repoStatus}
+          selection={gitSel}
+          onShowFile={(file) => {
+            activateFile(null)
+            setGitSel({ kind: 'file', file })
+          }}
+          onShowCommit={(hash) => {
+            activateFile(null)
+            setGitSel({ kind: 'commit', hash })
+          }}
+          onClose={() => setGitOpen(false)}
         />
         <div className="main-content">
           {workflow === 'notes' && (
@@ -1414,6 +1501,7 @@ export function App(): React.JSX.Element {
                 active={
                   workflow === 'code' &&
                   !editorVisible &&
+                  gitSel === null &&
                   view.kind === 'terminal' &&
                   view.termId === tab.termId
                 }
@@ -1432,6 +1520,12 @@ export function App(): React.JSX.Element {
             onCloseFile={closeFile}
             onReorderFile={reorderFile}
             onExit={() => activateFile(null)}
+          />
+          <GitDiffView
+            visible={workflow === 'code' && gitSel !== null}
+            root={treeRoot}
+            target={gitSel}
+            onClose={() => setGitSel(null)}
           />
         </div>
         </div>

@@ -8,6 +8,14 @@ import type {
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
 import type {
+  CommitDetailResult,
+  DiffResult,
+  GitChangedEvent,
+  GitDiffSpec,
+  LogResult,
+  RepoStatus
+} from '../main/git'
+import type {
   FileOpResult,
   FsChangedEvent,
   ReadDirResult,
@@ -126,6 +134,23 @@ const api = {
     ipcRenderer.invoke('worktree:merge', args) as Promise<MergeWorktreeResult>,
   worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
     ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
+
+  gitStatus: (root: string) => ipcRenderer.invoke('git:status', root) as Promise<RepoStatus>,
+  gitLog: (args: { root: string; limit?: number }) =>
+    ipcRenderer.invoke('git:log', args) as Promise<LogResult>,
+  gitShow: (args: { root: string; hash: string }) =>
+    ipcRenderer.invoke('git:show', args) as Promise<CommitDetailResult>,
+  gitDiff: (args: { root: string; spec: GitDiffSpec }) =>
+    ipcRenderer.invoke('git:diff', args) as Promise<DiffResult>,
+  gitWatch: (root: string) => ipcRenderer.invoke('git:watch', root) as Promise<number>,
+  gitUnwatch: (watchId: number) => ipcRenderer.send('git:unwatch', { watchId }),
+  onGitChanged: (cb: (e: GitChangedEvent) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: GitChangedEvent): void => cb(payload)
+    ipcRenderer.on('git:changed', listener)
+    return (): void => {
+      ipcRenderer.removeListener('git:changed', listener)
+    }
+  },
   notesScan: () => ipcRenderer.invoke('notes:scan') as Promise<NotesTree>,
   notesRead: (path: string) => ipcRenderer.invoke('notes:read', path) as Promise<string>,
   notesWrite: (path: string, content: string) =>

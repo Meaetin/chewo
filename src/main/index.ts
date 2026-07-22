@@ -66,6 +66,16 @@ import { disposeSidecar, sttPrewarm, sttStart, sttStop } from './stt'
 import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
 import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
+import {
+  disposeAllGitWatches,
+  gitCommitDetail,
+  gitDiff,
+  gitLog,
+  gitStatus,
+  startGitWatch,
+  stopGitWatch,
+  type GitDiffSpec
+} from './git'
 import { safeSend } from './safe-send'
 import {
   bindPaneSession,
@@ -182,6 +192,20 @@ function registerIpc(): void {
     (_e, a: { projectPath: string; worktreePath: string; branch: string }) =>
       removeWorktree(a.projectPath, a.worktreePath, a.branch)
   )
+
+  ipcMain.handle('git:status', (_e, root: string) => gitStatus(root))
+  ipcMain.handle('git:log', (_e, a: { root: string; limit?: number }) => gitLog(a.root, a.limit))
+  ipcMain.handle('git:show', (_e, a: { root: string; hash: string }) =>
+    gitCommitDetail(a.root, a.hash)
+  )
+  ipcMain.handle('git:diff', (_e, a: { root: string; spec: GitDiffSpec }) =>
+    gitDiff(a.root, a.spec)
+  )
+  ipcMain.handle('git:watch', (_e, root: string) => {
+    if (!mainWindow) throw new Error('no window')
+    return startGitWatch(mainWindow, root)
+  })
+  ipcMain.on('git:unwatch', (_e, a: { watchId: number }) => stopGitWatch(a.watchId))
 
   ipcMain.handle('notes:scan', () => scanNotes())
   ipcMain.handle('notes:read', (_e, path: string) => readNote(path))
@@ -470,6 +494,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   disposeAllTerminals()
   disposeAllWatches()
+  disposeAllGitWatches()
   disposeSidecar()
   disposeTodoVoice()
   app.quit()
