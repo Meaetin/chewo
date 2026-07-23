@@ -219,6 +219,39 @@ body {
   flex-direction: column;
 }
 
+/* Installed-build freshness pinned under the session list */
+.version-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.version-footer-current {
+  color: var(--c-text-faint);
+}
+
+.version-footer-behind {
+  color: var(--c-accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.version-footer-updating {
+  color: var(--c-text-secondary);
+}
+
+.version-footer-failed {
+  color: var(--c-danger);
+}
+
+.version-footer-update {
+  flex-shrink: 0;
+}
+
 .workflow-switcher {
   display: flex;
   gap: var(--space-4);

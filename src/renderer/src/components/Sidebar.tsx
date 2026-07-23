@@ -10,6 +10,7 @@ import {
   Undo2
 } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/adapter/types'
+import type { VersionStatus } from '../../../main/app-version'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
 import { Badge, Button, Dot, IconButton, Input, Row } from './ui'
 
@@ -285,6 +286,66 @@ function SectionRow({
   )
 }
 
+/**
+ * Installed-build freshness (main/app-version.ts): quiet when the running app
+ * matches the repo's HEAD, a CTA when commits have landed since it was built.
+ * Renders nothing in dev — dev always runs current source.
+ */
+function VersionFooter(): React.JSX.Element | null {
+  const [status, setStatus] = useState<VersionStatus | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void window.api.versionGet().then((s) => {
+      if (alive && s) setStatus(s)
+    })
+    const off = window.api.onVersionStatus(setStatus)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+
+  if (!status) return null
+  return (
+    <div className="version-footer">
+      {status.kind === 'current' && (
+        <span className="version-footer-current">Newest version installed</span>
+      )}
+      {status.kind === 'behind' && (
+        <>
+          <span className="version-footer-behind">
+            New version available
+            {status.commits > 1 ? ` · ${status.commits} commits` : ''}
+          </span>
+          <button
+            className="btn btn--primary btn--compact version-footer-update"
+            onClick={() => window.api.versionUpdate()}
+          >
+            Update
+          </button>
+        </>
+      )}
+      {status.kind === 'updating' && (
+        <span className="version-footer-updating">Updating — rebuilding app…</span>
+      )}
+      {status.kind === 'update-failed' && (
+        <>
+          <span className="version-footer-failed" title={status.message}>
+            Update failed
+          </span>
+          <button
+            className="btn btn--secondary btn--compact version-footer-update"
+            onClick={() => window.api.versionUpdate()}
+          >
+            Retry
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function Sidebar({
   sessions,
   hiddenSessions,
@@ -506,6 +567,7 @@ export function Sidebar({
           )}
         </div>
       )}
+      <VersionFooter />
     </aside>
   )
 }

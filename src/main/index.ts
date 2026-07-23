@@ -76,6 +76,12 @@ import {
   stopGitWatch,
   type GitDiffSpec
 } from './git'
+import {
+  disposeVersionWatch,
+  getVersionStatus,
+  runSelfUpdate,
+  watchRepoHead
+} from './app-version'
 import { safeSend } from './safe-send'
 import {
   bindPaneSession,
@@ -306,6 +312,10 @@ function registerIpc(): void {
     // Native chrome behind the renderer follows the theme immediately
     mainWindow?.setBackgroundColor(file.appearance.base)
   })
+  ipcMain.handle('version:get', () => getVersionStatus())
+  ipcMain.on('version:update', () => {
+    if (mainWindow) runSelfUpdate(mainWindow)
+  })
   ipcMain.handle('dialog:pickFolder', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return result.canceled ? null : result.filePaths[0]
@@ -481,6 +491,7 @@ app.whenReady().then(() => {
     mainWindow.on('closed', () => closeHud())
   }
   publishScopeIndex(projectsFile)
+  if (mainWindow) watchRepoHead(mainWindow)
   watchSessionStores()
   watchNotesStore()
   watchTodosStore()
@@ -495,6 +506,7 @@ app.on('window-all-closed', () => {
   disposeAllTerminals()
   disposeAllWatches()
   disposeAllGitWatches()
+  disposeVersionWatch()
   disposeSidecar()
   disposeTodoVoice()
   app.quit()

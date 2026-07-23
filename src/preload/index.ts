@@ -7,6 +7,7 @@ import type {
   WorktreeStatusResult
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
+import type { VersionStatus } from '../main/app-version'
 import type {
   CommitDetailResult,
   DiffResult,
@@ -273,6 +274,16 @@ const api = {
     ipcRenderer.on('app:toast', listener)
     return (): void => {
       ipcRenderer.removeListener('app:toast', listener)
+    }
+  },
+
+  versionGet: () => ipcRenderer.invoke('version:get') as Promise<VersionStatus | null>,
+  versionUpdate: () => ipcRenderer.send('version:update'),
+  onVersionStatus: (cb: (status: VersionStatus) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: VersionStatus): void => cb(payload)
+    ipcRenderer.on('version:status', listener)
+    return (): void => {
+      ipcRenderer.removeListener('version:status', listener)
     }
   },
 
