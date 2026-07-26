@@ -25,12 +25,15 @@ import {
 import type { SttSource } from '../shared/notes'
 import {
   copyEntry,
+  createEntry,
   deleteEntry,
   disposeAllWatches,
   isFile,
+  moveEntry,
   readDir,
   readFile,
   renameEntry,
+  revealEntry,
   startWatch,
   stopWatch,
   watchAdd,
@@ -286,6 +289,13 @@ function registerIpc(): void {
   ipcMain.handle('fs:copy', (_e, a: { srcPath: string; destDir: string }) =>
     copyEntry(a.srcPath, a.destDir)
   )
+  ipcMain.handle('fs:move', (_e, a: { srcPath: string; destDir: string }) =>
+    moveEntry(a.srcPath, a.destDir)
+  )
+  ipcMain.handle('fs:create', (_e, a: { dirPath: string; name: string; isDir: boolean }) =>
+    createEntry(a.dirPath, a.name, a.isDir)
+  )
+  ipcMain.handle('fs:reveal', (_e, path: string) => revealEntry(path))
   ipcMain.handle('fs:watch', () => {
     if (!mainWindow) throw new Error('no window')
     return startWatch(mainWindow)

@@ -1,10 +1,12 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync
 } from 'node:fs'
@@ -214,11 +216,14 @@ const opFail = (err: unknown): FileOpResult => ({
   error: err instanceof Error ? err.message : String(err)
 })
 
+/** Single path segment only — no separators, no traversal. */
+const invalidName = (name: string): boolean =>
+  !name || name === '.' || name === '..' || /[/\\:\0]/.test(name)
+
 export function renameEntry(path: string, newName: string): FileOpResult {
   const real = resolveInsideRoots(path)
   if (!real) return { ok: false, error: `not writable: ${basename(path)}` }
-  if (!newName || newName === '.' || newName === '..' || /[/\\:\0]/.test(newName))
-    return { ok: false, error: 'Invalid name' }
+  if (invalidName(newName)) return { ok: false, error: 'Invalid name' }
   const target = join(dirname(real), newName)
   if (existsSync(target)) return { ok: false, error: `"${newName}" already exists` }
   try {
@@ -266,6 +271,53 @@ export function copyEntry(srcPath: string, destDir: string): FileOpResult {
   } catch (err) {
     return opFail(err)
   }
+}
+
+/** Cut + paste. Same-dir moves are a no-op; conflicts get a numbered suffix. */
+export function moveEntry(srcPath: string, destDir: string): FileOpResult {
+  const src = resolveInsideRoots(srcPath)
+  const dest = resolveInsideRoots(destDir)
+  if (!src || !dest) return { ok: false, error: 'not writable' }
+  if (dest === src || dest.startsWith(src + sep))
+    return { ok: false, error: "Can't move a folder into itself" }
+  if (dirname(src) === dest) return { ok: true, path: src }
+  const target = join(dest, availableName(dest, basename(src)))
+  try {
+    renameSync(src, target)
+    return { ok: true, path: target }
+  } catch (err) {
+    // Across volumes (home → an external checkout) rename can't work
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') return opFail(err)
+    try {
+      cpSync(src, target, { recursive: true })
+      rmSync(src, { recursive: true, force: true })
+      return { ok: true, path: target }
+    } catch (copyErr) {
+      return opFail(copyErr)
+    }
+  }
+}
+
+export function createEntry(dirPath: string, name: string, isDir: boolean): FileOpResult {
+  const dir = resolveInsideRoots(dirPath)
+  if (!dir) return { ok: false, error: `not writable: ${basename(dirPath)}` }
+  if (invalidName(name)) return { ok: false, error: 'Invalid name' }
+  const target = join(dir, name)
+  if (existsSync(target)) return { ok: false, error: `"${name}" already exists` }
+  try {
+    if (isDir) mkdirSync(target)
+    else writeFileSync(target, '', { flag: 'wx' })
+    return { ok: true, path: target }
+  } catch (err) {
+    return opFail(err)
+  }
+}
+
+export function revealEntry(path: string): FileOpResult {
+  const real = resolveInsideRoots(path)
+  if (!real) return { ok: false, error: `not readable: ${basename(path)}` }
+  shell.showItemInFolder(real)
+  return { ok: true, path: real }
 }
 
 // ---------- watchers ----------

@@ -244,6 +244,11 @@ const api = {
   fsDelete: (path: string) => ipcRenderer.invoke('fs:delete', path) as Promise<FileOpResult>,
   fsCopy: (args: { srcPath: string; destDir: string }) =>
     ipcRenderer.invoke('fs:copy', args) as Promise<FileOpResult>,
+  fsMove: (args: { srcPath: string; destDir: string }) =>
+    ipcRenderer.invoke('fs:move', args) as Promise<FileOpResult>,
+  fsCreate: (args: { dirPath: string; name: string; isDir: boolean }) =>
+    ipcRenderer.invoke('fs:create', args) as Promise<FileOpResult>,
+  fsReveal: (path: string) => ipcRenderer.invoke('fs:reveal', path) as Promise<FileOpResult>,
   fsWatch: () => ipcRenderer.invoke('fs:watch') as Promise<number>,
   fsWatchAdd: (watchId: number, path: string) =>
     ipcRenderer.send('fs:watchAdd', { watchId, path }),
