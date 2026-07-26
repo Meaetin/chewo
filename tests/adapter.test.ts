@@ -1,7 +1,11 @@
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseClaudeSession } from '../src/shared/adapter/claude'
 import { parseCodexSession, parseCodexTitleIndex } from '../src/shared/adapter/codex'
+import { resetScanCache, scanAll } from '../src/shared/adapter/scan'
+import type { ScanResult } from '../src/shared/adapter/types'
 
 const fixture = (p: string): string => join(__dirname, 'fixtures', p)
 
@@ -144,5 +148,77 @@ describe('codex adapter', () => {
 
   test('missing session_index file yields an empty map, not a crash', () => {
     expect(parseCodexTitleIndex('/nonexistent/session_index.jsonl').size).toBe(0)
+  })
+})
+
+describe('scan cache', () => {
+  const SESSION_ID = 'aaaaaaaa-1111-2222-3333-444444444444'
+
+  /** A claude root holding one project dir with the basic fixture copied in. */
+  function tempRoot(): { root: string; transcript: string } {
+    const root = mkdtempSync(join(tmpdir(), 'chewo-scan-'))
+    const projectDir = join(root, '-Users-test-Desktop-Projects-pie')
+    mkdirSync(projectDir)
+    const transcript = join(projectDir, `${SESSION_ID}.jsonl`)
+    copyFileSync(fixture('claude/v2.1-basic.jsonl'), transcript)
+    return { root, transcript }
+  }
+
+  const scan = (root: string): ScanResult =>
+    scanAll({ claudeRoot: root, codexRoot: join(root, 'no-codex') })
+
+  beforeEach(() => resetScanCache())
+
+  test('an unchanged file is served from cache, not re-parsed', () => {
+    const { root } = tempRoot()
+    const first = scan(root).sessions
+    const second = scan(root).sessions
+    expect(first).toHaveLength(1)
+    // Same object identity ⇒ the parser never ran the second time
+    expect(second[0]).toBe(first[0])
+  })
+
+  test('an appended message invalidates the entry', () => {
+    const { root, transcript } = tempRoot()
+    const before = scan(root).sessions[0]!
+
+    appendFileSync(
+      transcript,
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u99',
+        parentUuid: 'u1',
+        isSidechain: false,
+        timestamp: '2026-07-01T11:00:00.000Z',
+        cwd: '/Users/test/Desktop/Projects/pie',
+        sessionId: SESSION_ID,
+        message: { role: 'user', content: 'and a lattice top?' }
+      }) + '\n'
+    )
+
+    const after = scan(root).sessions[0]!
+    expect(after).not.toBe(before)
+    expect(after.messageCount).toBe(before.messageCount + 1)
+  })
+
+  test('a deleted transcript leaves the scan and the cache', () => {
+    const { root, transcript } = tempRoot()
+    expect(scan(root).sessions).toHaveLength(1)
+
+    rmSync(transcript)
+    expect(scan(root).sessions).toHaveLength(0)
+
+    // Restoring identical bytes must parse again rather than resurrect the entry
+    copyFileSync(fixture('claude/v2.1-basic.jsonl'), transcript)
+    expect(scan(root).sessions).toHaveLength(1)
+  })
+
+  test('cache entries are keyed per root, so a second root is not shadowed', () => {
+    const a = tempRoot()
+    const b = tempRoot()
+    expect(scan(a.root).sessions).toHaveLength(1)
+    expect(scan(b.root).sessions).toHaveLength(1)
+    // Scanning b must not have pruned a's entry
+    expect(scan(a.root).sessions).toHaveLength(1)
   })
 })

@@ -302,7 +302,7 @@ export function App(): React.JSX.Element {
       }
     })
     const offToast = window.api.onAppToast((message) => showToast(message))
-    const offChanged = window.api.onSessionsChanged(() => void refresh())
+    const offChanged = window.api.onSessionsChanged((result) => setSessions(result.sessions))
     const offExit = window.api.onTermExit(({ id }) => {
       setTabs((t) => t.map((tab) => (tab.termId === id ? { ...tab, exited: true } : tab)))
     })

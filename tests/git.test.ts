@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { gitCommitDetail, gitDiff, gitLog, gitStatus } from '../src/main/git'
+import { gitCommitDetail, gitDiff, gitLog, gitStatus, gitWatchIgnored } from '../src/main/git'
 import { parseDiff, unwrapCommitBody } from '../src/renderer/src/components/GitDiffView'
 
 // Real git against a scratch repo. It must live under an allowed root
@@ -215,5 +215,36 @@ describe('unwrapCommitBody', () => {
     expect(unwrapCommitBody('Note: this whole body is prose.')).toBe(
       'Note: this whole body is prose.'
     )
+  })
+})
+
+describe('gitWatchIgnored', () => {
+  const R = '/Users/t/proj'
+
+  test('working-tree files wake the panel', () => {
+    for (const p of [`${R}/src/index.ts`, `${R}/README.md`, `${R}/a b/c.txt`]) {
+      expect(gitWatchIgnored(p)).toBe(false)
+    }
+  })
+
+  test('node_modules is dropped at any depth, but a lookalike name is not', () => {
+    expect(gitWatchIgnored(`${R}/node_modules/react/index.js`)).toBe(true)
+    expect(gitWatchIgnored(`${R}/packages/x/node_modules/y/z.js`)).toBe(true)
+    expect(gitWatchIgnored(`${R}/node_modules`)).toBe(true)
+    expect(gitWatchIgnored(`${R}/node_modules_notes.md`)).toBe(false)
+  })
+
+  test('.git object churn is dropped, state-moving entries are kept', () => {
+    expect(gitWatchIgnored(`${R}/.git/objects/ab/cdef`)).toBe(true)
+    expect(gitWatchIgnored(`${R}/.git/logs/HEAD`)).toBe(true)
+    for (const keep of ['HEAD', 'ORIG_HEAD', 'MERGE_HEAD', 'index', 'packed-refs', 'refs/heads/main']) {
+      expect(gitWatchIgnored(`${R}/.git/${keep}`)).toBe(false)
+    }
+  })
+
+  test('.gitignore is a tracked file, not a .git internal', () => {
+    expect(gitWatchIgnored(`${R}/.gitignore`)).toBe(false)
+    expect(gitWatchIgnored(`${R}/.gitattributes`)).toBe(false)
+    expect(gitWatchIgnored(`${R}/src/.gitkeep`)).toBe(false)
   })
 })

@@ -3,7 +3,14 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
-import { CLAUDE_ROOT, CODEX_ROOT, loadSession, scanAll, type Source } from '../shared/adapter'
+import {
+  CLAUDE_ROOT,
+  CODEX_ROOT,
+  loadSession,
+  scanAll,
+  type SessionMeta,
+  type Source
+} from '../shared/adapter'
 import { scanCapabilities } from '../shared/capabilities/scan'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
 import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
@@ -126,6 +133,17 @@ function createWindow(): void {
       // Chromium's built-in PDF viewer — the editor's .pdf preview iframe
       plugins: true
     }
+  })
+
+  // fs and git watches are created on demand by the renderer and closed by its
+  // React cleanups — which never run when the page itself goes away. A reload
+  // (⌘R, or a dev-server full reload) therefore orphaned every watcher and the
+  // fresh page opened its own on top; only quitting ever released them. Reap
+  // them here instead: the renderer re-subscribes on mount either way.
+  mainWindow.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+    if (!isMainFrame || isSameDocument) return
+    disposeAllWatches()
+    disposeAllGitWatches()
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -337,10 +355,9 @@ function registerIpc(): void {
  * appear, match them to unbound panes by source + cwd + spawn time and tell
  * the renderer, so the tab can be labeled and persisted as resumable.
  */
-function bindNewSessions(): void {
+function bindNewSessions(sessions: SessionMeta[]): void {
   const panes = getUnboundPanes()
   if (panes.length === 0) return
-  const { sessions } = scanAll()
   for (const session of sessions) {
     const pane = matchSessionToPane(panes, session)
     if (!pane) continue
@@ -355,23 +372,39 @@ function bindNewSessions(): void {
   }
 }
 
+/**
+ * Claude keeps session transcripts directly inside each project dir, so depth 1
+ * covers them — anything deeper is subagent transcripts and memory, which can
+ * never change the session list and used to wake a full rescan. Codex nests its
+ * rollouts under sessions/YYYY/MM/DD, so that root keeps the deeper reach.
+ */
 function watchSessionStores(): void {
-  const watcher = chokidar.watch(
-    [CLAUDE_ROOT, join(CODEX_ROOT, 'sessions'), join(CODEX_ROOT, 'session_index.jsonl')],
-    { ignoreInitial: true, depth: 4 }
-  )
+  const watchers = [
+    chokidar.watch(CLAUDE_ROOT, { ignoreInitial: true, depth: 1 }),
+    chokidar.watch([join(CODEX_ROOT, 'sessions'), join(CODEX_ROOT, 'session_index.jsonl')], {
+      ignoreInitial: true,
+      depth: 4
+    })
+  ]
 
   let timer: NodeJS.Timeout | null = null
-  watcher.on('all', () => {
+  const onChange = (): void => {
     // Debounce: JSONL files are appended line-by-line during active sessions
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
-      bindNewSessions()
-      safeSend(mainWindow, 'sessions:changed')
+      timer = null
+      // One scan serves both consumers — the renderer gets the result on the
+      // event rather than invoking sessions:list and paying for a second one
+      const result = scanAll()
+      bindNewSessions(result.sessions)
+      safeSend(mainWindow, 'sessions:changed', result)
     }, 1000)
-  })
+  }
 
-  app.on('before-quit', () => watcher.close())
+  for (const watcher of watchers) watcher.on('all', onChange)
+  app.on('before-quit', () => {
+    for (const watcher of watchers) void watcher.close()
+  })
 }
 
 /** Same pattern as the session stores: any change under the notes root → rescan. */

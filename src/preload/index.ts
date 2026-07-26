@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
+import type { ScanResult } from '../shared/adapter/types'
 import type {
   CreateWorktreeResult,
   MergeWorktreeResult,
@@ -78,8 +79,10 @@ const api = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSession: (ref: { source: string; filePath: string }) =>
     ipcRenderer.invoke('sessions:get', ref),
-  onSessionsChanged: (cb: () => void) => {
-    const listener = (): void => cb()
+  // Carries the scan result — the main process already paid for it, so the
+  // renderer must not turn around and invoke sessions:list for the same data
+  onSessionsChanged: (cb: (result: ScanResult) => void) => {
+    const listener = (_e: IpcRendererEvent, result: ScanResult): void => cb(result)
     ipcRenderer.on('sessions:changed', listener)
     return () => ipcRenderer.removeListener('sessions:changed', listener)
   },

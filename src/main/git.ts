@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
+import { watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
-import chokidar, { type FSWatcher } from 'chokidar'
 import { resolveInsideRoots } from './file-explorer'
 import { safeSend } from './safe-send'
 
@@ -398,6 +398,14 @@ export async function gitDiff(root: string, spec: GitDiffSpec): Promise<DiffResu
 // One recursive watcher per subscribed root, feeding a debounced git:changed
 // event. Inside .git only the files that signal "repo state moved" are kept —
 // HEAD, index, refs — so object-store churn never wakes the renderer.
+//
+// This uses node's recursive fs.watch (FSEvents on macOS) rather than chokidar.
+// Chokidar 5 has no fsevents path: it opens one fs.watch per directory, which
+// measured 2433 file descriptors for this repo alone — 1125 of its 1137 watched
+// directories were gitignored build output (dist/, .build/). Enough subscribed
+// roots and the process hits EMFILE and every watcher starts failing. FSEvents
+// costs no descriptors and no startup traversal, and the filtering below was
+// already ours to do.
 
 export interface GitChangedEvent {
   watchId: number
@@ -408,7 +416,8 @@ const GIT_INTERNAL_KEEP = /^(HEAD|ORIG_HEAD|MERGE_HEAD|FETCH_HEAD|packed-refs|in
 
 interface GitWatchEntry {
   watcher: FSWatcher
-  timer: NodeJS.Timeout | null
+  /** Drops a debounce still in flight, so a closed watcher can't fire late */
+  cancelPending: () => void
 }
 
 const gitWatches = new Map<number, GitWatchEntry>()
@@ -416,14 +425,14 @@ let nextGitWatchId = 1
 
 const GIT_DEBOUNCE_MS = 400
 
-function gitWatchIgnored(path: string): boolean {
-  if (path.includes('/node_modules')) return true
-  const idx = path.indexOf('/.git')
+/** Exported for tests — the only logic between an FSEvent and a renderer wake. */
+export function gitWatchIgnored(path: string): boolean {
+  if (path.includes('/node_modules/') || path.endsWith('/node_modules')) return true
+  // Match the directory, not the prefix — /.gitignore is a tracked file whose
+  // edits move `git status`, so it must not be swallowed as a .git internal
+  const idx = path.indexOf('/.git/')
   if (idx === -1) return false
-  const rest = path.slice(idx + '/.git'.length)
-  // .git itself must stay traversable or HEAD/refs are never seen
-  if (rest === '') return false
-  return !GIT_INTERNAL_KEEP.test(rest.slice(1))
+  return !GIT_INTERNAL_KEEP.test(path.slice(idx + '/.git/'.length))
 }
 
 export function startGitWatch(win: BrowserWindow, root: string): number {
@@ -432,29 +441,45 @@ export function startGitWatch(win: BrowserWindow, root: string): number {
   if (!real || real === homedir()) return -1
 
   const id = nextGitWatchId++
-  const entry: GitWatchEntry = {
-    watcher: chokidar.watch(real, { ignoreInitial: true, ignored: gitWatchIgnored }),
-    timer: null
-  }
-  entry.watcher.on('all', () => {
-    if (entry.timer) clearTimeout(entry.timer)
-    entry.timer = setTimeout(() => {
-      entry.timer = null
+  let timer: NodeJS.Timeout | null = null
+
+  const fire = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
       safeSend(win, 'git:changed', { watchId: id } satisfies GitChangedEvent)
     }, GIT_DEBOUNCE_MS)
-  })
-  entry.watcher.on('error', (err) => {
+  }
+
+  let watcher: FSWatcher
+  try {
+    watcher = watch(real, { recursive: true }, (_event, filename) => {
+      // FSEvents coalesces, and drops the name when it does — assume it mattered
+      if (filename === null || !gitWatchIgnored(join(real, filename.toString()))) fire()
+    })
+  } catch (err) {
+    console.error(`git watch ${id}:`, err)
+    return -1
+  }
+  watcher.on('error', (err) => {
     console.error(`git watch ${id}:`, err)
   })
-  gitWatches.set(id, entry)
+
+  gitWatches.set(id, {
+    watcher,
+    cancelPending: () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
+  })
   return id
 }
 
 export function stopGitWatch(watchId: number): void {
   const entry = gitWatches.get(watchId)
   if (!entry) return
-  if (entry.timer) clearTimeout(entry.timer)
-  void entry.watcher.close()
+  entry.cancelPending()
+  entry.watcher.close()
   gitWatches.delete(watchId)
 }
 
