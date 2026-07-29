@@ -49,8 +49,9 @@ ordinary manual entry.
 | Storage location | **`~/.chewo/todos/<scope>/`** — global dotfolder: human-greppable, survives app-data resets, readable by agents/MCP without going through the app | `userData` (buried in `~/Library/Application Support`); in-repo `.chewo/` per project (pollutes repos) |
 | STT cold start | **Overlap capture with load + idle unload** (revised 2026-07-19): the hotkey opens the mic *immediately* — the sidecar buffers audio while the model loads in parallel, and transcription catches up ~2–4 s later, so perceived latency is ~0. Model stays resident **15 min after last use** (covers bursts), then a new mic-less `unload` command frees it — RAM cost between sparse uses is ~0. Same `prewarm` command fires on opening the notes recording view (load overlaps subject/topic picking). Single model shared with notes (default `large-v3-turbo`) | Always-resident prewarm at launch (~1–1.5 GB held for once-every-2 h usage — wasteful); lazy first-use load with a blocking wait (today's notes behavior); a smaller dedicated command model (`base.en` already measured ~90% on Martin's accented speech — misses land in card titles) |
 | Interpreter invocation | **Agent-agnostic since 2026-07-29** (Settings → Agents; default Claude) — `agent-runner.runAgentJson` maps the schema onto each CLI: Claude `--json-schema <schema>` → `structured_output`; Codex `--output-schema <file>` → the final `agent_message` *is* the JSON, and the schema is rewritten to OpenAI strict mode first (`toStrictSchema`). Originally `claude -p --model sonnet --output-format json --json-schema <schema>` — `--json-schema` enforces the command JSON (result in `structured_output`), replacing prompt-begged JSON. Verified vs docs 2026-07-19: print mode is strictly one-shot — **no persistent stream-json input mode exists**, so per-call process cold start is unavoidable. Measured 2026-07-19: ~4–5 s end-to-end per command | `--bare` (tested 2026-07-19 on CLI 2.1.215: breaks keychain auth — "Not logged in" — so dropped); resident multi-turn `claude` process (unsupported); direct Anthropic API (kept as fallback — needs an API key billed separately from the CLI's subscription auth) |
-| Run trigger | **Revised 2026-07-21 — "Run in Claude" button in the card modal.** You open the card, read the full title/text/images you're about to send, and click. The original drop strip was built and rejected in use: it hid the detail you're launching, and mounting it at `dragstart` reflowed the board and killed native card dragging outright (see §12) | Drop strip (built 2026-07-20, removed 2026-07-21); drop-into-In-Progress as the trigger (every bookkeeping move would launch a session); modifier-key drop (undiscoverable) |
-| Drag-to-run submit | **Auto-submit**: the prompt rides as `claude`'s positional argv, so the session launches already working. User-initiated action on the user's own content — distinct from the no-auto-Enter `nudgeAgentPane` convention, which governs injecting into *running* sessions | Pre-fill without Enter (review-then-submit) |
+| Run trigger | **Revised 2026-07-21 — a run button in the card modal.** You open the card, read the full title/text/images you're about to send, and click. The original drop strip was built and rejected in use: it hid the detail you're launching, and mounting it at `dragstart` reflowed the board and killed native card dragging outright (see §12) | Drop strip (built 2026-07-20, removed 2026-07-21); drop-into-In-Progress as the trigger (every bookkeeping move would launch a session); modifier-key drop (undiscoverable) |
+| Drag-to-run submit | **Auto-submit**: the prompt rides as the CLI's positional argv, so the session launches already working. User-initiated action on the user's own content — distinct from the no-auto-Enter `nudgeAgentPane` convention, which governs injecting into *running* sessions | Pre-fill without Enter (review-then-submit) |
+| Run agent | **Added 2026-07-29 — a split button: the label runs the remembered agent, the caret picks the other and runs it.** Which agent suits a card is a per-card judgement, so the choice lives at the moment of launching; it sticks (in `projects.json`, not on the card) because runs come in streaks. Claude was hardcoded before this | Claude-only (the shipped behavior, rejected — the app is two-CLI everywhere else); an entry in Settings → Agents (that tab is for the *headless* features; a launcher choice buried two screens away is worse than one next to the button); a per-card agent field (bookkeeping nobody wants to maintain) |
 | General-board cwd | General cards run in **Home (`~`)**, like Home-section sessions | Project picker on drop; disabling the strip on General |
 | Card ↔ session link | **Move + link**: card moves to top of In Progress; renderer keeps a `cardId → termId` map for a ▶ badge that jumps to the live tab; `lastRunAt` persisted on the card. No auto-move to Done — there is no reliable "task finished" signal | Move only (no badge/jump); no side effects at all |
 
@@ -287,19 +288,20 @@ Three things T3 needed beyond the wrappers:
 
 ---
 
-## 10. Drag-to-run: card → Claude session (implemented 2026-07-20)
+## 10. Card → agent session (implemented 2026-07-20)
 
-Drop a card on a dedicated run strip and Chewo spins up an **interactive
-Claude Code session** in the card's scope with the card's content as the
-already-submitted prompt. Decisions locked via Q&A 2026-07-20 (§2.1),
-defaults Q11–Q15 (§2.2).
+Hit run on a card and Chewo spins up an **interactive agent session** —
+Claude Code or Codex, the user's pick (§10.3) — in the card's scope with the
+card's content as the already-submitted prompt. Decisions locked via Q&A
+2026-07-20 (§2.1), defaults Q11–Q15 (§2.2).
 
 ### 10.1 UX flow
 
 1. Click a card → the edit modal (§5), where the full title, text, and
-   images are visible. Its footer carries **"Run in Claude"**, tooltipped
-   with the target ("…in <project>" / "…in Home (~)") so there are no
-   surprises about where it lands.
+   images are visible. Its footer carries the **run split button**
+   ("Run in Claude" / "Run in Codex", §10.3), tooltipped with the target
+   ("…in <project>" / "…in Home (~)") so there are no surprises about where
+   it lands.
 2. On click:
    - **Pending edits save first**, then the run uses the freshly re-read
      card — the prompt can never be built from text the user has already
@@ -340,15 +342,30 @@ Reference images (read these files):
 - The assets dir lives outside the project cwd, so when the card has
   images the spawn adds `--add-dir ~/.chewo/todos/<scope>/assets` —
   otherwise the session's first Read of them hits a permission prompt.
+- **Codex takes the same prompt text but not the same image trick:** it has
+  no read-side `--add-dir` (its flag grants *write* roots) and its file
+  tools can't read a PNG, so the files are attached with `-i <file>` per
+  image instead. The path list stays in the prompt either way — for Codex it
+  reads as a caption for the attachments.
 
-### 10.3 Plumbing
+### 10.3 Choosing the agent (added 2026-07-29)
 
-- `CreateTerminalOptions` (`terminals.ts`) grows `initialPrompt?: string`
-  and `extraDirs?: string[]`. `buildCommand()` appends `--add-dir` flags
-  and the prompt as a **positional argv** for `source: 'claude'` —
-  `claude <flags> '<prompt>'` starts the interactive REPL with the prompt
-  submitted. That is the whole auto-submit mechanism: no post-spawn pty
-  writes, no synthetic Enter.
+The footer button is a **split control**: the label runs the remembered
+agent, the caret opens a menu of all `AGENT_IDS` and runs the one picked.
+The pick is written to `todoRunAgent` in `projects.json` — a habit, not a
+card property (§2.1) — so it survives restart and the next card offers it
+first. Nothing else about the run differs by agent: same scope, same
+prompt, same move-and-stamp, same badge.
+
+### 10.4 Plumbing
+
+- `CreateTerminalOptions` (`terminals.ts`) grows `initialPrompt?: string`,
+  `extraDirs?: string[]`, and `attachImages?: string[]`. `buildCommand()`
+  appends the prompt as a **positional argv** — `claude <flags> '<prompt>'`
+  / `codex <flags> '<prompt>'` both start their interactive UI with the
+  prompt submitted. That is the whole auto-submit mechanism: no post-spawn
+  pty writes, no synthetic Enter. The only per-agent branch is what follows
+  the prompt: `--add-dir` for claude, `-i` per image for codex.
 - **Escaping is the critical detail:** the command runs through
   `zsh -il -c`, so the prompt is strictly single-quoted (`'` → `'\''`;
   newlines are safe inside single quotes). `shellQuote()` moved to
@@ -358,12 +375,14 @@ Reference images (read these files):
 - **Flag order is load-bearing (found in implementation):** `--add-dir` is
   **variadic** (`<directories...>`), so it swallows every following
   non-option argument. `claude --add-dir <assets> '<prompt>'` — the order
-  §10.3 originally specified — parses the prompt as a second directory and
-  starts claude with no prompt at all ("Input must be provided either
-  through stdin or as a prompt argument", reproduced on CLI 2.1.x
-  2026-07-20). The prompt therefore goes **first**, `--add-dir` last:
-  `claude [flags] '<prompt>' --add-dir '<assets>'`.
-- `initialPrompt`/`extraDirs` thread through `preload` `createTerminal` into
+  this section originally specified — parses the prompt as a second
+  directory and starts claude with no prompt at all ("Input must be provided
+  either through stdin or as a prompt argument", reproduced on CLI 2.1.x
+  2026-07-20). The prompt therefore goes **first**, the dirs last:
+  `claude [flags] '<prompt>' --add-dir '<assets>'`. Codex's `-i` is variadic
+  too (`--image <FILE>...`), so it obeys the same rule:
+  `codex [flags] '<prompt>' -i '<a.png>' -i '<b.png>'`.
+- `initialPrompt`/`extraDirs`/`attachImages` thread through `preload` `createTerminal` into
   `openTerminal` (`App.tsx`), which now returns the `termId` so the badge map
   can key off it. `openTerminal` still sets the terminal view, so switching to
   the code workflow later lands on the session rather than an empty state. The renderer composes the prompt (it has the board and
@@ -462,10 +481,12 @@ Reference images (read these files):
   "reopen the session this card ran in" is ever wanted, that binding is the
   prerequisite.
 - **`--add-dir` behavior:** it is variadic, which already bit the original
-  §10.3 flag order (fixed — prompt first, dirs last; see §10.3). Both the
-  order and the flag's existence are CLI-version-coupled: retest after CLI
+  flag order (fixed — prompt first, dirs last; see §10.4). Both the order
+  and the flag's existence are CLI-version-coupled: retest after CLI
   updates. Whether it actually suppresses the permission prompt on the first
-  image Read is still unverified in the real app.
+  image Read is still unverified in the real app. Codex's `-i` attachment
+  path (added 2026-07-29) carries the same caveat — the flags are read off
+  `codex --help` on 0.14x and untested end-to-end with a card image.
 - Open: everything in §2.
 
 ---
@@ -494,7 +515,7 @@ Reference images (read these files):
   `~/.chewo/todos/p-…/` survives; remove another with it checked and confirm
   the folder is gone.
 - **T5:** open a card with title+text+image on a project board and hit
-  "Run in Claude" — the card lands at top of In Progress, a toast names it,
+  the run button — the card lands at top of In Progress, a toast names it,
   **the board stays on screen**, and the new tab (found via the ▶ badge or
   the Code workflow) shows claude already working on the prompt with
   title/text verbatim and the image read without a permission prompt. Edit
@@ -506,3 +527,8 @@ Reference images (read these files):
   removed drop strip). The ▶ badge and the modal's "Open session" both jump
   to the tab; running again spawns a second session and the badge follows
   the newer one.
+- **Run agent (2026-07-29):** open the caret next to the run button, pick
+  **Codex** — a codex tab starts with the prompt already submitted and the
+  card's image visible to it (attached via `-i`, not read from a path).
+  Restart the app, open any card, and confirm the button now reads
+  "Run in Codex"; switch back and confirm it sticks the other way too.

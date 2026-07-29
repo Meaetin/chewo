@@ -104,8 +104,37 @@ describe('buildCommand with a prompt', () => {
     expect(buildCommand({ source: 'claude', initialPrompt: '   \n ' })).toBe('claude')
   })
 
-  test('codex and shell ignore the prompt — drag-to-run is claude-only', () => {
-    expect(buildCommand({ source: 'codex', initialPrompt: 'go', extraDirs: ['/tmp'] })).toBe('codex')
+  test('codex takes the same positional prompt', () => {
+    expect(buildCommand({ source: 'codex', initialPrompt: 'go', approvalPolicy: 'never' })).toBe(
+      `codex --ask-for-approval never 'go'`
+    )
+  })
+
+  test('codex attaches images with -i instead of unlocking a directory', () => {
+    // Codex has no --add-dir for reads and its file tools can't read a PNG,
+    // so the files ride as attachments; -i is variadic, hence prompt first
+    expect(
+      buildCommand({
+        source: 'codex',
+        initialPrompt: 'go',
+        extraDirs: ['/a/assets'],
+        attachImages: ["/a/assets/o'brien.png", '/a/assets/b.png']
+      })
+    ).toBe(`codex 'go' -i '/a/assets/o'\\''brien.png' -i '/a/assets/b.png'`)
+  })
+
+  test('claude ignores attachImages — it reads the paths in the prompt', () => {
+    expect(
+      buildCommand({
+        source: 'claude',
+        initialPrompt: 'go',
+        extraDirs: ['/a/assets'],
+        attachImages: ['/a/assets/a.png']
+      })
+    ).toBe(`claude 'go' --add-dir '/a/assets'`)
+  })
+
+  test('a shell pane ignores the prompt entirely', () => {
     expect(buildCommand({ source: 'shell', initialPrompt: 'go' })).toBeNull()
   })
 })

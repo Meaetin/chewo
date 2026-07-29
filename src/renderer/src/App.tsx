@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderTree, GitBranch, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
-import { DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
+import { agentDef, DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -136,6 +136,8 @@ export function App(): React.JSX.Element {
   const settingsLoaded = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<Workflow>('code')
+  /** Agent the card modal's run button launches — sticky across restarts */
+  const [todoRunAgent, setTodoRunAgent] = useState<Source>('claude')
   const [notesTree, setNotesTree] = useState<NotesTree | null>(null)
   const [notesSel, setNotesSel] = useState<TopicRef | null>(null)
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null)
@@ -260,6 +262,7 @@ export function App(): React.JSX.Element {
       setHomeSettings(file.homeSettings)
       setWorktrees(file.worktrees)
       setWorkflow(file.workflow ?? 'code')
+      setTodoRunAgent(file.todoRunAgent ?? 'claude')
       notesRoot.current = file.notesRoot
       todoHotkey.current = file.todoHotkey
       loaded.current = true
@@ -371,10 +374,21 @@ export function App(): React.JSX.Element {
       worktrees,
       workflow,
       notesRoot: notesRoot.current,
-      todoHotkey: todoHotkey.current
+      todoHotkey: todoHotkey.current,
+      todoRunAgent
     }
     void window.api.saveProjects(file)
-  }, [projects, tabs, selectedProjectId, hiddenIds, homeTerminals, homeSettings, worktrees, workflow])
+  }, [
+    projects,
+    tabs,
+    selectedProjectId,
+    hiddenIds,
+    homeTerminals,
+    homeSettings,
+    worktrees,
+    workflow,
+    todoRunAgent
+  ])
 
   // ---------- appearance ----------
 
@@ -695,6 +709,7 @@ export function App(): React.JSX.Element {
       runCommand?: string
       initialPrompt?: string
       extraDirs?: string[]
+      attachImages?: string[]
     }): Promise<number> => {
       const { claudeMode, codexApproval } = settingsForSection(opts.projectId)
       const termId = await window.api.createTerminal({
@@ -706,7 +721,8 @@ export function App(): React.JSX.Element {
         permissionMode: claudeMode,
         approvalPolicy: codexApproval,
         initialPrompt: opts.initialPrompt,
-        extraDirs: opts.extraDirs
+        extraDirs: opts.extraDirs,
+        attachImages: opts.attachImages
       })
       setTabs((t) => [
         ...t,
@@ -1106,15 +1122,18 @@ export function App(): React.JSX.Element {
   )
 
   /**
-   * "Run in Claude" in the card modal (SPEC-TODOS §10): launches an
-   * interactive Claude session with the card's content as the submitted
-   * prompt. Deliberately does NOT switch to the code workflow — you stay on
-   * the board to keep filing cards, and a toast says where it went. The
-   * card ↔ terminal link is renderer-only and dies with the app (§10.1).
+   * The run button in the card modal (SPEC-TODOS §10): launches an
+   * interactive session on the chosen agent with the card's content as the
+   * submitted prompt. Deliberately does NOT switch to the code workflow — you
+   * stay on the board to keep filing cards, and a toast says where it went.
+   * The card ↔ terminal link is renderer-only and dies with the app (§10.1).
    */
   const [cardRuns, setCardRuns] = useState<Map<string, number>>(new Map())
   const runTodoCard = useCallback(
-    async (cardId: string) => {
+    async (cardId: string, agent: Source) => {
+      // The pick sticks for the next card too — it's a habit, not a per-card
+      // property, so it lives in the workspace file rather than on the card
+      setTodoRunAgent(agent)
       // Re-read rather than trusting a card object from before the modal's
       // save — the prompt must be the text the user just looked at
       const [board, assetsDir] = await Promise.all([
@@ -1124,20 +1143,22 @@ export function App(): React.JSX.Element {
       const card = board.cards[cardId]
       if (!card) return
       const termId = await openTerminal({
-        source: 'claude',
+        source: agent,
         // General runs in Home, like Home-section sessions
         cwd: todoProject?.path ?? null,
         projectId: todoProject?.id ?? null,
         label: card.title.length > 30 ? `${card.title.slice(0, 30)}…` : card.title,
         initialPrompt: composeCardPrompt(card, assetsDir),
-        // The assets folder is outside the cwd — without this the session's
-        // first Read of a pasted image hits a permission prompt
-        extraDirs: card.images?.length ? [assetsDir] : undefined
+        // The assets folder is outside the cwd — without this Claude's first
+        // Read of a pasted image hits a permission prompt. Codex can't read an
+        // image with its file tools at all, so it gets the files attached.
+        extraDirs: card.images?.length ? [assetsDir] : undefined,
+        attachImages: card.images?.map((name) => `${assetsDir}/${name}`)
       })
       setCardRuns((prev) => new Map(prev).set(cardId, termId))
       setTodoBoard(await window.api.todosMarkRun({ scopeDir: todoScopeDir, cardId }))
       showToast(
-        `Running “${card.title}” in Claude — ${todoProject?.name ?? 'Home'}. It's in the Code tabs when you want it.`
+        `Running “${card.title}” in ${agentDef(agent).label} — ${todoProject?.name ?? 'Home'}. It's in the Code tabs when you want it.`
       )
     },
     [openTerminal, showToast, todoProject, todoScopeDir]
@@ -1495,6 +1516,7 @@ export function App(): React.JSX.Element {
               onDeleteCard={deleteTodoCard}
               onArchiveDone={archiveTodoDone}
               runTargetLabel={todoProject?.name ?? 'Home (~)'}
+              runAgent={todoRunAgent}
               onRunCard={runTodoCard}
               onFocusRun={focusCardRun}
               runs={cardRuns}

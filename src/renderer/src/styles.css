@@ -501,6 +501,9 @@ body {
 .wt-modal-footer {
   display: flex;
   align-items: center;
+  /* Buttons never shrink below their label, so a crowded footer must wrap
+     rather than push its last action past the modal's edge */
+  flex-wrap: wrap;
   gap: var(--space-8);
   padding: var(--space-12) var(--space-20);
   border-top: var(--border-hair);
@@ -4796,6 +4799,63 @@ body {
   right: 3px;
   background: var(--scrim);
   border-radius: var(--radius-pill);
+}
+
+/* Split run button in the card modal footer — label runs, caret picks agent */
+.todo-run {
+  position: relative;
+  display: flex;
+}
+
+.todo-run__main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.todo-run__caret {
+  margin-left: -1px;
+  padding-left: var(--space-6);
+  padding-right: var(--space-6);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  color: var(--text-tertiary);
+}
+
+/* Opens upward — the footer sits at the bottom of the modal */
+.todo-run__menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-4));
+  right: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-float);
+}
+
+.todo-run__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-8);
+  background: none;
+  border: none;
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.todo-run__item:hover {
+  background: var(--bg-hover);
 }
 
 .todo-scope-name {

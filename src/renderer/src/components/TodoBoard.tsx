@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlignLeft,
   Archive,
+  ChevronDown,
   Image as ImageIcon,
   Play,
   Plus,
@@ -11,7 +12,9 @@ import {
   X
 } from 'lucide-react'
 import { ModalShell } from './ModalShell'
-import { Button, IconButton } from './ui'
+import { Badge, Button, IconButton } from './ui'
+import { agentDef, AGENT_IDS } from '../../../shared/agents'
+import type { Source } from '../../../shared/adapter/types'
 import {
   TODO_STATUSES,
   TODO_STATUS_LABELS,
@@ -42,8 +45,10 @@ interface TodoBoardProps {
   onArchiveDone: () => void
   /** Where a run lands — the project name, or "Home (~)" for General */
   runTargetLabel: string
-  /** "Run in Claude" in the card modal → interactive Claude session (§10) */
-  onRunCard: (cardId: string) => Promise<void>
+  /** Agent the run button offers first — the last one that was picked (§10) */
+  runAgent: Source
+  /** The run button in the card modal → interactive agent session (§10) */
+  onRunCard: (cardId: string, agent: Source) => Promise<void>
   onFocusRun: (termId: number) => void
   /** cardId → termId of its latest run; renderer-only, dies with the app */
   runs: Map<string, number>
@@ -103,6 +108,7 @@ export function TodoBoard({
   onDeleteCard,
   onArchiveDone,
   runTargetLabel,
+  runAgent,
   onRunCard,
   onFocusRun,
   runs,
@@ -313,6 +319,7 @@ export function TodoBoard({
           scopeDir={scopeDir}
           card={editing}
           runTargetLabel={runTargetLabel}
+          runAgent={runAgent}
           runningTermId={runningTerm(editing.id)}
           onSave={onUpdateCard}
           onRun={onRunCard}
@@ -460,6 +467,91 @@ const readImage = (file: File): Promise<StagedImage> =>
   })
 
 /**
+ * Split run button: the label runs on the remembered agent, the caret picks a
+ * different one and runs it. Which agent a card should go to is a per-card
+ * judgement, so the choice sits at the moment of launching rather than in
+ * settings — but it sticks (SPEC-TODOS §10.3), because in practice you run a
+ * streak of cards on the same one.
+ */
+function RunAgentButton({
+  agent,
+  disabled,
+  running,
+  runTargetLabel,
+  onRun
+}: {
+  agent: Source
+  disabled: boolean
+  running: boolean
+  runTargetLabel: string
+  onRun: (agent: Source) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    // Stop at the menu — Escape here must not also close the card modal
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  const pick = (next: Source): void => {
+    setOpen(false)
+    onRun(next)
+  }
+
+  return (
+    <div className="todo-run" ref={ref}>
+      <Button
+        className="todo-run__main"
+        disabled={disabled}
+        loading={running}
+        loadingText="Starting…"
+        onClick={() => onRun(agent)}
+        title={`Start a ${agentDef(agent).label} session in ${runTargetLabel} with this card as the prompt`}
+        leadingIcon={<Play size={13} strokeWidth={2} />}
+      >
+        Run in {agentDef(agent).label}
+      </Button>
+      <Button
+        className="todo-run__caret"
+        disabled={disabled || running}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Choose an agent"
+        title="Choose an agent"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <ChevronDown size={14} strokeWidth={1.75} />
+      </Button>
+      {open && (
+        <div className="todo-run__menu" role="menu">
+          {AGENT_IDS.map((id) => (
+            <button key={id} className="todo-run__item" role="menuitem" onClick={() => pick(id)}>
+              <Badge source={id} />
+              Run in {agentDef(id).label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Edit modal (SPEC-TODOS §5): explicit Save/Cancel — the one place in Chewo
  * without autosave. Images paste into the text box and stage locally;
  * nothing touches disk until Save.
@@ -468,6 +560,7 @@ function TodoCardModal({
   scopeDir,
   card,
   runTargetLabel,
+  runAgent,
   runningTermId,
   onSave,
   onRun,
@@ -478,9 +571,10 @@ function TodoCardModal({
   scopeDir: string
   card: TodoCard
   runTargetLabel: string
+  runAgent: Source
   runningTermId: number | null
   onSave: (args: UpdateCardPayload) => Promise<void>
-  onRun: (cardId: string) => Promise<void>
+  onRun: (cardId: string, agent: Source) => Promise<void>
   onFocusRun: (termId: number) => void
   onDelete: () => void
   onClose: () => void
@@ -543,10 +637,10 @@ function TodoCardModal({
    * the modal — the toast reports where it landed, and the board stays put
    * so the next card can be written straight away.
    */
-  const run = async (): Promise<void> => {
+  const run = async (agent: Source): Promise<void> => {
     setRunning(true)
     await commit()
-    await onRun(card.id)
+    await onRun(card.id, agent)
     onClose()
   }
 
@@ -557,6 +651,8 @@ function TodoCardModal({
       title="Edit card"
       subtitle="Paste an image into the text box to attach it"
       busy={saving || running}
+      // Six footer controls once a run is live — 540px overflows them
+      size="wide"
       onClose={onClose}
       footer={
         <>
@@ -585,16 +681,13 @@ function TodoCardModal({
               Open session
             </Button>
           )}
-          <Button
-            disabled={saving || running}
-            loading={running}
-            loadingText="Starting…"
-            onClick={() => void run()}
-            title={`Start a Claude session in ${runTargetLabel} with this card as the prompt`}
-            leadingIcon={<Play size={13} strokeWidth={2} />}
-          >
-            Run in Claude
-          </Button>
+          <RunAgentButton
+            agent={runAgent}
+            disabled={saving}
+            running={running}
+            runTargetLabel={runTargetLabel}
+            onRun={(agent) => void run(agent)}
+          />
           <Button disabled={saving || running} onClick={onClose}>
             Cancel
           </Button>

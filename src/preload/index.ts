@@ -100,6 +100,7 @@ const api = {
     approvalPolicy?: string
     initialPrompt?: string
     extraDirs?: string[]
+    attachImages?: string[]
   }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
   termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
   termResize: (id: number, cols: number, rows: number) =>

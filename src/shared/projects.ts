@@ -85,6 +85,8 @@ export interface ProjectsFile {
   notesRoot?: string
   /** Voice-command capture accelerator (SPEC-TODOS §6); registered in T2 */
   todoHotkey?: string
+  /** Agent a card run launches (SPEC-TODOS §10); unset = ask nothing, use Claude */
+  todoRunAgent?: Source
 }
 
 export const EMPTY_PROJECTS_FILE: ProjectsFile = {

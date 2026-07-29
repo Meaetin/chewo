@@ -28,10 +28,12 @@ export interface CreateTerminalOptions {
   permissionMode?: string
   /** codex --ask-for-approval; omit for the CLI's own default */
   approvalPolicy?: string
-  /** Drag-to-run (§10): claude launches with this already submitted */
+  /** Card run (§10): the agent launches with this already submitted */
   initialPrompt?: string
   /** Extra --add-dir roots, e.g. a card's assets folder outside the cwd */
   extraDirs?: string[]
+  /** Absolute image paths to attach to the initial prompt (codex `-i`) */
+  attachImages?: string[]
 }
 
 interface PaneRecord {
@@ -82,21 +84,29 @@ function permissionFlag(source: Source, opts: CreateTerminalOptions): string {
 
 /**
  * Card content reaches a shell command line, so it is quoted, never
- * interpolated (§10.3). `--add-dir` roots get the same treatment: a project
- * path can contain spaces, quotes, anything.
+ * interpolated (§10.3). Roots and image paths get the same treatment: a
+ * project path can contain spaces, quotes, anything.
  *
- * Order matters: `--add-dir` is **variadic** (`<directories...>`), so it eats
- * every following non-option argument. With the prompt after it, claude sees
- * two directories and no prompt ("Input must be provided…", verified against
- * CLI 2.1.x on 2026-07-20). Prompt first, dirs last.
+ * Both CLIs take the prompt as a **positional argv** and start their
+ * interactive UI with it already submitted — no pty writes, no synthetic
+ * Enter. Images diverge: claude reads paths it finds in the prompt text, so
+ * it only needs the assets folder unlocked (`--add-dir`); codex can't read an
+ * image with its file tools, so the files are attached with `-i` instead.
+ *
+ * Order matters: claude's `--add-dir` and codex's `-i` are both **variadic**,
+ * so they eat every following non-option argument. With the prompt after
+ * them, claude sees two directories and no prompt ("Input must be provided…",
+ * verified against CLI 2.1.x on 2026-07-20). Prompt first, flags last.
  */
 function promptFlags(opts: CreateTerminalOptions): string {
-  if (opts.source !== 'claude') return ''
-  // Positional argv, not stdin: claude starts its interactive REPL with the
-  // prompt already submitted — no pty writes, no synthetic Enter
+  if (opts.source === 'shell') return ''
   const prompt = opts.initialPrompt?.trim()
-  const dirs = (opts.extraDirs ?? []).map((dir) => ` --add-dir ${shellQuote(dir)}`).join('')
-  return `${prompt ? ` ${shellQuote(prompt)}` : ''}${dirs}`
+  const head = prompt ? ` ${shellQuote(prompt)}` : ''
+  const tail =
+    opts.source === 'claude'
+      ? (opts.extraDirs ?? []).map((dir) => ` --add-dir ${shellQuote(dir)}`).join('')
+      : (opts.attachImages ?? []).map((file) => ` -i ${shellQuote(file)}`).join('')
+  return `${head}${tail}`
 }
 
 /** null = plain interactive shell, no command */
@@ -116,7 +126,7 @@ export function buildCommand(opts: CreateTerminalOptions): string | null {
         : `claude${flags}${tail}`
       : opts.sessionId
         ? `codex resume ${opts.sessionId}${flags}`
-        : `codex${flags}`
+        : `codex${flags}${tail}`
   return opts.setupCommand ? `(${opts.setupCommand}) && ${agent}` : agent
 }
 
