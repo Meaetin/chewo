@@ -3595,6 +3595,245 @@ body {
   height: 16px;
 }
 
+/* ---------- branch control (tab bar, right of the tabs) ---------- */
+/* A labelled chip rather than a bare glyph: which branch the checkout is on is
+   the fact, and the menu behind it is the action. */
+.branch-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  max-width: 220px;
+  /* The .tooltip wrapper carries the shared 4px lift off the rail; only the
+     gap to the Run button belongs here */
+  margin-right: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  cursor: pointer;
+}
+.branch-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.branch-button-open {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.branch-button-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-button-track {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
+.branch-button-chevron {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.branch-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-float);
+}
+.branch-menu-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.branch-menu-root {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.branch-menu-upstream {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.branch-menu-actions {
+  display: flex;
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-hair);
+}
+.branch-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  flex: 1;
+  padding: var(--space-6);
+  background: none;
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.branch-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.branch-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.branch-action-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--accent);
+}
+.branch-action-spin {
+  animation: branch-spin 900ms linear infinite;
+}
+@keyframes branch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* git's own message, verbatim — wrapped and scrollable rather than truncated */
+.branch-menu-error {
+  max-height: 120px;
+  overflow-y: auto;
+  margin: var(--space-4) 0;
+  padding: var(--space-6) var(--space-8);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-1);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  white-space: pre-wrap;
+}
+
+.branch-menu-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: none;
+  padding: var(--space-6) var(--space-8);
+  border-bottom: var(--border-hair);
+  color: var(--text-faint);
+}
+.branch-menu-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.branch-menu-search-input::placeholder {
+  color: var(--text-faint);
+}
+
+.branch-menu-list {
+  overflow-y: auto;
+  min-height: 0;
+  padding-top: var(--space-4);
+}
+.branch-menu-section {
+  padding: var(--space-8) var(--space-8) var(--space-4);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.branch-menu-empty,
+.branch-menu-foot {
+  padding: var(--space-8);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-tertiary);
+}
+.branch-menu-foot {
+  flex: none;
+  border-top: var(--border-hair);
+}
+
+.branch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-6) var(--space-8);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.branch-row:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.branch-row-disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.branch-row-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex: none;
+  color: var(--accent);
+}
+.branch-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-row-current .branch-row-name {
+  color: var(--accent);
+}
+.branch-row-tag {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: var(--radius-1);
+  background: var(--bg-hover);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+.branch-row-track {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
+
 /* Empty state — serif headline + one calm glyph (design/04 §2.11) */
 .empty-state-glyph {
   color: var(--text-tertiary);

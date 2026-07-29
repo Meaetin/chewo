@@ -49,6 +49,7 @@ import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
+import { BranchMenu } from './components/BranchMenu'
 import { useGitDirtyCount, useGitStatus } from './useGitStatus'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
@@ -1678,6 +1679,14 @@ export function App(): React.JSX.Element {
 
           {/* Pinned to the far right, outside the scrolling tab strip */}
           <div className="terminal-tab-actions">
+            {gitRoot && (
+              <BranchMenu
+                root={gitRoot}
+                rootLabel={treeRootLabel}
+                status={repoStatus}
+                onToast={showToast}
+              />
+            )}
             <IconButton
               label={`Run start command in ${selectedProject?.name ?? 'Home'}`}
               className="run-start-button"

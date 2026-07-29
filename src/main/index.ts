@@ -104,6 +104,7 @@ import {
   stopGitWatch,
   type GitDiffSpec
 } from './git'
+import { gitBranches, gitCheckout, gitFetch, gitPull, gitPush } from './git-ops'
 import {
   disposeVersionWatch,
   getVersionStatus,
@@ -267,6 +268,14 @@ function registerIpc(): void {
     return startGitWatch(mainWindow, root)
   })
   ipcMain.on('git:unwatch', (_e, a: { watchId: number }) => stopGitWatch(a.watchId))
+
+  ipcMain.handle('git:branches', (_e, root: string) => gitBranches(root))
+  ipcMain.handle('git:checkout', (_e, a: { root: string; ref: string; create?: boolean }) =>
+    gitCheckout(a)
+  )
+  ipcMain.handle('git:fetch', (_e, root: string) => gitFetch(root))
+  ipcMain.handle('git:pull', (_e, root: string) => gitPull(root))
+  ipcMain.handle('git:push', (_e, a: { root: string; setUpstream?: boolean }) => gitPush(a))
 
   ipcMain.handle('notes:scan', () => scanNotes())
   ipcMain.handle('notes:read', (_e, path: string) => readNote(path))

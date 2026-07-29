@@ -22,6 +22,7 @@ import type {
   RepoStatus,
   UntrackedFilesResult
 } from '../main/git'
+import type { BranchListResult, GitOpResult } from '../main/git-ops'
 import type {
   FileOpResult,
   FsChangedEvent,
@@ -171,6 +172,14 @@ const api = {
     ipcRenderer.invoke('git:diff', args) as Promise<DiffResult>,
   gitUntrackedFiles: (args: { root: string; dir: string }) =>
     ipcRenderer.invoke('git:untracked-files', args) as Promise<UntrackedFilesResult>,
+  gitBranches: (root: string) =>
+    ipcRenderer.invoke('git:branches', root) as Promise<BranchListResult>,
+  gitCheckout: (args: { root: string; ref: string; create?: boolean }) =>
+    ipcRenderer.invoke('git:checkout', args) as Promise<GitOpResult>,
+  gitFetch: (root: string) => ipcRenderer.invoke('git:fetch', root) as Promise<GitOpResult>,
+  gitPull: (root: string) => ipcRenderer.invoke('git:pull', root) as Promise<GitOpResult>,
+  gitPush: (args: { root: string; setUpstream?: boolean }) =>
+    ipcRenderer.invoke('git:push', args) as Promise<GitOpResult>,
   gitWatch: (root: string) => ipcRenderer.invoke('git:watch', root) as Promise<number>,
   gitUnwatch: (watchId: number) => ipcRenderer.send('git:unwatch', { watchId }),
   onGitChanged: (cb: (e: GitChangedEvent) => void) => {
