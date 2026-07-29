@@ -12,7 +12,7 @@
 
 Lessons (lectures, meetings, study sessions) arrive as speech or pasted text and
 die as unstructured transcripts. Martin wants to capture them in Chewo, have
-them transcribed locally, broken down by an LLM into structured, sectioned
+them transcribed, broken down by an LLM into structured, sectioned
 notes filed under subjects/topics, and then **query the whole corpus with
 agents** ("summarize what I've covered on X", "answer this from my notes").
 
@@ -32,21 +32,29 @@ agents** ("summarize what I've covered on X", "answer this from my notes").
 
 | Question | Decision | Rejected |
 |---|---|---|
-| STT engine | **Local sidecar process**, pluggable engines | whisper.cpp in-process, cloud API |
+| STT engine | **Deepgram streaming API**, with a local sidecar for capture only (revised 2026-07-29) | Local WhisperKit (was v1 — removed), whisper.cpp in-process |
 | v1 inputs | Live mic, paste text, typed notes | Audio-file import, images (deferred) |
 | Storage | **Markdown files + folders** on disk | projects.json blob, SQLite |
 | Intelligence | **A headless agent CLI, user-selectable** (Settings → Agents): `claude -p` or `codex exec`. Registry + flag/envelope adapter in `src/shared/agents.ts` + `src/main/agent-runner.ts`; default Claude | Hardcoding one CLI (was the case until 2026-07-29), direct Anthropic API, Ollama |
 | Structuring trigger | **On stop** — one pass over the full transcript | Live incremental, manual-only |
 | Q&A surface | **Inline chat panel** in notes mode | Terminal pane, both-at-once |
 | Taxonomy | **Fully manual** — user names subject and topic | AI-suggested, fully automatic |
-| Raw retention | **Keep transcript, discard audio** | Keep audio, keep nothing |
+| Raw retention | **Keep transcript; audio only until the transcript lands** (§6.4) | Keep audio indefinitely, keep nothing |
 
-Context on STT accuracy: the existing dictation prototype
-(`~/Desktop/Projects/untitled-project`) uses **WhisperKit** (local Core ML
-Whisper, not the OpenAI API) with `openai_whisper-base.en` — the ~90% accuracy
-on accented speech is almost certainly the tiny model, not Whisper itself.
-Default here is **`large-v3-turbo`**; Parakeet (`parakeet-mlx`) is a phase-4
-A/B alternative, which is why the sidecar protocol is engine-agnostic.
+**Revised 2026-07-29 — transcription moved off this machine.** v1 ran
+WhisperKit locally. Provisioning it was the whole problem: a 1.5 GB download, a
+cache location the app had to take ownership of, completion markers because an
+interrupted download looks complete and fails hours later at load, and a
+17 s–2 min model load. Deepgram removes all of it — no weights, no catalog, no
+residency, ~300 ms to first word. What it cannot do is capture audio, so the
+Swift sidecar survives for exactly that (§6.2).
+
+The costs are real and are accepted: **dictation now needs a network
+connection**, and **audio leaves the machine** — including, for `mix`/`system`
+capture, the voices of everyone else in the meeting. Nothing in the UI, specs,
+README, or the two TCC permission strings may describe transcription as local.
+Pricing is per minute of audio (§6.3), so a long lecture has a cost attached
+where it previously had none.
 
 ---
 
@@ -67,9 +75,9 @@ A/B alternative, which is why the sidecar protocol is engine-agnostic.
 │  └───────┬────────┘   └────────┬─────────┘   │ (stream-json)   │  │
 │          │                     │             └────────┬────────┘  │
 └──────────┼─────────────────────┼──────────────────────┼───────────┘
-   chewo-stt-whisper       reads .raw.md,          cwd = scope dir,
-   (Swift/WhisperKit CLI)  stdout → note.md        tools: Read/Grep/Glob
-   later: chewo-stt-parakeet
+   chewo-audio-capture     reads .raw.md,          cwd = scope dir,
+   (Swift, capture only)   stdout → note.md        tools: Read/Grep/Glob
+   PCM on fd 3 → Deepgram
                      <notes root>/<Subject>/<Topic>/*.md
                      (chokidar-watched, disk is the only data source)
 ```
@@ -121,7 +129,7 @@ title: Brachial plexus
 date: 2026-07-17T14:05:00+08:00
 source: dictation        # dictation | paste | typed
 status: structured        # raw | structured
-stt: { engine: whisperkit, model: large-v3-turbo }   # dictation only
+stt: { model: nova-3-general, language: en }          # dictation only
 duration_s: 2710                                      # dictation only
 ---
 ```
@@ -136,18 +144,32 @@ duration_s: 2710                                      # dictation only
 
 ---
 
-## 6. STT sidecar
+## 6. Dictation
 
-A headless local process owning mic capture + streaming transcription,
-spawned by main via `child_process.spawn` (not node-pty), speaking
-**JSON-lines over stdio**.
+Two processes. A headless Swift sidecar owns audio capture and nothing else;
+the Electron main process owns the Deepgram connection, the API key, and every
+decision about what the words mean.
+
+```
+Swift sidecar                     Electron main                     renderer
+─────────────                     ─────────────                     ────────
+mic / process tap ──16k mono──▶  fd 3 ──▶ Deepgram WS ──Results──▶  partial/final
+     level meter ──stdout JSON──▶         └─▶ userData/recordings/<id>.pcm
+```
+
+The split exists because nothing in Electron can open a Core Audio process tap
+(`mix`/`system`), while everything about the provider is easier to change in
+TypeScript than in a Swift rebuild. The key never enters the renderer.
 
 ### 6.1 Protocol
 
+Control is **JSON-lines over stdio**; audio is **raw PCM on fd 3**, so a burst
+of samples can never be mistaken for an event.
+
 stdin (commands):
 ```json
-{"cmd":"start","model":"large-v3-turbo","source":"mic"}
-{"cmd":"stop"}            // flush tail, emit final, stay alive
+{"cmd":"start","source":"mic"}
+{"cmd":"stop"}
 {"cmd":"shutdown"}
 ```
 
@@ -162,37 +184,92 @@ the structuring prompt, not capture.
 
 stdout (events):
 ```json
-{"event":"loading","progress":0.42}      // first-run model download / prewarm
 {"event":"ready"}
-{"event":"level","rms":0.31}             // ~5 Hz, for the meter
-{"event":"partial","confirmed":"…","tail":"…"}   // ~750 ms cadence
-{"event":"final","text":"…","duration_s":2710}
+{"event":"level","rms":0.31}     // ~5 Hz, for the meter
+{"event":"stopped"}
 {"event":"error","message":"…"}
 ```
 
-### 6.2 Engine 1 (v1): `chewo-stt-whisper`
+fd 3: 16 kHz mono interleaved **Int16** (Deepgram `linear16`) in ~50 ms frames,
+from `ready` until `stopped`.
 
-Swift CLI extracted from the untitled-project prototype — port
-`WhisperDictationService.swift` verbatim (WhisperKit load, `AudioProcessor`
-live capture at 16 kHz, and the **confirm-and-seek** loop: decode only the
-unconfirmed tail via `clipTimestamps`, promote all but the trailing 2 segments,
-750 ms polling gated on ~0.75 s of new samples). Strip SwiftUI; replace
-`DictationViewModel`'s loops with the stdio protocol. Lives in
-`packages/stt-whisper/` (SwiftPM), built by a script in dev, bundled binary in
-the packaged app.
+**`stopped` means the audio is complete.** The sidecar drains its write queue
+before emitting it, so a reader that has consumed fd 3 to that point has the
+whole recording — which is what lets main close the Deepgram stream without
+clipping the final words.
 
-- Default model `large-v3-turbo`, selectable in notes settings
-  (tiny → large-v3). WhisperKit downloads models on first use — surface via
-  `loading` events with a progress bar in the recording view.
+Events the *renderer* sees are a separate, smaller union
+(`connecting | ready | level | partial | final | error`): main synthesises
+`connecting` around the Deepgram handshake and `partial`/`final` from Deepgram
+messages. The sidecar knows nothing about any of them.
 
-### 6.3 Engine 2 (phase 4): `chewo-stt-parakeet`
+### 6.2 Capture sidecar: `chewo-audio-capture`
 
-`parakeet-mlx` wrapped in a Python CLI speaking the identical protocol.
-Settings gets an engine dropdown; A/B on the same lesson = record with one,
-re-run later (transcripts are kept, audio is not, so A/B means dictating twice
-or temporarily keeping audio during the trial — acceptable).
+Swift CLI in `packages/audio-capture/` (SwiftPM), built by a script in dev,
+bundled binary in the packaged app. **No package dependencies** — it is Core
+Audio and AVFoundation only, so a clean build is seconds.
 
----
+- `MicCapture` is `AVAudioEngine` + `installTap`, with one `AVAudioConverter`
+  to 16 kHz mono Int16 (which also does the channel downmix, so a stereo
+  interface needs no special case).
+- `DeviceMixCapture` is the process tap: private aggregate device, drift
+  compensation, mono mixdown, one stateful converter across the session.
+- Frames are written on a **dedicated queue, never the audio thread** — a
+  Core Audio IOProc is a realtime context and a `write` into a full pipe
+  blocks, which would surface as dropouts rather than as backpressure.
+- Microphone permission goes through `AVCaptureDevice.requestAccess(for:.audio)`.
+  `AVAudioApplication` is iOS-only; asking explicitly means a denial is a clean
+  error event rather than a capture that silently records digital black.
+
+### 6.3 Transcription: Deepgram streaming
+
+`src/main/deepgram.ts` is the only file that talks to Deepgram, over
+`listen.v1` (`@deepgram/sdk` v5). Params are `encoding=linear16`,
+`sample_rate=16000`, `channels=1`, `interim_results`, `smart_format`, and
+`endpointing` / `utterance_end_ms` set **explicitly** because the API reference
+and the SDK examples disagree about the defaults.
+
+- **Booleans on the WebSocket go as strings** (`interim_results: 'true'`).
+  Real booleans are silently dropped. The pre-recorded endpoint takes real
+  booleans — the asymmetry is a live trap.
+- Mapping lives in a pure `TranscriptAssembler`: interim messages replace the
+  `tail`, `is_final` messages append to `confirmed`. Paragraphs exist only in
+  `confirmed` (append-only, so breaks never move) and use the rule ported from
+  the Whisper engine — a gap over 1.75 s, or 4 sentences at a boundary.
+- `KeepAlive` every 4 s of silence (Deepgram drops idle connections at 10 s);
+  `CloseStream` on stop, then wait for the flush `Results` + `Metadata`.
+- **Model choice is two tiers, not the catalog.** Deepgram lists 41 streaming
+  models across ~400 rows, nearly all domain variants or superseded
+  generations; Settings → Voice offers Nova-3 monolingual ($0.0048/min) and
+  Nova-3 multilingual ($0.0058/min). Multilingual is not a separate model — it
+  is the same `nova-3-general` with `language=multi`, billed differently.
+  The catalog is still fetched (cached per session) to fill the language list,
+  which does grow over time.
+- **`nova-3` is a wire alias Deepgram accepts but never lists.** Storing it
+  leaves a picker built from the catalog with no matching row, which is how the
+  model setting silently drifted once. `normalizeStt` migrates the known
+  aliases to their canonical names.
+- Flux is **not** offered: it is served over `listen.v2` with a different
+  message protocol.
+
+### 6.4 Safety net: recordings and recovery
+
+Every capture is written to `userData/recordings/<id>.pcm` at the same time it
+goes onto the wire, with a `.json` twin naming the lesson, style, model and
+language. The failure this guards is a two-hour lecture and a dropped
+connection forty minutes in: the stream is gone, the audio is not.
+
+- Writes are **synchronous** (`writeSync`, not a stream). A buffered stream
+  loses whatever is in the buffer when the app dies, and dying mid-recording is
+  precisely the case this exists for. ~1600 bytes at ~20/sec — microseconds.
+- A clean `final` deletes both files. Anything else leaves them, and they
+  appear in Settings → Voice as a pending recovery.
+- Recovery wraps 5-minute slices in a WAV header and submits them to the
+  pre-recorded API in sequence, joining the results, then appends through the
+  same structuring path a live dictation uses. The chunking exists because the
+  batch endpoint 504s past ~10 minutes of audio.
+- ~1.9 MB/min, so a two-hour lecture is ~230 MB — which is why the clean path
+  deletes immediately.
 
 ## 7. Structuring pass (on stop)
 
@@ -267,14 +344,15 @@ claude -p --output-format json --allowedTools "Read" \
 - **N1 — Foundation (no audio, no AI):** workflow switcher + persisted
   `workflow`; notes store + chokidar watcher + rescan; notes sidebar tree;
   CodeMirror editor + preview; typed and pasted notes; settings field.
-- **N2 — Dictation:** extract `chewo-stt-whisper` sidecar from
-  untitled-project; sidecar lifecycle in main + `stt:*` IPC; recording view
-  with live transcript; on-stop structuring pass; re-structure action.
+- **N2 — Dictation:** `chewo-audio-capture` sidecar; sidecar lifecycle +
+  Deepgram stream in main + `stt:*` IPC; recording view with live transcript;
+  on-stop structuring pass; re-structure action. *(Shipped as a local
+  WhisperKit engine, replaced by Deepgram 2026-07-29 — see §2 and §6.)*
 - **N3 — Q&A:** inline chat panel, scope selector, `claude -p` stream-json
   runner in main, `--resume` multi-turn, coding-sidebar cwd filter.
-- **N4 — Later:** `chewo-stt-parakeet` + engine A/B setting; audio-file
-  import; image paste; notes tools in the MCP server; (todo workflow gets its
-  own spec).
+- **N4 — Later:** audio-file import; image paste; notes tools in the MCP
+  server; (todo workflow gets its own spec). *(A second local engine —
+  Parakeet A/B — is dropped: transcription is no longer local.)*
 
 ---
 
@@ -283,23 +361,29 @@ claude -p --output-format json --allowedTools "Read" \
 - **Mic permission (TCC):** the sidecar inherits Chewo's identity; dev runs
   prompt as Electron, the packaged app needs `NSMicrophoneUsageDescription` +
   the audio-input entitlement. Verify early in N2.
-- **Sidecar distribution (sized 2026-07-17):** the Swift sidecar binary is
-  ~6 MB (measured; WhisperKit links statically) — negligible bundle impact.
-  **Never bundle models:** WhisperKit downloads them lazily to
-  `~/Documents/huggingface/…`, outside the .app, so they survive app updates.
-  `large-v3-turbo` quantized is a ~630 MB one-time download (`base.en` 140 MB,
-  full `large-v3` ~950 MB) — needs the `loading` progress UI, and a wifi-less
-  first lecture fails, so offer model preload from settings. Parakeet's real
-  cost is not the ~900 MB model but the Python/MLX runtime (~300–500 MB
-  standalone Python) — keep it strictly phase-4, download-on-opt-in.
+- **Sidecar distribution:** with WhisperKit dropped the sidecar is Core Audio
+  only — a ~200 KB binary with no package dependencies, and no weights to ship
+  or download at all. `~/.chewo/models` from the WhisperKit era is left on disk
+  and reclaimable from Settings → Voice.
+- **Network dependency (new 2026-07-29):** dictation now fails without a
+  connection, where the local engine only needed a first download. A dropped
+  mid-lecture connection is covered by the on-disk recording and recovery
+  (§6.4); a lecture started with no connection at all simply cannot record.
+- **Cost:** ~$0.29/hour monolingual, ~$0.35/hour multilingual. A two-hour
+  lecture is ~$0.58 — small, but non-zero where it used to be free, and the
+  meter runs whenever the mic is open.
+- **Third-party audio:** `mix`/`system` capture sends everyone else on the call
+  to Deepgram, not just the user. The permission strings and the Voice pane say
+  so; whether that needs a per-recording consent step is open.
 - **`claude -p` latency:** seconds of cold start per structuring/Q&A call —
   acceptable on-stop; revisit if inline chat feels sluggish.
 - **`claude -p` output stability:** `--output-format json` / `stream-json`
   schemas are the same internal-schema risk as session JSONL (KNOWN-ISSUES
   #1) — isolate parsing in one adapter module.
-- **Accent accuracy:** if `large-v3-turbo` still misses ~10% of words, that —
-  not features — becomes the N4 priority (Parakeet A/B, or initial-prompt
-  vocabulary hints per subject).
+- **Accent accuracy:** if Nova-3 misses words on accented speech, the levers
+  are keyterm prompting (already exposed in Settings → Voice) and, failing
+  that, Deepgram's newer Flux model — which needs a `listen.v2` client, a
+  different message protocol, and is therefore real work rather than a setting.
 - Resolved: notes root defaults to `~/Documents/Chewo Notes` (legacy installs
   with an existing `~/ChewoNotes` keep it) — see docs/decisions.md 2026-07-19.
 - Open: whether recording

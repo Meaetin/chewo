@@ -36,7 +36,7 @@ function render(): void {
   hudEl.className = `hud hud--${state.phase}`
 
   const statusText: Record<HudState['phase'], string> = {
-    capturing: state.loading ? 'Listening · loading model…' : 'Listening',
+    capturing: state.loading ? 'Listening · connecting…' : 'Listening',
     thinking: 'Thinking…',
     result: 'Done',
     error: 'Voice command'

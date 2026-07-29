@@ -27,8 +27,10 @@ import type {
   WriteFileResult
 } from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
+import type { NotesTree, NoteStyle, SttEvent, SttSource } from '../shared/notes'
+import type { SttModelInfo, SttStatus } from '../shared/stt'
+import type { RecoveryResult } from '../main/recordings'
 import type { McpConnectResult, McpStatus } from '../shared/chewo-mcp'
-import type { NotesTree, SttEvent, SttSource } from '../shared/notes'
 import type { SettingsFile } from '../shared/appearance'
 import type { ArchiveFile, BoardFile, HudState, TodoStatus } from '../shared/todos'
 
@@ -188,10 +190,25 @@ const api = {
     ipcRenderer.on('notes:changed', listener)
     return () => ipcRenderer.removeListener('notes:changed', listener)
   },
-  sttStart: (model: string, source: SttSource = 'mic') =>
-    ipcRenderer.send('stt:start', { model, source }),
+  /** `lessonPath`/`style` are persisted with the audio so a dropped stream
+   *  can still be recovered into the right lesson later. */
+  sttStart: (source: SttSource = 'mic', lessonPath?: string, style?: NoteStyle) =>
+    ipcRenderer.send('stt:start', { source, lessonPath, style }),
   sttStop: () => ipcRenderer.send('stt:stop'),
-  sttPrewarm: (model: string) => ipcRenderer.send('stt:prewarm', { model }),
+  sttStatus: () => ipcRenderer.invoke('stt:status') as Promise<SttStatus>,
+  sttModels: () => ipcRenderer.invoke('stt:models') as Promise<SttModelInfo[]>,
+  /** Resolves to an error sentence, or null once the key is stored */
+  sttSetKey: (key: string) => ipcRenderer.invoke('stt:setKey', key) as Promise<string | null>,
+  sttClearKey: () => ipcRenderer.invoke('stt:clearKey') as Promise<void>,
+  /** Error sentence, or null when Deepgram accepts the key */
+  sttTestKey: (key?: string) => ipcRenderer.invoke('stt:testKey', key) as Promise<string | null>,
+  sttRecover: (id: string) => ipcRenderer.invoke('stt:recover', id) as Promise<RecoveryResult>,
+  sttDiscardRecording: (id: string) =>
+    ipcRenderer.invoke('stt:discardRecording', id) as Promise<void>,
+  /** Whisper weights orphaned by the move to Deepgram — `bytes: 0` when clean */
+  sttLegacyModels: () =>
+    ipcRenderer.invoke('stt:legacyModels') as Promise<{ dir: string; bytes: number }>,
+  sttRemoveLegacyModels: () => ipcRenderer.invoke('stt:removeLegacyModels') as Promise<void>,
   onSttEvent: (cb: (e: SttEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: SttEvent): void => cb(payload)
     ipcRenderer.on('stt:event', listener)

@@ -13,12 +13,16 @@ import {
   type Worktree
 } from '../../shared/projects'
 import {
-  DEFAULT_STT_MODEL,
   type NoteSource,
   type NoteStyle,
   type NotesTree,
   type SttSource
 } from '../../shared/notes'
+import {
+  DEFAULT_STT_SETTINGS,
+  type PendingRecovery,
+  type SttSettings
+} from '../../shared/stt'
 import {
   composeCardPrompt,
   GENERAL_SCOPE,
@@ -47,7 +51,7 @@ import { GitDiffView } from './components/GitDiffView'
 import { useGitDirtyCount, useGitStatus } from './useGitStatus'
 import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
-import { AppSettings } from './components/settings/AppSettings'
+import { AppSettings, type SettingsPane } from './components/settings/AppSettings'
 import { applyAppearance } from './theme/applyAppearance'
 import { makeTerminalTheme } from './theme/terminalTheme'
 import { makeEditorTheme } from './theme/editorTheme'
@@ -131,8 +135,15 @@ export function App(): React.JSX.Element {
   /** Section whose settings modal is open — string id, or null for Home */
   const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SettingsPane>('presets')
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
   const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
+  const [stt, setStt] = useState<SttSettings>(DEFAULT_STT_SETTINGS)
+  // Whether a Deepgram key is stored. Dictation is disabled until it is —
+  // the alternative is an open mic with nowhere to send the audio.
+  const [sttReady, setSttReady] = useState(false)
+  /** Recordings whose stream died; their audio is still on disk */
+  const [sttPending, setSttPending] = useState<PendingRecovery[]>([])
   const settingsLoaded = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<Workflow>('code')
@@ -162,6 +173,9 @@ export function App(): React.JSX.Element {
   workflowRef.current = workflow
   const notesSelRef = useRef<TopicRef | null>(null)
   notesSelRef.current = notesSel
+  const sttModelRef = useRef(DEFAULT_STT_SETTINGS.model)
+  sttModelRef.current = stt.model
+  const refreshSttStatusRef = useRef<() => Promise<void>>(async () => {})
   const selectedNotePathRef = useRef<string | null>(null)
   selectedNotePathRef.current = selectedNotePath
   const notesRoot = useRef<string | undefined>(undefined)
@@ -176,6 +190,12 @@ export function App(): React.JSX.Element {
     setToast(text)
     if (toastTimer.current) clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), 8000)
+  }, [])
+
+  /** `pane` lets a nudge elsewhere in the app land on the right section. */
+  const openAppSettings = useCallback((pane: SettingsPane = 'presets') => {
+    setSettingsPane(pane)
+    setAppSettingsOpen(true)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -193,6 +213,59 @@ export function App(): React.JSX.Element {
    * into the lesson: through the open editor when it's mounted (so typing is
    * never clobbered), else straight to the file.
    */
+  /**
+   * Structures a transcript and lands it in its lesson — the shared tail of a
+   * live dictation and of a recording recovered after its stream died.
+   *
+   * An open editor receives it as a pending append rather than a file write,
+   * so typing during a recording is never clobbered; a lesson that isn't on
+   * screen is written directly.
+   */
+  const appendTranscript = useCallback(
+    async (
+      lessonPath: string,
+      transcript: string,
+      durationS: number,
+      style: NoteStyle,
+      verb: string
+    ) => {
+      const res = await window.api.notesStructure({
+        lessonPath,
+        transcript,
+        durationS,
+        sttModel: sttModelRef.current,
+        style
+      })
+
+      // A failed pass still lands in the lesson — as the raw transcript
+      const when = new Date().toLocaleString()
+      const stamp = res.ok
+        ? `*${verb} ${when}*`
+        : `*${verb} ${when} — structuring failed, raw transcript:*`
+      const addition = `---\n\n${stamp}\n\n${(res.ok ? (res.body ?? '') : transcript).trim()}`
+
+      const editorMounted =
+        workflowRef.current === 'notes' && selectedNotePathRef.current === lessonPath
+      if (editorMounted) {
+        setPendingAppend({ id: ++appendSeq.current, path: lessonPath, text: addition })
+      } else {
+        try {
+          const existing = await window.api.notesRead(lessonPath)
+          await window.api.notesWrite(
+            lessonPath,
+            existing.replace(/\s+$/, '') + '\n\n' + addition + '\n'
+          )
+        } catch {
+          showToast('Lesson file is gone — the transcript is kept in its .raw.md twin.')
+        }
+      }
+
+      void refreshNotes()
+      if (!res.ok) showToast(`Structuring failed: ${res.error ?? 'unknown'} — appended raw transcript.`)
+    },
+    [refreshNotes, showToast]
+  )
+
   const finalizeRecording = useCallback(
     async (text: string, durationS: number) => {
       const rec = recordingRef.current
@@ -206,45 +279,10 @@ export function App(): React.JSX.Element {
       const style = rec.phase === 'structuring' ? 'lecture' : rec.style
       const verb = rec.phase !== 'structuring' && rec.source !== 'mic' ? 'Recorded' : 'Dictated'
       setRecording({ phase: 'structuring', ref: rec.ref, notePath: rec.notePath })
-      const res = await window.api.notesStructure({
-        lessonPath: rec.notePath,
-        transcript,
-        durationS,
-        sttModel: DEFAULT_STT_MODEL,
-        style
-      })
-
-      // A failed pass still lands in the lesson — as the raw transcript
-      const when = new Date().toLocaleString()
-      const stamp = res.ok
-        ? `*${verb} ${when}*`
-        : `*${verb} ${when} — structuring failed, raw transcript:*`
-      const addition = `---\n\n${stamp}\n\n${(res.ok ? (res.body ?? '') : transcript).trim()}`
-
-      const editorMounted =
-        workflowRef.current === 'notes' &&
-        selectedNotePathRef.current === rec.notePath &&
-        notesSelRef.current?.subject === rec.ref.subject &&
-        notesSelRef.current?.topic === rec.ref.topic
-      if (editorMounted) {
-        setPendingAppend({ id: ++appendSeq.current, path: rec.notePath, text: addition })
-      } else {
-        try {
-          const existing = await window.api.notesRead(rec.notePath)
-          await window.api.notesWrite(
-            rec.notePath,
-            existing.replace(/\s+$/, '') + '\n\n' + addition + '\n'
-          )
-        } catch {
-          showToast('Lesson file is gone — the transcript is kept in its .raw.md twin.')
-        }
-      }
-
+      await appendTranscript(rec.notePath, transcript, durationS, style, verb)
       setRecording(null)
-      void refreshNotes()
-      if (!res.ok) showToast(`Structuring failed: ${res.error ?? 'unknown'} — appended raw transcript.`)
     },
-    [refreshNotes, showToast]
+    [appendTranscript, showToast]
   )
 
   const onAppendApplied = useCallback((id: number) => {
@@ -270,14 +308,19 @@ export function App(): React.JSX.Element {
     void window.api.loadSettings().then((file) => {
       setAppearance(file.appearance)
       setAgents(file.agents)
+      setStt(file.stt)
       settingsLoaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offStt = window.api.onSttEvent((ev) => {
       switch (ev.event) {
+        // The Deepgram handshake, before the mic opens. Sub-second, so the
+        // panel copy is a reassurance rather than something to wait through.
+        case 'connecting':
+          break
         case 'ready':
           setRecording((r) =>
-            r && r.phase === 'loading'
+            r && r.phase === 'connecting'
               ? {
                   phase: 'recording',
                   ref: r.ref,
@@ -308,6 +351,9 @@ export function App(): React.JSX.Element {
         case 'error':
           showToast(`Dictation: ${ev.message ?? 'unknown error'}`)
           setRecording((r) => (r && r.phase === 'structuring' ? r : null))
+          // A dropped stream leaves its audio on disk, so the pending list
+          // the Voice pane shows has just changed.
+          void refreshSttStatusRef.current()
           break
       }
     })
@@ -401,9 +447,9 @@ export function App(): React.JSX.Element {
   // Persist debounced — dragging the macOS color picker fires per-frame changes
   useEffect(() => {
     if (!settingsLoaded.current) return
-    const t = setTimeout(() => void window.api.saveSettings({ appearance, agents }), 400)
+    const t = setTimeout(() => void window.api.saveSettings({ appearance, agents, stt }), 400)
     return () => clearTimeout(t)
-  }, [appearance, agents])
+  }, [appearance, agents, stt])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
@@ -593,12 +639,12 @@ export function App(): React.JSX.Element {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
-        setAppSettingsOpen(true)
+        openAppSettings()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [openAppSettings])
 
   /**
    * Launch settings belong to the section the terminal lands in — never the
@@ -1002,19 +1048,74 @@ export function App(): React.JSX.Element {
     [notesSel, refreshNotes, showToast]
   )
 
-  // Entering the notes workflow prewarms the STT model — the load overlaps
-  // picking a subject/topic, so hitting record feels instant (SPEC-TODOS §6)
+  // Is there a key to send audio to, and did anything survive a dropped
+  // stream? One call answers both — it is what ungreys every dictation
+  // control and what fills the Voice pane's recovery list.
+  const refreshSttStatus = useCallback(async () => {
+    const status = await window.api.sttStatus()
+    setSttReady(status.hasKey)
+    setSttPending(status.pendingRecoveries)
+  }, [])
+
+  refreshSttStatusRef.current = refreshSttStatus
+
   useEffect(() => {
-    if (workflow === 'notes') window.api.sttPrewarm(DEFAULT_STT_MODEL)
-  }, [workflow])
+    void refreshSttStatus()
+  }, [refreshSttStatus])
 
   const startRecording = useCallback(
     (source: SttSource = 'mic', style: NoteStyle = 'lecture') => {
       if (!notesSel || !selectedNotePath || recordingRef.current) return
-      setRecording({ phase: 'loading', ref: notesSel, notePath: selectedNotePath, source, style })
-      window.api.sttStart(DEFAULT_STT_MODEL, source)
+      if (!sttReady) {
+        showToast('No Deepgram API key yet — add one in Settings → Voice.')
+        return
+      }
+      setRecording({ phase: 'connecting', ref: notesSel, notePath: selectedNotePath, source, style })
+      // The lesson and style travel with the audio so a stream that dies can
+      // still be recovered into the right note later.
+      window.api.sttStart(source, selectedNotePath, style)
     },
-    [notesSel, selectedNotePath]
+    [notesSel, selectedNotePath, sttReady, showToast]
+  )
+
+  /**
+   * Re-transcribes a recording whose live stream died, then puts it through
+   * the same structure-and-append path a normal dictation takes.
+   */
+  const recoverRecording = useCallback(
+    async (id: string) => {
+      const result = await window.api.sttRecover(id)
+      if (!result.ok || !result.transcript) {
+        showToast(result.error ?? 'Nothing could be transcribed from that recording.')
+        await refreshSttStatus()
+        return
+      }
+      const lessonPath = result.meta?.lessonPath
+      if (!lessonPath) {
+        // A to-do voice command has no lesson to land in; the words are of no
+        // use hours later, so recovering it just clears the entry.
+        showToast('Recovered a voice command — nothing to append it to.')
+      } else {
+        await appendTranscript(
+          lessonPath,
+          result.transcript,
+          result.durationS ?? 0,
+          result.meta?.style ?? 'lecture',
+          'Recovered'
+        )
+      }
+      await window.api.sttDiscardRecording(id)
+      await refreshSttStatus()
+    },
+    [appendTranscript, refreshSttStatus, showToast]
+  )
+
+  const discardRecording = useCallback(
+    async (id: string) => {
+      await window.api.sttDiscardRecording(id)
+      await refreshSttStatus()
+    },
+    [refreshSttStatus]
   )
 
   const stopRecording = useCallback(() => {
@@ -1217,7 +1318,7 @@ export function App(): React.JSX.Element {
           <IconButton
             label="Settings (⌘,)"
             className="app-settings-button"
-            onClick={() => setAppSettingsOpen(true)}
+            onClick={() => openAppSettings()}
           >
             <Settings size={15} strokeWidth={1.75} />
           </IconButton>
@@ -1271,6 +1372,14 @@ export function App(): React.JSX.Element {
             onChange={setAppearance}
             agents={agents}
             onAgentsChange={setAgents}
+            stt={stt}
+            onSttChange={setStt}
+            sttHasKey={sttReady}
+            sttPending={sttPending}
+            onSttStatusChange={refreshSttStatus}
+            onSttRecover={recoverRecording}
+            onSttDiscardRecording={discardRecording}
+            initialPane={settingsPane}
             onClose={() => setAppSettingsOpen(false)}
           />
         )}
@@ -1473,6 +1582,8 @@ export function App(): React.JSX.Element {
                     pendingAppend={pendingAppend}
                     onAppendApplied={onAppendApplied}
                     onToggleChat={() => setChatOpen((o) => !o)}
+                    sttReady={sttReady}
+                    onOpenVoiceSettings={() => openAppSettings('voice')}
                     onStartRecording={startRecording}
                     onStopRecording={stopRecording}
                     onSelectNote={setSelectedNotePath}

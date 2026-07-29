@@ -49,9 +49,6 @@ export interface ParsedNote extends Partial<NoteFrontmatter> {
   body: string
 }
 
-/** Spec default (SPEC-NOTES.md §2): base.en misheard accents; turbo fixes it. */
-export const DEFAULT_STT_MODEL = 'openai_whisper-large-v3-v20240930_turbo'
-
 /**
  * What the sidecar captures: `mic` is dictation; `mix` sums device output
  * and mic — online lessons and meetings; `system` is device output only.
@@ -63,9 +60,13 @@ export type SttSource = 'mic' | 'mix' | 'system'
 /** How the structuring pass reads the transcript (orthogonal to source). */
 export type NoteStyle = 'lecture' | 'meeting'
 
-/** One JSON line from the STT sidecar (SPEC-NOTES.md §6.1). */
+/**
+ * One dictation event from main (SPEC-NOTES.md §6.1). `connecting` covers the
+ * Deepgram handshake before the mic opens — sub-second, where the old local
+ * engine had a multi-minute model load.
+ */
 export interface SttEvent {
-  event: 'loading' | 'ready' | 'level' | 'partial' | 'final' | 'error'
+  event: 'connecting' | 'ready' | 'level' | 'partial' | 'final' | 'error'
   rms?: number
   confirmed?: string
   tail?: string

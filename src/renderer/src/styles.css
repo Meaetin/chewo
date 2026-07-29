@@ -694,12 +694,53 @@ body {
 .wt-select-menu {
   position: fixed;
   z-index: var(--z-modal-popover);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: var(--space-4);
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-3);
   box-shadow: var(--shadow-float);
+}
+
+/* The list scrolls, not the menu — a search box must stay put while it does */
+.wt-select-options {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wt-select-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: none;
+  padding: var(--space-4) var(--space-8);
+  margin-bottom: var(--space-4);
+  border-bottom: var(--border-hair);
+  color: var(--text-faint);
+}
+
+.wt-select-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+
+.wt-select-search-input::placeholder {
+  color: var(--text-faint);
+}
+
+.wt-select-empty {
+  padding: var(--space-8);
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
 }
 
 .wt-select-option {
@@ -3887,6 +3928,277 @@ body {
   color: var(--text-faint);
 }
 
+/* ---- Voice tab: the Deepgram key, model, and recoverable recordings ---- */
+.settings-voice {
+  max-width: 720px;
+}
+
+.settings-voice-callout {
+  margin: var(--space-16) 0 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 2px solid var(--accent);
+  background: var(--bg-accent-selected);
+  border-radius: var(--radius-1);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+}
+
+.settings-voice-section {
+  margin-top: var(--space-24);
+}
+
+.settings-voice-heading {
+  margin: 0 0 var(--space-8);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+/* Key field and its actions share one row; the field takes the slack */
+.settings-voice-keyrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.settings-voice-keyrow .input,
+.settings-voice-keyrow .input-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-voice-keystate {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.settings-voice-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: var(--space-8) 0 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+
+.settings-voice-note-ok {
+  color: var(--text-secondary);
+}
+
+.settings-voice-note-bad {
+  color: var(--danger);
+}
+
+/* Timestamp on a connection check — proof a repeat click actually ran */
+.settings-voice-note-time {
+  margin-left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* Label above field — the pane is a form, not a settings grid */
+.settings-voice-field {
+  margin-top: var(--space-12);
+}
+
+.settings-voice-field-label {
+  display: block;
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.settings-voice-list {
+  margin-top: var(--space-8);
+}
+
+.settings-voice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  padding: var(--space-8) 0;
+  border-top: var(--border-hair);
+}
+
+.settings-voice-meta {
+  min-width: 0;
+}
+
+.settings-voice-label {
+  display: block;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-voice-detail {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-voice-detail code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.settings-voice-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  flex: none;
+}
+
+.settings-voice-footnote {
+  margin-top: var(--space-12);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-voice-footnote-tight {
+  margin-top: 0;
+  margin-bottom: var(--space-8);
+}
+
+.settings-voice-footnote code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+/* ---- Settings › Connections (MCP server registration) ---- */
+
+.settings-connections {
+  max-width: 720px;
+}
+
+.settings-connections-callout {
+  margin: var(--space-16) 0 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 2px solid var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--radius-1);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+}
+
+.settings-connections-callout code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.settings-connections-list {
+  margin-top: var(--space-16);
+}
+
+.settings-connection-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  padding: var(--space-12) 0;
+  border-top: var(--border-hair);
+}
+
+.settings-connection-meta {
+  min-width: 0;
+}
+
+.settings-connection-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.settings-connection-name {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-connection-chip {
+  padding: 1px var(--space-8);
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+}
+
+.settings-connection-chip-connected {
+  color: var(--live);
+  background: var(--live-bg);
+  border-color: color-mix(in srgb, var(--live) 40%, transparent);
+}
+
+.settings-connection-chip-stale,
+.settings-connection-chip-legacy {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.settings-connection-detail {
+  margin-top: var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+/* The exact command line the CLI will run — wraps rather than truncates, the
+   path is the whole point when a registration is stale. */
+.settings-connection-command {
+  display: block;
+  margin-top: var(--space-8);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.settings-connection-actions {
+  flex: none;
+  padding-top: var(--space-2);
+}
+
+.settings-connections-error {
+  margin-top: var(--space-16);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--danger);
+}
+
+.settings-connections-footnote {
+  margin-top: var(--space-16);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-connections-footnote code,
+.settings-connections-error code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* Call to action shown beside the greyed dictation buttons */
+.notes-voice-nudge {
+  margin-left: var(--space-4);
+}
+
 /* Two-column tab body: controls left, sticky live preview right */
 .settings-split {
   display: grid;
@@ -4862,122 +5174,4 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* ---- Settings › Connections (MCP server registration) ---- */
-
-.settings-connections {
-  max-width: 720px;
-}
-
-.settings-connections-callout {
-  margin: var(--space-16) 0 0;
-  padding: var(--space-8) var(--space-12);
-  border-left: 2px solid var(--warning);
-  background: var(--warning-bg);
-  border-radius: var(--radius-1);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
-  color: var(--text-secondary);
-}
-
-.settings-connections-callout code {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-
-.settings-connections-list {
-  margin-top: var(--space-16);
-}
-
-.settings-connection-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-16);
-  padding: var(--space-12) 0;
-  border-top: var(--border-hair);
-}
-
-.settings-connection-meta {
-  min-width: 0;
-}
-
-.settings-connection-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-}
-
-.settings-connection-name {
-  font-size: var(--fs-base);
-  color: var(--text-primary);
-}
-
-.settings-connection-chip {
-  padding: 1px var(--space-8);
-  border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-  background: var(--bg-hover);
-}
-
-.settings-connection-chip-connected {
-  color: var(--live);
-  background: var(--live-bg);
-  border-color: color-mix(in srgb, var(--live) 40%, transparent);
-}
-
-.settings-connection-chip-stale,
-.settings-connection-chip-legacy {
-  color: var(--warning);
-  background: var(--warning-bg);
-  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
-}
-
-.settings-connection-detail {
-  margin-top: var(--space-2);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
-  color: var(--text-tertiary);
-}
-
-/* The exact command line the CLI will run — wraps rather than truncates, the
-   path is the whole point when a registration is stale. */
-.settings-connection-command {
-  display: block;
-  margin-top: var(--space-8);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-sm);
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
-}
-
-.settings-connection-actions {
-  flex: none;
-  padding-top: var(--space-2);
-}
-
-.settings-connections-error {
-  margin-top: var(--space-16);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
-  color: var(--danger);
-}
-
-.settings-connections-footnote {
-  margin-top: var(--space-16);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
-  color: var(--text-tertiary);
-}
-
-.settings-connections-footnote code,
-.settings-connections-error code {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
 }

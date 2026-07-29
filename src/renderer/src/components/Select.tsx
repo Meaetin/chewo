@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Search } from 'lucide-react'
+import { filterOptions } from '../selectFilter'
 
 export interface SelectOption<T extends string> {
   value: T
@@ -13,6 +14,14 @@ interface SelectProps<T extends string> {
   value: T
   options: SelectOption<T>[]
   onChange: (value: T) => void
+  /**
+   * Adds a filter box above the list. Opt-in rather than automatic: most
+   * pickers here hold a handful of items, where a search field is noise. Turn
+   * it on for the long, unbounded lists (Deepgram's per-model languages).
+   */
+  searchable?: boolean
+  /** Placeholder for the filter box; only read when `searchable`. */
+  searchPlaceholder?: string
 }
 
 const MENU_GAP = 4
@@ -30,23 +39,41 @@ export function Select<T extends string>({
   id,
   value,
   options,
-  onChange
+  onChange,
+  searchable = false,
+  searchPlaceholder = 'Search…'
 }: SelectProps<T>): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [query, setQuery] = useState('')
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
-  const selected = options.find((o) => o.value === value) ?? options[0]
+  // Never fall back to options[0]: when the value isn't in the list that shows
+  // a *different* option as though it were the setting, which reads as the app
+  // silently changing it. Show the raw value instead — it is at least true.
+  const selected = options.find((o) => o.value === value)
+
+  const shown = useMemo(
+    () => (searchable ? filterOptions(options, query) : options),
+    [options, query, searchable]
+  )
 
   const openMenu = (): void => {
     const r = triggerRef.current?.getBoundingClientRect()
     if (!r) return
     setRect(r)
+    setQuery('')
     setActiveIndex(Math.max(0, options.findIndex((o) => o.value === value)))
     setOpen(true)
   }
+
+  // Typing should start filtering immediately, without a second click.
+  useEffect(() => {
+    if (open && searchable) searchRef.current?.focus()
+  }, [open, searchable])
 
   const commit = (v: T): void => {
     onChange(v)
@@ -93,13 +120,19 @@ export function Select<T extends string>({
       setOpen(false)
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActiveIndex((i) => Math.min(options.length - 1, i + 1))
+      setActiveIndex((i) => Math.min(shown.length - 1, i + 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActiveIndex((i) => Math.max(0, i - 1))
-    } else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Enter') {
       e.preventDefault()
-      commit(options[activeIndex].value)
+      const option = shown[activeIndex]
+      if (option) commit(option.value)
+    } else if (e.key === ' ' && !searchable) {
+      // Space picks the active option, but in a filter box it is just a space.
+      e.preventDefault()
+      const option = shown[activeIndex]
+      if (option) commit(option.value)
     } else if (e.key === 'Tab') {
       setOpen(false)
     }
@@ -117,7 +150,7 @@ export function Select<T extends string>({
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onKeyDown}
       >
-        <span className="wt-select-value">{selected?.label}</span>
+        <span className="wt-select-value">{selected?.label ?? value}</span>
         <ChevronDown className="wt-select-chevron" strokeWidth={1.75} aria-hidden="true" />
       </button>
 
@@ -135,24 +168,50 @@ export function Select<T extends string>({
               maxHeight: Math.min(MENU_MAX_HEIGHT, window.innerHeight - rect.bottom - 16)
             }}
           >
-            {options.map((o, i) => (
-              <div
-                key={o.value}
-                role="option"
-                aria-selected={o.value === value}
-                className={`wt-select-option ${i === activeIndex ? 'wt-select-option-active' : ''}`}
-                onMouseEnter={() => setActiveIndex(i)}
-                onClick={() => commit(o.value)}
-              >
-                <span className="wt-select-check">
-                  {o.value === value && <Check size={14} strokeWidth={2} aria-hidden="true" />}
-                </span>
-                <span className="wt-select-option-text">
-                  <span className="wt-select-option-label">{o.label}</span>
-                  {o.detail && <span className="wt-select-option-detail">{o.detail}</span>}
-                </span>
+            {searchable && (
+              <div className="wt-select-search">
+                <Search size={13} strokeWidth={1.75} aria-hidden="true" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  className="wt-select-search-input"
+                  placeholder={searchPlaceholder}
+                  aria-label={searchPlaceholder}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.currentTarget.value)
+                    // The old index points into the previous list; anything but
+                    // 0 would highlight an unrelated row.
+                    setActiveIndex(0)
+                  }}
+                  onKeyDown={onKeyDown}
+                />
               </div>
-            ))}
+            )}
+
+            <div className="wt-select-options">
+              {shown.map((o, i) => (
+                <div
+                  key={o.value}
+                  role="option"
+                  aria-selected={o.value === value}
+                  className={`wt-select-option ${i === activeIndex ? 'wt-select-option-active' : ''}`}
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onClick={() => commit(o.value)}
+                >
+                  <span className="wt-select-check">
+                    {o.value === value && <Check size={14} strokeWidth={2} aria-hidden="true" />}
+                  </span>
+                  <span className="wt-select-option-text">
+                    <span className="wt-select-option-label">{o.label}</span>
+                    {o.detail && <span className="wt-select-option-detail">{o.detail}</span>}
+                  </span>
+                </div>
+              ))}
+              {shown.length === 0 && <div className="wt-select-empty">No matches</div>}
+            </div>
           </div>,
           document.body
         )}

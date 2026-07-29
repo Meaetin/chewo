@@ -1,8 +1,9 @@
-// Builds the STT sidecar only when its sources are newer than the last build
-// product (or it's missing). Wired into `predev` and `predist` so `npm run dev`
-// and `npm run dist:install` always have a sidecar without a slow rebuild every
-// time. Pass --soft to warn-and-continue on failure (dev), else it exits non-
-// zero so a release build fails loudly rather than shipping a broken app.
+// Builds the audio-capture sidecar only when its sources are newer than the
+// last build product (or it's missing). Wired into `predev` and `predist` so
+// `npm run dev` and `npm run dist:install` always have a sidecar without a slow
+// rebuild every time. Pass --soft to warn-and-continue on failure (dev), else it
+// exits non-zero so a release build fails loudly rather than shipping a broken
+// app.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, statSync, readdirSync } from 'node:fs'
@@ -11,12 +12,12 @@ import { fileURLToPath } from 'node:url'
 
 const soft = process.argv.includes('--soft')
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const pkgDir = join(root, 'packages', 'stt-whisper')
-const binary = join(pkgDir, '.build', 'release', 'chewo-stt-whisper')
+const pkgDir = join(root, 'packages', 'audio-capture')
+const binary = join(pkgDir, '.build', 'release', 'chewo-audio-capture')
 
 const fail = (msg) => {
   if (soft) {
-    console.warn(`\n⚠️  ${msg}\n   STT dictation will be unavailable until the sidecar builds.\n`)
+    console.warn(`\n⚠️  ${msg}\n   Dictation and recording will be unavailable until the sidecar builds.\n`)
     process.exit(0)
   }
   console.error(`\n❌ ${msg}\n`)
@@ -44,17 +45,19 @@ function newestSourceMtime() {
 }
 
 if (existsSync(binary) && statSync(binary).mtimeMs >= newestSourceMtime()) {
-  console.log('✓ STT sidecar up to date')
+  console.log('✓ audio-capture sidecar up to date')
   process.exit(0)
 }
 
 // Fail fast with a clear message if the Swift toolchain isn't installed
 if (spawnSync('swift', ['--version'], { stdio: 'ignore' }).status !== 0)
-  fail('Swift toolchain not found — install Xcode / the Swift toolchain to build the STT sidecar.')
+  fail('Swift toolchain not found — install Xcode / the Swift toolchain to build the audio-capture sidecar.')
 
-console.log('› Building STT sidecar (first build downloads WhisperKit — this can take a few minutes)…')
+// No package dependencies since WhisperKit was dropped, so this is a
+// seconds-long build of three Core Audio files rather than a multi-minute one.
+console.log('› Building audio-capture sidecar…')
 const build = spawnSync('swift', ['build', '-c', 'release', '--package-path', pkgDir], {
   stdio: 'inherit'
 })
-if (build.status !== 0) fail('STT sidecar build failed.')
-console.log('✓ STT sidecar built')
+if (build.status !== 0) fail('audio-capture sidecar build failed.')
+console.log('✓ audio-capture sidecar built')

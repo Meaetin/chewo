@@ -31,7 +31,7 @@ import {
   writeNote,
   type CreateNoteArgs
 } from './notes'
-import type { SttSource } from '../shared/notes'
+import type { NoteStyle, SttSource } from '../shared/notes'
 import {
   copyEntry,
   createEntry,
@@ -76,7 +76,12 @@ import {
 } from './todos'
 import { GENERAL_SCOPE, projectScopeDir, type TodoStatus } from '../shared/todos'
 import { writeScopeIndex } from '../shared/todo-scopes'
-import { disposeSidecar, sttPrewarm, sttStart, sttStop } from './stt'
+import { disposeSidecar, setSttBroadcast, sttStart, sttStop } from './stt'
+import { discardRecording, pendingRecordings, recoverRecording } from './recordings'
+import { clearDeepgramKey, deepgramKey, hasDeepgramKey, setDeepgramKey } from './credentials'
+import { listStreamingModels, verifyKey } from './deepgram'
+import { legacyModelsBytes, legacyModelsDir, removeLegacyModels } from './legacy-models'
+import type { SttModelInfo, SttStatus } from '../shared/stt'
 import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
 import {
@@ -298,14 +303,66 @@ function registerIpc(): void {
     readAsset(a.scopeDir, a.fileName)
   )
 
-  ipcMain.on('stt:start', (_e, { model, source }: { model: string; source?: SttSource }) => {
-    const win = mainWindow
-    if (!win) return
-    const err = sttStart(model, 'notes', (ev) => safeSend(win, 'stt:event', ev), source ?? 'mic')
-    if (err) safeSend(win, 'stt:event', { event: 'error', message: `Mic is busy — ${err}.` })
-  })
+  ipcMain.on(
+    'stt:start',
+    (
+      _e,
+      {
+        source,
+        lessonPath,
+        style
+      }: { source?: SttSource; lessonPath?: string; style?: NoteStyle }
+    ) => {
+      const win = mainWindow
+      if (!win) return
+      const err = sttStart('notes', (ev) => safeSend(win, 'stt:event', ev), source ?? 'mic', {
+        lessonPath,
+        style
+      })
+      if (err) safeSend(win, 'stt:event', { event: 'error', message: err })
+    }
+  )
   ipcMain.on('stt:stop', () => sttStop())
-  ipcMain.on('stt:prewarm', (_e, { model }: { model: string }) => sttPrewarm(model))
+
+  ipcMain.handle(
+    'stt:status',
+    (): SttStatus => ({
+      hasKey: hasDeepgramKey(),
+      pendingRecoveries: pendingRecordings().map((r) => ({
+        id: r.id,
+        startedAt: r.startedAt,
+        durationS: r.durationS,
+        bytes: r.bytes,
+        lessonPath: r.lessonPath
+      }))
+    })
+  )
+  ipcMain.handle('stt:setKey', (_e, key: string) => setDeepgramKey(key))
+  ipcMain.handle('stt:clearKey', () => clearDeepgramKey())
+  /** Doubles as the model-catalog fetch, so one round trip proves the key. */
+  ipcMain.handle('stt:testKey', (_e, key?: string) => verifyKey(key || (deepgramKey() ?? '')))
+  ipcMain.handle('stt:models', async (): Promise<SttModelInfo[]> => {
+    const key = deepgramKey()
+    if (!key) return []
+    try {
+      return await listStreamingModels(key)
+    } catch {
+      // Offline or a bad key: the picker falls back to the default rather
+      // than showing an empty list the user can't act on.
+      return []
+    }
+  })
+  ipcMain.handle('stt:recover', async (_e, id: string) => {
+    const key = deepgramKey()
+    if (!key) return { ok: false, error: 'Add a Deepgram API key first.' }
+    return recoverRecording(id, key)
+  })
+  ipcMain.handle('stt:discardRecording', (_e, id: string) => discardRecording(id))
+  ipcMain.handle('stt:legacyModels', () => ({
+    dir: legacyModelsDir(),
+    bytes: legacyModelsBytes()
+  }))
+  ipcMain.handle('stt:removeLegacyModels', () => removeLegacyModels())
 
   ipcMain.on('noteschat:send', (_e, args: NotesChatArgs) => {
     if (mainWindow) notesChatSend(mainWindow, args)
@@ -553,6 +610,7 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
   if (mainWindow) {
+    setSttBroadcast((ev) => safeSend(mainWindow, 'stt:event', ev))
     setTodosWindow(mainWindow)
     initTodoVoice(mainWindow, projectsFile.todoHotkey)
     // The hidden HUD window must not keep the app alive after the main

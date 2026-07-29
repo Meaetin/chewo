@@ -21,8 +21,9 @@ ordinary manual entry.
 - Two board scopes: a **General** board (home-level, like the existing Home
   section) and **one board per project** — project-specific tasks stay with
   the project.
-- **Voice control:** hotkey → dictate → local STT (existing sidecar) → Sonnet
-  interprets → command executes against a board.
+- **Voice control:** hotkey → dictate → STT (capture sidecar → Deepgram) →
+  the agent chosen in Settings → Agents interprets → command executes against
+  a board.
 - **Manual control:** type-to-add, drag cards between columns, click card →
   edit modal (title / text / paste-image), Save / Cancel.
 - **Drag-to-run:** drop a card on a run strip → an interactive Claude Code
@@ -433,13 +434,13 @@ prompt, same move-and-stamp, same badge.
   Anthropic API for this one call — deliberately diverging from the
   headless-claude pattern, and requiring an API key billed separately from
   the CLI's subscription auth.
-- **Capture-before-ready is a sidecar change:** WhisperKit's
-  `AudioProcessor` can start independently of model load, but the ported
-  confirm-and-seek loop assumes the model exists — it must queue samples
-  and start decoding on ready. Verify early in T2 that buffered-then-live
-  transcription doesn't confuse the confirm logic. Failure mode to test:
-  hotkey → speak → stop *before* the model finishes loading (short
-  command) — the sidecar must still transcribe the buffer and emit `final`.
+- **Capture-before-ready is moot since the move to Deepgram (2026-07-29).**
+  It existed to hide a 17 s–2 min local model load. The Deepgram handshake is
+  sub-second and main opens the stream *before* telling the sidecar to start,
+  so audio is never produced without somewhere to send it. The failure mode
+  worth testing is now the opposite one: hotkey → speak → stop during the
+  handshake, which must still resolve to a terminal event rather than leaving
+  the HUD on "connecting".
 - **Model residency:** `large-v3-turbo` holds ~1–1.5 GB while loaded; the
   15-min idle unload bounds this. If a lighter always-ready option is ever
   wanted, `small.en` (~600–800 MB) is the floor worth considering —

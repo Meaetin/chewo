@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { ClipboardPaste, Headphones, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
+import { ClipboardPaste, Headphones, KeyRound, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
 import { Button, Dot, IconButton, Row, WorkingText } from './ui'
 import type { Extension } from '@codemirror/state'
 import {
@@ -25,7 +25,7 @@ const AUTOSAVE_MS = 800
  * `source` is what the sidecar captures (mic vs device + mic); `style` is
  * how the structuring pass reads the transcript (lecture vs meeting). */
 export type RecordingState =
-  | { phase: 'loading'; ref: TopicRef; notePath: string; source: SttSource; style: NoteStyle }
+  | { phase: 'connecting'; ref: TopicRef; notePath: string; source: SttSource; style: NoteStyle }
   | {
       phase: 'recording'
       ref: TopicRef
@@ -339,14 +339,14 @@ function RecordingPanel({ rec }: { rec: RecordingState }): React.JSX.Element {
     if (el) el.scrollTop = el.scrollHeight
   })
 
-  if (rec.phase === 'loading') {
+  if (rec.phase === 'connecting') {
     return (
       <div className="recording-panel">
         <div className="recording-status-row">
           <span className="recording-status">
             {rec.source !== 'mic'
               ? `Starting ${SOURCE_LABEL[rec.source].toLowerCase()} capture… the first use asks for the one-time System Audio Recording permission.`
-              : 'Loading Whisper model… first run downloads it (~630 MB), later runs are instant.'}
+              : 'Connecting to Deepgram…'}
           </span>
         </div>
       </div>
@@ -398,6 +398,9 @@ interface NotesWorkspaceProps {
   /** Appearance-driven CodeMirror theme for the lesson editor */
   editorTheme: Extension
   recording: RecordingState | null
+  /** Whether a Deepgram key is stored — gates every dictation control */
+  sttReady: boolean
+  onOpenVoiceSettings: () => void
   pendingAppend: PendingAppend | null
   onAppendApplied: (id: number) => void
   onToggleChat: () => void
@@ -420,6 +423,8 @@ export function NotesWorkspace({
   selectedNotePath,
   editorTheme,
   recording,
+  sttReady,
+  onOpenVoiceSettings,
   pendingAppend,
   onAppendApplied,
   onToggleChat,
@@ -449,6 +454,15 @@ export function NotesWorkspace({
   }
 
   const showEditorStack = !recordingHere || recTab === 'note'
+
+  // Dictation needs three things: a lesson to append to, no other recording
+  // in flight, and a Deepgram key to send the audio to.
+  const dictationDisabled = !!recording || !selectedNotePath || !sttReady
+  const dictationLabel = (ready: string): string => {
+    if (!sttReady) return 'No Deepgram API key yet — open Settings → Voice'
+    if (recording) return 'A recording is already in progress in another topic'
+    return selectedNotePath ? ready : 'Select or create a lesson first'
+  }
 
   return (
     <div className="notes-workspace">
@@ -566,29 +580,31 @@ export function NotesWorkspace({
           ) : (
             <>
               <IconButton
-                label={
-                  recording
-                    ? 'A recording is already in progress in another topic'
-                    : selectedNotePath
-                      ? 'Dictate — the dictation appends to this lesson on stop'
-                      : 'Select or create a lesson first'
-                }
-                disabled={!!recording || !selectedNotePath}
+                label={dictationLabel('Dictate — the dictation appends to this lesson on stop')}
+                disabled={dictationDisabled}
                 onClick={() => onStartRecording('mic', 'lecture')}
               >
                 <Mic />
               </IconButton>
               <RecordSessionButton
-                disabled={!!recording || !selectedNotePath}
-                label={
-                  recording
-                    ? 'A recording is already in progress in another topic'
-                    : selectedNotePath
-                      ? 'Record a session — choose capture and lecture/meeting'
-                      : 'Select or create a lesson first'
-                }
+                disabled={dictationDisabled}
+                label={dictationLabel('Record a session — choose capture and lecture/meeting')}
                 onStart={onStartRecording}
               />
+              {/* Dictation stays off until there is somewhere to send the
+                  audio — say where to fix it rather than leaving two dead
+                  buttons with only a tooltip to explain them */}
+              {!sttReady && (
+                <Button
+                  intent="secondary"
+                  size="compact"
+                  className="notes-voice-nudge"
+                  leadingIcon={<KeyRound size={13} strokeWidth={1.75} />}
+                  onClick={onOpenVoiceSettings}
+                >
+                  Enable dictation
+                </Button>
+              )}
             </>
           )}
         </div>

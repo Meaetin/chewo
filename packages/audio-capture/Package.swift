@@ -3,25 +3,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "chewo-stt-whisper",
+    name: "chewo-audio-capture",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "chewo-stt-whisper",
-            targets: ["ChewoSTTWhisper"]
+            name: "chewo-audio-capture",
+            targets: ["ChewoAudioCapture"]
         )
-    ],
-    dependencies: [
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", branch: "main")
     ],
     targets: [
         .executableTarget(
-            name: "ChewoSTTWhisper",
-            dependencies: [
-                .product(name: "WhisperKit", package: "argmax-oss-swift")
-            ],
+            name: "ChewoAudioCapture",
             linkerSettings: [
                 // Bare CLIs have no bundle, so the mic / system-audio TCC
                 // usage strings are embedded in the executable itself
