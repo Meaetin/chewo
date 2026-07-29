@@ -626,6 +626,13 @@ body {
   color: var(--text-tertiary);
 }
 
+.wt-banner-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
 .wt-banner code {
   font-family: var(--font-mono);
   font-size: var(--fs-mono-sm);

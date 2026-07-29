@@ -137,9 +137,13 @@ const api = {
     ipcRenderer.invoke('worktree:branches', projectPath) as Promise<ListBranchesResult>,
   createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
-  worktreeStatus: (args: { projectPath: string; worktreePath: string; branch: string }) =>
-    ipcRenderer.invoke('worktree:status', args) as Promise<WorktreeStatusResult>,
-  worktreeMerge: (args: { projectPath: string; branch: string }) =>
+  worktreeStatus: (args: {
+    projectPath: string
+    worktreePath: string
+    branch: string
+    baseBranch: string
+  }) => ipcRenderer.invoke('worktree:status', args) as Promise<WorktreeStatusResult>,
+  worktreeMerge: (args: { projectPath: string; branch: string; expectedTarget: string }) =>
     ipcRenderer.invoke('worktree:merge', args) as Promise<MergeWorktreeResult>,
   worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
     ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,

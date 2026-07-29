@@ -221,11 +221,13 @@ function registerIpc(): void {
   )
   ipcMain.handle(
     'worktree:status',
-    (_e, a: { projectPath: string; worktreePath: string; branch: string }) =>
-      worktreeStatus(a.projectPath, a.worktreePath, a.branch)
+    (_e, a: { projectPath: string; worktreePath: string; branch: string; baseBranch: string }) =>
+      worktreeStatus(a.projectPath, a.worktreePath, a.branch, a.baseBranch)
   )
-  ipcMain.handle('worktree:merge', (_e, a: { projectPath: string; branch: string }) =>
-    mergeWorktree(a.projectPath, a.branch)
+  ipcMain.handle(
+    'worktree:merge',
+    (_e, a: { projectPath: string; branch: string; expectedTarget: string }) =>
+      mergeWorktree(a.projectPath, a.branch, a.expectedTarget)
   )
   ipcMain.handle(
     'worktree:remove',

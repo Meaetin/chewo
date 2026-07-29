@@ -214,14 +214,18 @@ export function WorktreeMergeModal({
   const [busy, setBusy] = useState(false)
   const [merged, setMerged] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Cleared on every refresh — consenting to one target must not outlive it */
+  const [acceptedTarget, setAcceptedTarget] = useState<string | null>(null)
 
   const refresh = async (): Promise<void> => {
     setStatus(null)
+    setAcceptedTarget(null)
     setStatus(
       await window.api.worktreeStatus({
         projectPath: project.path,
         worktreePath: worktree.path,
-        branch: worktree.branch
+        branch: worktree.branch,
+        baseBranch: worktree.baseBranch
       })
     )
   }
@@ -232,11 +236,13 @@ export function WorktreeMergeModal({
   }, [worktree.id])
 
   const merge = async (): Promise<void> => {
+    if (!status?.ok) return
     setBusy(true)
     setError(null)
     const res = await window.api.worktreeMerge({
       projectPath: project.path,
-      branch: worktree.branch
+      branch: worktree.branch,
+      expectedTarget: status.targetBranch
     })
     setBusy(false)
     if (res.ok) {
@@ -263,7 +269,11 @@ export function WorktreeMergeModal({
   }
 
   const ok = status?.ok ? status : null
-  const canMerge = !!ok && !ok.dirty && ok.commits.length > 0 && !busy
+  // Landing somewhere other than the branch this work was based on is a
+  // deliberate act, never a default — another agent sharing the checkout can
+  // move HEAD at any moment.
+  const targetOk = !!ok && !ok.detached && (ok.targetIsLanding || acceptedTarget === ok.targetBranch)
+  const canMerge = !!ok && targetOk && !ok.dirty && ok.commits.length > 0 && !busy
 
   return (
     <ModalShell
@@ -337,15 +347,33 @@ export function WorktreeMergeModal({
             </div>
           )}
 
-          {worktree.baseBranch !== ok.targetBranch && (
-            <div className="wt-banner wt-banner-warning">
-              <strong>Different base.</strong> This branch started at{' '}
-              <code>{worktree.baseBranch}</code>, but merging goes into{' '}
-              <code>{ok.targetBranch}</code> — the branch your main checkout is on. The commits
-              below are everything <code>{ok.targetBranch}</code> doesn’t already have, which can
-              include work from <code>{worktree.baseBranch}</code> that isn’t yours. Check out{' '}
-              <code>{worktree.baseBranch}</code> in {project.name} first if that isn’t what you
-              want.
+          {ok.detached && (
+            <div className="wt-banner wt-banner-error">
+              <strong>{project.name} is on no branch.</strong> Its checkout has a detached HEAD, so
+              a merge would leave these commits unreachable. Check out{' '}
+              <code>{ok.landingBranch}</code> there first.
+            </div>
+          )}
+
+          {!ok.detached && !ok.targetIsLanding && (
+            <div className="wt-banner wt-banner-error">
+              <strong>Main checkout moved.</strong> This branch was meant to land on{' '}
+              <code>{ok.landingBranch}</code>, but {project.name} is currently on{' '}
+              <code>{ok.targetBranch}</code> — something switched it, often an agent running there
+              that branched. Merging now lands your work on <code>{ok.targetBranch}</code>, and the
+              commits below are only what <code>{ok.targetBranch}</code> lacks, so they can include
+              work that isn’t yours. Check out <code>{ok.landingBranch}</code> in {project.name}{' '}
+              first — or merge here deliberately.
+              <div className="wt-banner-actions">
+                {acceptedTarget === ok.targetBranch ? (
+                  <strong>Merging into {ok.targetBranch}.</strong>
+                ) : (
+                  <Button onClick={() => setAcceptedTarget(ok.targetBranch)}>
+                    Merge into {ok.targetBranch} anyway
+                  </Button>
+                )}
+                <Button onClick={() => void refresh()}>Re-check</Button>
+              </div>
             </div>
           )}
 
