@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { DEFAULT_APPEARANCE, type SettingsFile } from '../shared/appearance'
 import { normalizeAgents, type AgentChoice, type AgentTask } from '../shared/agents'
 import { normalizeStt } from '../shared/stt'
+import { normalizeWorktreeSettings } from '../shared/worktree-settings'
 
 /**
  * App-wide user settings (appearance, agent assignments, speech). Same shape as
@@ -27,13 +28,15 @@ export function loadSettings(): SettingsFile {
         notes: { ...DEFAULT_APPEARANCE.notes, ...a?.notes }
       },
       agents: normalizeAgents(parsed.agents),
-      stt: normalizeStt(parsed.stt)
+      stt: normalizeStt(parsed.stt),
+      worktrees: normalizeWorktreeSettings(parsed.worktrees)
     }
   } catch {
     return {
       appearance: DEFAULT_APPEARANCE,
       agents: normalizeAgents(undefined),
-      stt: normalizeStt(undefined)
+      stt: normalizeStt(undefined),
+      worktrees: normalizeWorktreeSettings(undefined)
     }
   }
 }

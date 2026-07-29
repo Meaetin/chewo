@@ -1,5 +1,6 @@
 import type { AgentAssignments } from './agents'
 import type { SttSettings } from './stt'
+import type { WorktreeSettings } from './worktree-settings'
 
 // User-customisable appearance settings. Dependency-free so the main process
 // can read them at window creation (native background color) while the
@@ -72,6 +73,8 @@ export interface SettingsFile {
   agents: AgentAssignments
   /** Deepgram model + language both dictation surfaces use */
   stt: SttSettings
+  /** What happens to an isolated branch once its work has landed */
+  worktrees: WorktreeSettings
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

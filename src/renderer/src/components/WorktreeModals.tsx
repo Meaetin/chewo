@@ -198,25 +198,40 @@ export function WorktreeCreateModal({
 interface MergeModalProps {
   worktree: Worktree
   project: Project
+  /** How many terminals a removal would close — the one cost cleanup can't undo */
+  openTerminals: number
   onClose: () => void
   /** App kills panes, runs git worktree remove, drops records. Error message or null. */
   onRemove: () => Promise<string | null>
   /** Marks the branch finished by hand — for work that shipped as a squash/rebase */
   onMarkDone: () => void
+  /** Settings default for cleaning up after a merge; the checkbox starts here */
+  autoCleanup: boolean
+  /** Ticking the checkbox rewrites the default, so the choice sticks */
+  onAutoCleanupChange: (on: boolean) => void
 }
 
 /** Review & merge: dirty check → commits/diffstat → merge into main checkout → cleanup. */
 export function WorktreeMergeModal({
   worktree,
   project,
+  openTerminals,
   onClose,
   onRemove,
-  onMarkDone
+  onMarkDone,
+  autoCleanup,
+  onAutoCleanupChange
 }: MergeModalProps): React.JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [merged, setMerged] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Why the checkout is still here after a merge that asked for it gone.
+   * Kept apart from `error` so a refusal to clean up can never be read as a
+   * merge that failed — the commits are in either way.
+   */
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
   /** Cleared on every refresh — consenting to one target must not outlive it */
   const [acceptedTarget, setAcceptedTarget] = useState<string | null>(null)
 
@@ -242,22 +257,36 @@ export function WorktreeMergeModal({
     if (!status?.ok) return
     setBusy(true)
     setError(null)
+    setCleanupError(null)
     const res = await window.api.worktreeMerge({
       projectPath: project.path,
       branch: worktree.branch,
       expectedTarget: status.targetBranch
     })
-    setBusy(false)
-    if (res.ok) {
-      setMerged(true)
-      void refresh()
-    } else {
+    if (!res.ok) {
+      setBusy(false)
       setError(
         res.aborted
           ? `Merge conflict — aborted. Your main checkout is untouched. Resolve it in ${project.name} (or hand it to an agent), then merge again.\n\n${res.error}`
           : res.error
       )
+      return
     }
+
+    setMerged(true)
+    // The checkbox is the consent, so cleanup does not re-prompt — but it runs
+    // the same unforced remove as the button, so git can still refuse. A
+    // refusal leaves the worktree exactly where it was and says why; it is
+    // never allowed to look like the merge came apart.
+    if (autoCleanup) {
+      const err = await onRemove()
+      // Success unmounts this modal (App drops the worktree record), so there
+      // is nothing left to update — bail before touching dead state.
+      if (!err) return
+      setCleanupError(err)
+    }
+    setBusy(false)
+    void refresh()
   }
 
   const remove = async (): Promise<void> => {
@@ -310,6 +339,22 @@ export function WorktreeMergeModal({
             Remove worktree…
           </Button>
           <div className="wt-footer-spacer" />
+          <label
+            className="wt-cleanup-toggle"
+            title={
+              openTerminals
+                ? `Removes the checkout and deletes ${worktree.branch} once the merge lands, closing ${openTerminals} terminal${openTerminals === 1 ? '' : 's'} running there. Unforced — git refuses if anything would be lost.`
+                : `Removes the checkout and deletes ${worktree.branch} once the merge lands. Unforced — git refuses if anything would be lost.`
+            }
+          >
+            <input
+              type="checkbox"
+              checked={autoCleanup}
+              disabled={busy}
+              onChange={(e) => onAutoCleanupChange(e.target.checked)}
+            />
+            Clean up after merge
+          </label>
           <Button
             disabled={busy}
             title="Locks this branch in the sidebar without touching git — use it when the work shipped as a squash or rebase, which leaves nothing here for git to recognise"
@@ -348,8 +393,18 @@ export function WorktreeMergeModal({
         <>
           {merged && (
             <div className="wt-banner wt-banner-success">
-              Merged into {ok.targetBranch} — your dev servers should have picked it up. Remove the
-              worktree when you’re done with it.
+              Merged into {ok.targetBranch} — your dev servers should have picked it up.{' '}
+              {cleanupError
+                ? 'The worktree was kept, for the reason below.'
+                : 'Remove the worktree when you’re done with it.'}
+            </div>
+          )}
+
+          {cleanupError && (
+            <div className="wt-banner wt-banner-warning">
+              <strong>Merged, but the worktree was kept.</strong> Your commits are on{' '}
+              <code>{ok.targetBranch}</code> — only the cleanup stopped, and git says why:
+              <div className="wt-cleanup-reason">{cleanupError}</div>
             </div>
           )}
 

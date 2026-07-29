@@ -25,6 +25,10 @@ import {
   type SttSettings
 } from '../../shared/stt'
 import {
+  DEFAULT_WORKTREE_SETTINGS,
+  type WorktreeSettings
+} from '../../shared/worktree-settings'
+import {
   composeCardPrompt,
   GENERAL_SCOPE,
   projectScopeDir,
@@ -141,6 +145,7 @@ export function App(): React.JSX.Element {
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
   const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
   const [stt, setStt] = useState<SttSettings>(DEFAULT_STT_SETTINGS)
+  const [wtSettings, setWtSettings] = useState<WorktreeSettings>(DEFAULT_WORKTREE_SETTINGS)
   // Whether a Deepgram key is stored. Dictation is disabled until it is —
   // the alternative is an open mic with nowhere to send the audio.
   const [sttReady, setSttReady] = useState(false)
@@ -311,6 +316,7 @@ export function App(): React.JSX.Element {
       setAppearance(file.appearance)
       setAgents(file.agents)
       setStt(file.stt)
+      setWtSettings(file.worktrees)
       settingsLoaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
@@ -529,9 +535,12 @@ export function App(): React.JSX.Element {
   // Persist debounced — dragging the macOS color picker fires per-frame changes
   useEffect(() => {
     if (!settingsLoaded.current) return
-    const t = setTimeout(() => void window.api.saveSettings({ appearance, agents, stt }), 400)
+    const t = setTimeout(
+      () => void window.api.saveSettings({ appearance, agents, stt, worktrees: wtSettings }),
+      400
+    )
     return () => clearTimeout(t)
-  }, [appearance, agents, stt])
+  }, [appearance, agents, stt, wtSettings])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
@@ -1536,6 +1545,8 @@ export function App(): React.JSX.Element {
             onSttStatusChange={refreshSttStatus}
             onSttRecover={recoverRecording}
             onSttDiscardRecording={discardRecording}
+            worktrees={wtSettings}
+            onWorktreesChange={setWtSettings}
             initialPane={settingsPane}
             onClose={() => setAppSettingsOpen(false)}
           />
@@ -1889,9 +1900,14 @@ export function App(): React.JSX.Element {
           <WorktreeMergeModal
             worktree={wtMerge}
             project={wtMergeProject}
+            openTerminals={tabs.filter((t) => t.worktreeId === wtMerge.id).length}
             onClose={() => setWtMerge(null)}
             onRemove={() => removeWorktree(wtMerge)}
             onMarkDone={() => setWorktreeDone(wtMerge, true)}
+            autoCleanup={wtSettings.autoCleanupOnMerge}
+            onAutoCleanupChange={(on) =>
+              setWtSettings((w) => ({ ...w, autoCleanupOnMerge: on }))
+            }
           />
         )}
 

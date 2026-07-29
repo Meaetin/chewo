@@ -571,6 +571,39 @@ body {
   flex: 1;
 }
 
+/* Sits with the merge button because it modifies that action, not the modal. */
+.wt-cleanup-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  flex: none;
+  padding-right: var(--space-4);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.wt-cleanup-toggle input {
+  accent-color: var(--accent);
+}
+
+.wt-cleanup-toggle:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* git's own words for why the checkout is still here — never paraphrased */
+.wt-cleanup-reason {
+  margin-top: var(--space-8);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* worktree modal fields */
 
 .wt-field {
@@ -4508,6 +4541,58 @@ body {
 
 .settings-connections-footnote code,
 .settings-connections-error code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.settings-worktrees {
+  max-width: 720px;
+}
+
+.settings-worktrees-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin-top: var(--space-16);
+  cursor: pointer;
+}
+
+/* The box sits on the first text line rather than centred against a two-line
+   block, which reads as misaligned once the detail wraps. */
+.settings-worktrees-option input {
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.settings-worktrees-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settings-worktrees-name {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-worktrees-detail {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-worktrees-footnote {
+  margin-top: var(--space-16);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-worktrees-footnote code {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-secondary);
