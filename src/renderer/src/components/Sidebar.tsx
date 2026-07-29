@@ -7,7 +7,8 @@ import {
   Plus,
   ScrollText,
   Settings,
-  Undo2
+  Undo2,
+  X
 } from 'lucide-react'
 import type { SessionMeta } from '../../../shared/adapter/types'
 import type { VersionStatus } from '../../../main/app-version'
@@ -214,7 +215,7 @@ function SessionGroup({
           live={liveSessionIds.has(s.id)}
           onSelect={onSelect}
           onOpenTranscript={onOpenTranscript}
-          actionIcon={<Undo2 size={14} strokeWidth={1.75} style={{ transform: 'scaleX(-1)' }} />}
+          actionIcon={<X size={14} strokeWidth={1.75} />}
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
         />
@@ -453,7 +454,7 @@ export function Sidebar({
               showProject={s.project ?? undefined}
               onSelect={onSelect}
               onOpenTranscript={onOpenTranscript}
-              actionIcon={<Undo2 size={14} strokeWidth={1.75} style={{ transform: 'scaleX(-1)' }} />}
+              actionIcon={<X size={14} strokeWidth={1.75} />}
               actionTitle="Hide session"
               onAction={onHideSession}
             />
