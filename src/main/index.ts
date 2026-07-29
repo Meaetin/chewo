@@ -345,7 +345,10 @@ function registerIpc(): void {
     if (mainWindow) runSelfUpdate(mainWindow)
   })
   ipcMain.handle('dialog:pickFolder', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Add Project'
+    })
     return result.canceled ? null : result.filePaths[0]
   })
 }
