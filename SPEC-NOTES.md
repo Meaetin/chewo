@@ -220,8 +220,12 @@ claude -p --output-format json --allowedTools "Read" \
 
 - **Sidebar (notes mode):** `+ Subject`, `+ Topic` buttons; tree
   Subject → Topic → notes (dated, newest first); search box filtering
-  titles/filenames (content grep later). Styling stays in `styles.css`
-  (BEM-ish classes, e.g. `.notes-tree`, `.note-row`), dark-theme variables.
+  titles/filenames (content grep later). Right-clicking a subject or topic
+  opens a context menu: **Rename** (inline input on the row) and **Move to
+  Trash** (confirmed when the folder is non-empty) — same two actions on a
+  focused row via `⏎` and `⌘⌫`/`⌦`, matching the file tree. Styling stays in
+  `styles.css` (BEM-ish classes, e.g. `.notes-tree`, `.note-row`),
+  dark-theme variables.
 - **Recording view:** subject/topic picker (required), model/engine indicator,
   record button, elapsed time, level meter, live transcript — confirmed text
   solid, unconfirmed tail dimmed (maps 1:1 onto confirm-and-seek). Stop →
@@ -232,7 +236,7 @@ claude -p --output-format json --allowedTools "Read" \
 - **New from text:** paste box → subject/topic picker → save as-is (typed) or
   "Structure" (runs §7).
 - **IPC surface added to `src/preload/index.ts`:** `notes:*` (scan, read,
-  write, createFolder, delete), `stt:*` (start/stop + event stream),
+  write, createFolder, rename, delete), `stt:*` (start/stop + event stream),
   `notesChat:*` (send + stream events), `onNotesChanged`.
 - **Settings:** notes root path, STT engine + model — persisted in the
   `ProjectsFile` blob (`src/shared/projects.ts:67`) as a `notesSettings` field,

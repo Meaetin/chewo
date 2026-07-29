@@ -170,6 +170,8 @@ const api = {
     body?: string
     source?: string
   }) => ipcRenderer.invoke('notes:createNote', args) as Promise<NotesOpResult>,
+  notesRename: (path: string, newName: string) =>
+    ipcRenderer.invoke('notes:rename', { path, newName }) as Promise<NotesOpResult>,
   notesDelete: (path: string) => ipcRenderer.invoke('notes:delete', path) as Promise<NotesOpResult>,
   onNotesChanged: (cb: () => void) => {
     const listener = (): void => cb()

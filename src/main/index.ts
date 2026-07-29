@@ -24,6 +24,7 @@ import {
   deleteNoteItem,
   getNotesRoot,
   readNote,
+  renameNoteItem,
   scanNotes,
   setNotesRoot,
   writeNote,
@@ -244,6 +245,9 @@ function registerIpc(): void {
     createTopic(a.subject, a.name)
   )
   ipcMain.handle('notes:createNote', (_e, args: CreateNoteArgs) => createNote(args))
+  ipcMain.handle('notes:rename', (_e, a: { path: string; newName: string }) =>
+    renameNoteItem(a.path, a.newName)
+  )
   ipcMain.handle('notes:delete', (_e, path: string) => deleteNoteItem(path))
   ipcMain.handle('notes:structure', (_e, args: StructureArgs) => structureTranscript(args))
 

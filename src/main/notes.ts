@@ -1,6 +1,14 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import {
   isValidFolderName,
@@ -50,7 +58,7 @@ function assertInsideRoot(path: string): string {
 export interface NotesOpResult {
   ok: boolean
   error?: string
-  /** Created file path (createNote only) */
+  /** Created file path (createNote), or the new path (renameNoteItem) */
   path?: string
 }
 
@@ -184,6 +192,28 @@ export function readNote(path: string): string {
 
 export function writeNote(path: string, content: string): void {
   writeFileSync(assertInsideRoot(path), content)
+}
+
+/**
+ * Rename a subject or topic folder in place; its topics and notes ride along.
+ * Case-only renames ("maths" → "Maths") skip the collision check — on a
+ * case-insensitive volume the target "exists" only because it is the source.
+ */
+export function renameNoteItem(path: string, newName: string): NotesOpResult {
+  if (!isValidFolderName(newName)) return fail('Invalid name')
+  try {
+    const resolved = assertInsideRoot(path)
+    if (resolved === resolve(getNotesRoot())) return fail('Cannot rename the notes root')
+    const name = newName.trim()
+    const target = join(dirname(resolved), name)
+    if (target === resolved) return { ok: true, path: resolved }
+    if (target.toLowerCase() !== resolved.toLowerCase() && existsSync(target))
+      return fail(`"${name}" already exists`)
+    renameSync(resolved, target)
+    return { ok: true, path: target }
+  } catch (err) {
+    return fail(String(err))
+  }
 }
 
 /** Trash (not unlink) — works for notes and whole subject/topic folders. */

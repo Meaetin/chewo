@@ -96,6 +96,10 @@ interface SectionFiles {
 
 const EMPTY_SECTION_FILES: SectionFiles = { openFiles: [], activePath: null }
 
+/** Is `path` the folder/file at `base`, or something inside it? */
+const isAtOrUnder = (path: string, base: string): boolean =>
+  path === base || path.startsWith(base + '/')
+
 /** Passive dirty-count pill on a worktree session tab — polled, no watcher */
 function TabDirtyPill({ root }: { root: string | null }): React.JSX.Element | null {
   const count = useGitDirtyCount(root)
@@ -998,14 +1002,46 @@ export function App(): React.JSX.Element {
     window.api.sttStop()
   }, [])
 
-  const deleteNote = useCallback(
+  /** Notes, and whole subject/topic folders — all go to the Trash. */
+  const deleteNotesItem = useCallback(
     async (path: string) => {
       const res = await window.api.notesDelete(path)
-      if (!res.ok) showToast(res.error ?? 'Could not delete note')
-      setSelectedNotePath((p) => (p === path ? null : p))
+      if (!res.ok) showToast(res.error ?? 'Could not move to Trash')
+      setSelectedNotePath((p) => (p && isAtOrUnder(p, path) ? null : p))
       void refreshNotes()
     },
     [refreshNotes, showToast]
+  )
+
+  /**
+   * Rename a subject or topic folder. Names are the selection key, so the
+   * selection and any open lesson are re-pointed before the rescan lands —
+   * otherwise the tree effect above reads them as deleted and clears them.
+   */
+  const renameNotesItem = useCallback(
+    async (path: string, newName: string): Promise<string | null> => {
+      const subject = notesTree?.subjects.find((s) => s.path === path)
+      const topic = notesTree?.subjects
+        .flatMap((s) => s.topics.map((t) => ({ subject: s.name, topic: t })))
+        .find((x) => x.topic.path === path)
+      const res = await window.api.notesRename(path, newName)
+      if (!res.ok || !res.path) return res.error ?? 'Could not rename'
+      const name = newName.trim()
+      // One batch: tree and selection must never render out of step
+      setNotesTree(await window.api.notesScan())
+      setNotesSel((sel) => {
+        if (!sel) return sel
+        if (subject && sel.subject === subject.name) return { subject: name, topic: sel.topic }
+        if (topic && sel.subject === topic.subject && sel.topic === topic.topic.name)
+          return { subject: sel.subject, topic: name }
+        return sel
+      })
+      setSelectedNotePath((p) =>
+        p && isAtOrUnder(p, path) ? res.path + p.slice(path.length) : p
+      )
+      return null
+    },
+    [notesTree]
   )
 
   // ---------- todo workflow ----------
@@ -1169,6 +1205,8 @@ export function App(): React.JSX.Element {
             onSelectTopic={selectTopic}
             onCreateSubject={createSubject}
             onCreateTopic={createTopic}
+            onRenameItem={renameNotesItem}
+            onDeleteItem={(p) => void deleteNotesItem(p)}
           />
         ) : workflow === 'todo' ? (
           <TodoSidebar projects={projects} selectedId={todoScopeId} onSelect={setTodoScopeId} />
@@ -1413,7 +1451,7 @@ export function App(): React.JSX.Element {
                     onStopRecording={stopRecording}
                     onSelectNote={setSelectedNotePath}
                     onCreateNote={createNote}
-                    onDeleteNote={(p) => void deleteNote(p)}
+                    onDeleteNote={(p) => void deleteNotesItem(p)}
                   />
                 ) : (
                   <div className="empty-state">

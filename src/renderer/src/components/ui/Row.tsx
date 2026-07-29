@@ -15,6 +15,14 @@ interface RowProps {
   trailing?: React.ReactNode
   density?: 'default' | 'compact'
   onClick?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
+  /**
+   * Row-specific keys, handled before the built-in Enter/Space activation —
+   * call `preventDefault()` to claim a key (e.g. Enter = rename).
+   */
+  onKeyDown?: (e: React.KeyboardEvent) => void
+  /** The row element itself, for callers that move focus between rows. */
+  ref?: React.Ref<HTMLDivElement>
   className?: string
   children: React.ReactNode
 }
@@ -31,6 +39,9 @@ export function Row({
   trailing,
   density = 'default',
   onClick,
+  onContextMenu,
+  onKeyDown,
+  ref,
   className,
   children
 }: RowProps): React.JSX.Element {
@@ -48,21 +59,21 @@ export function Row({
 
   return (
     <div
+      ref={ref}
       className={classes}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       aria-pressed={interactive ? selected : undefined}
       onClick={onClick}
-      onKeyDown={
-        interactive
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onClick?.()
-              }
-            }
-          : undefined
-      }
+      onContextMenu={onContextMenu}
+      onKeyDown={(e) => {
+        onKeyDown?.(e)
+        if (e.defaultPrevented || !interactive) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
     >
       {(live || leading) && (
         <span className="row__leading">
