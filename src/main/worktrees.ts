@@ -120,6 +120,18 @@ export async function createWorktree(
   return { ok: true, path: dir, branch, baseBranch }
 }
 
+/**
+ * Local branch a base ref is meant to land on. A worktree based on
+ * `origin/main` lands on `main` — comparing the stored base to the checkout's
+ * HEAD by name alone would flag every remote-based worktree as drifted, and a
+ * warning that fires on every merge is a warning nobody reads.
+ */
+export function landingBranchFor(base: string, remotes: string[]): string {
+  const slash = base.indexOf('/')
+  if (slash === -1) return base
+  return remotes.includes(base.slice(0, slash)) ? base.slice(slash + 1) : base
+}
+
 export type WorktreeStatusResult =
   | {
       ok: true
@@ -127,6 +139,12 @@ export type WorktreeStatusResult =
       dirty: boolean
       /** Branch the main checkout is currently on — the merge target */
       targetBranch: string
+      /** The main checkout is on no branch at all; a merge there would be stranded */
+      detached: boolean
+      /** Branch this worktree was meant to land on (`origin/main` → `main`) */
+      landingBranch: string
+      /** False when someone moved the main checkout off the landing branch */
+      targetIsLanding: boolean
       /** `git log --oneline target..branch` */
       commits: string[]
       /** `git diff --stat target...branch` */
@@ -137,7 +155,8 @@ export type WorktreeStatusResult =
 export async function worktreeStatus(
   projectPath: string,
   worktreePath: string,
-  branch: string
+  branch: string,
+  baseBranch: string
 ): Promise<WorktreeStatusResult> {
   const status = await git(worktreePath, ['status', '--porcelain'])
   if (!status.ok) return { ok: false, error: gitError(status) }
@@ -145,6 +164,13 @@ export async function worktreeStatus(
   const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
   if (!head.ok) return { ok: false, error: gitError(head) }
   const targetBranch = head.stdout.trim()
+  const detached = targetBranch === 'HEAD'
+
+  const remotes = await git(projectPath, ['remote'])
+  const landingBranch = landingBranchFor(
+    baseBranch,
+    remotes.ok ? remotes.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : []
+  )
 
   const log = await git(projectPath, ['log', '--oneline', `${targetBranch}..${branch}`])
   const diff = await git(projectPath, ['diff', '--stat', `${targetBranch}...${branch}`])
@@ -152,6 +178,9 @@ export async function worktreeStatus(
     ok: true,
     dirty: status.stdout.trim().length > 0,
     targetBranch,
+    detached,
+    landingBranch,
+    targetIsLanding: !detached && targetBranch === landingBranch,
     commits: log.ok ? log.stdout.split('\n').filter(Boolean) : [],
     diffStat: diff.ok ? diff.stdout.trimEnd() : ''
   }
@@ -159,11 +188,36 @@ export async function worktreeStatus(
 
 export type MergeWorktreeResult = { ok: true } | { ok: false; error: string; aborted: boolean }
 
-/** Merge the task branch into whatever the MAIN checkout is on. Conflicts abort. */
+/**
+ * Merge the task branch into the MAIN checkout. Conflicts abort.
+ *
+ * `expectedTarget` is the branch the user was shown when they opened the merge
+ * modal. Several agents share that one checkout, so any of them can `git
+ * checkout -b` between the modal opening and the button click — without this
+ * check the merge would silently land on whatever branch they moved it to.
+ * HEAD is re-read here rather than trusted from the renderer.
+ */
 export async function mergeWorktree(
   projectPath: string,
-  branch: string
+  branch: string,
+  expectedTarget: string
 ): Promise<MergeWorktreeResult> {
+  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (!head.ok) return { ok: false, error: gitError(head), aborted: false }
+  const target = head.stdout.trim()
+  if (target === 'HEAD')
+    return {
+      ok: false,
+      error: 'The main checkout is on no branch (detached HEAD) — a merge there would be lost.',
+      aborted: false
+    }
+  if (target !== expectedTarget)
+    return {
+      ok: false,
+      error: `The main checkout moved to ${target} since you opened this (it was ${expectedTarget}). Nothing was merged — refresh and check the target.`,
+      aborted: false
+    }
+
   const res = await git(projectPath, ['merge', '--no-ff', '--no-edit', branch], 120_000)
   if (res.ok) return { ok: true }
 

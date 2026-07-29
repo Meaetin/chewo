@@ -6,8 +6,11 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import {
   branchFor,
   createWorktree,
+  landingBranchFor,
   listBranches,
+  mergeWorktree,
   validateBaseRef,
+  worktreeStatus,
   validateTaskName,
   worktreeDirFor,
   WORKTREES_ROOT
@@ -133,6 +136,114 @@ describe('base branch selection', () => {
     expect(validateBaseRef('origin/main')).toBeNull()
     const res = await createWorktree(repo, 'flagbase', '--force')
     expect(res.ok).toBe(false)
+  })
+})
+
+describe('landingBranchFor', () => {
+  test('a remote-tracking base lands on the local branch of the same name', () => {
+    expect(landingBranchFor('origin/main', ['origin'])).toBe('main')
+    expect(landingBranchFor('upstream/release/2', ['origin', 'upstream'])).toBe('release/2')
+  })
+
+  test('a slash in a local branch name is not a remote prefix', () => {
+    expect(landingBranchFor('feature/login', ['origin'])).toBe('feature/login')
+    expect(landingBranchFor('main', ['origin'])).toBe('main')
+    expect(landingBranchFor('origin/main', [])).toBe('origin/main')
+  })
+})
+
+// The main checkout is shared by every non-isolated agent, so any of them can
+// move HEAD out from under a merge. These are the guards for that.
+describe('merge target drift', () => {
+  let repo: string
+  let wt: string
+
+  const git = (dir: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(async () => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wt-drift-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-m', 'initial')
+
+    const res = await createWorktree(repo, 'task')
+    if (!res.ok) throw new Error(res.error)
+    wt = res.path
+    writeFileSync(join(wt, 'b.txt'), 'two\n')
+    git(wt, 'add', '-A')
+    git(wt, 'commit', '-m', 'agent work')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('the base branch still checked out is the landing branch', async () => {
+    const res = await worktreeStatus(repo, wt, 'agent/task', 'main')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.targetBranch).toBe('main')
+    expect(res.landingBranch).toBe('main')
+    expect(res.targetIsLanding).toBe(true)
+    expect(res.detached).toBe(false)
+    expect(res.commits).toHaveLength(1)
+  })
+
+  test('an origin/ base does not read as drift — the cry-wolf case', async () => {
+    const res = await worktreeStatus(repo, wt, 'agent/task', 'origin/main')
+    if (!res.ok) throw new Error(res.error)
+    // no remote configured here, so the prefix is not stripped and it drifts
+    expect(res.landingBranch).toBe('origin/main')
+    git(repo, 'remote', 'add', 'origin', repo)
+    const withRemote = await worktreeStatus(repo, wt, 'agent/task', 'origin/main')
+    if (!withRemote.ok) throw new Error(withRemote.error)
+    expect(withRemote.landingBranch).toBe('main')
+    expect(withRemote.targetIsLanding).toBe(true)
+  })
+
+  test('another agent branching the main checkout is reported as drift', async () => {
+    git(repo, 'checkout', '-b', 'agent/other')
+    const res = await worktreeStatus(repo, wt, 'agent/task', 'main')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.targetBranch).toBe('agent/other')
+    expect(res.landingBranch).toBe('main')
+    expect(res.targetIsLanding).toBe(false)
+    git(repo, 'checkout', 'main')
+  })
+
+  test('a merge whose target moved since the modal opened is refused', async () => {
+    git(repo, 'checkout', '-b', 'agent/other2')
+    const res = await mergeWorktree(repo, 'agent/task', 'main')
+    expect(res.ok).toBe(false)
+    if (res.ok) throw new Error('expected refusal')
+    expect(res.error).toContain('agent/other2')
+    // nothing landed on the branch the user was actually shown
+    expect(git(repo, 'log', '--oneline', 'main')).not.toContain('agent work')
+    git(repo, 'checkout', 'main')
+  })
+
+  test('a detached main checkout is refused rather than merged into', async () => {
+    git(repo, 'checkout', '--detach')
+    const status = await worktreeStatus(repo, wt, 'agent/task', 'main')
+    if (!status.ok) throw new Error(status.error)
+    expect(status.detached).toBe(true)
+    expect(status.targetIsLanding).toBe(false)
+    const res = await mergeWorktree(repo, 'agent/task', 'main')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toContain('detached')
+    git(repo, 'checkout', 'main')
+  })
+
+  test('the expected target matching HEAD still merges', async () => {
+    const res = await mergeWorktree(repo, 'agent/task', 'main')
+    if (!res.ok) throw new Error(res.error)
+    expect(git(repo, 'log', '--oneline', 'main')).toContain('agent work')
   })
 })
 
