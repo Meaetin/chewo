@@ -1,9 +1,14 @@
 // Builds the audio-capture sidecar only when its sources are newer than the
 // last build product (or it's missing). Wired into `predev` and `predist` so
 // `npm run dev` and `npm run dist:install` always have a sidecar without a slow
-// rebuild every time. Pass --soft to warn-and-continue on failure (dev), else it
-// exits non-zero so a release build fails loudly rather than shipping a broken
-// app.
+// rebuild every time.
+//
+// Pass --soft to warn-and-continue on failure. Every caller does: the sidecar
+// powers dictation only, and losing the whole app over an optional feature is a
+// bad first run for someone who hasn't installed the Swift toolchain yet.
+// electron-builder agrees — a missing `extraResources` source is a warning, not
+// an error (`copyFiles` in app-builder-lib), so the packaged app just ships
+// without dictation. Without --soft this exits non-zero.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, statSync, readdirSync } from 'node:fs'
@@ -16,11 +21,14 @@ const pkgDir = join(root, 'packages', 'audio-capture')
 const binary = join(pkgDir, '.build', 'release', 'chewo-audio-capture')
 
 const fail = (msg) => {
+  const hint =
+    '   Everything except dictation and audio recording still works.\n' +
+    '   To enable them: xcode-select --install, then re-run this build.'
   if (soft) {
-    console.warn(`\n⚠️  ${msg}\n   Dictation and recording will be unavailable until the sidecar builds.\n`)
+    console.warn(`\n⚠️  ${msg}\n${hint}\n`)
     process.exit(0)
   }
-  console.error(`\n❌ ${msg}\n`)
+  console.error(`\n❌ ${msg}\n${hint}\n`)
   process.exit(1)
 }
 

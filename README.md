@@ -72,19 +72,75 @@ Early, single-developer project — **v0.1.0**, macOS (Apple Silicon) only. Buil
 
 The MCP server exposes the user's session history to any agent that can call its tools, which is a prompt-injection surface (a malicious repo could try to exfiltrate other sessions). This is why connecting it is an explicit opt-in per CLI rather than something the app arranges on first launch. Current mitigations: the server is **read-only** over history, `handoff` writes only to its own inbox, and every tool call is logged to `~/.chewo/mcp/audit.log`. A per-project allow/deny list is the next step.
 
-## Running from source
+## Install
 
-Requires macOS with the `claude` and `codex` CLIs installed and a recent Node.js.
+There are no prebuilt downloads — you build it yourself, which takes about two
+minutes and is genuinely the smoothest path (see [Why no download?](#why-no-download)).
+
+**Prerequisites**
+
+| | |
+|---|---|
+| macOS on **Apple Silicon** | Intel Macs are untested and the installer refuses them |
+| **Node.js ≥ 22.12** | `.nvmrc` pins 24; `nvm use` picks it up |
+| **Xcode Command Line Tools** | `xcode-select --install` — only needed for voice/dictation; the build skips it with a warning if absent |
+| **[`claude`](https://claude.com/claude-code) and/or [`codex`](https://developers.openai.com/codex/cli) on your `PATH`** | Chewo wraps them, it doesn't bundle them. Either one alone is fine |
+
+**Build and install**
 
 ```bash
+git clone https://github.com/Meaetin/chewo.git
+cd chewo
 npm install
-npm run dev          # electron-vite dev with hot reload
+npm run dist:install   # builds, then copies Chewo.app into /Applications
+```
 
+Then open Chewo from Spotlight. Nothing else to register: the `chewo` MCP server
+ships inside the app, and you connect it to each CLI from **Settings →
+Connections** when you want it.
+
+### Why no download?
+
+Chewo is **ad-hoc signed** (`identity: null` in `electron-builder.yml`) — there's
+no paid Apple Developer certificate behind it. A locally built app carries no
+quarantine flag and simply opens. The same app *downloaded* — DMG, zip, AirDrop,
+Slack — gets tagged `com.apple.quarantine`, and macOS rejects an ad-hoc-signed
+quarantined bundle with **"Chewo is damaged and can't be opened"** rather than the
+usual "unidentified developer" prompt. Building locally sidesteps that entirely.
+
+If you do need to hand someone a build, `npm run dist:zip` produces one in
+`dist/`, and the recipient must clear the flag before it will launch:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Chewo.app
+```
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `posix_spawnp failed` when opening a terminal | `npm install <pkg>` strips the executable bit off node-pty's `spawn-helper`. Run `npm run postinstall`. |
+| `Swift toolchain not found` warning | Expected without Xcode CLT. The build continues; dictation is disabled. `xcode-select --install` to enable it. |
+| `ERR_MODULE_NOT_FOUND` on launch | A dependency in `package.json` isn't in `node_modules` — electron-builder silently skips it. Run `npm install`. |
+| Sidebar is empty | Chewo reads `~/.claude/projects/` and `~/.codex/sessions/`. Run each CLI once first. |
+| "Chewo is damaged and can't be opened" | You received a build instead of building it. See [above](#why-no-download). |
+
+## Development
+
+```bash
+npm run dev          # electron-vite with hot reload
 npm run typecheck    # tsc --noEmit
 npm test             # vitest
-
-npm run dist         # build an ad-hoc-signed .app into dist/ (Apple Silicon)
+npm run dist         # build the .app into dist/ without installing it
 ```
+
+Conventions and hard-won gotchas live in [`AGENTS.md`](AGENTS.md); read
+[`SPEC.md`](SPEC.md) and [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) before changing
+architecture.
+
+## License
+
+[MIT](LICENSE) © Martin Teo
 
 ---
 
