@@ -5,6 +5,7 @@ import { agentDef, DEFAULT_AGENTS, type AgentAssignments } from '../../shared/ag
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
+  sessionInProject,
   type AgentSettings,
   type Project,
   type ProjectsFile,
@@ -436,6 +437,86 @@ export function App(): React.JSX.Element {
     todoRunAgent
   ])
 
+  // Keep the worktree records in step with git itself. Records whose checkout
+  // git no longer lists are dropped (someone ran `git worktree remove`), and
+  // checkouts under our root that we have no record of are adopted so they
+  // stay reachable from the sidebar — a build with its own projects.json, or a
+  // pane closed before the record was written, must not strand a branch.
+  // Projects git can't answer for are left exactly as they are.
+  // Serialized so the pass re-runs on a real change of projects, not on every
+  // render that hands back a new array
+  const projectRoots = JSON.stringify(projects.map((p) => [p.id, p.path]))
+  const reconcileSeq = useRef(0)
+  const reconcileWorktrees = useCallback(async () => {
+    const seq = ++reconcileSeq.current
+    {
+      const scans = await Promise.all(
+        (JSON.parse(projectRoots) as [string, string][]).map(async ([id, path]) => ({
+          id,
+          res: await window.api.worktreeList(path)
+        }))
+      )
+      // A newer pass — or unmount — superseded this one while git answered
+      if (seq !== reconcileSeq.current) return
+      setWorktrees((prev) => {
+        const next: Worktree[] = []
+        const scanned = new Set<string>()
+        let changed = false
+        for (const { id, res } of scans) {
+          if (!res.ok) continue
+          scanned.add(id)
+          const records = prev.filter((w) => w.projectId === id)
+          const byPath = new Map(records.map((w) => [w.path, w]))
+          for (const found of res.worktrees) {
+            const rec = byPath.get(found.path)
+            if (!rec) {
+              changed = true
+              next.push({
+                id: crypto.randomUUID(),
+                projectId: id,
+                taskName: found.taskName,
+                branch: found.branch,
+                path: found.path,
+                // Same fallback `git worktree add` itself used with no base
+                baseBranch: res.head,
+                baseCommit: found.baseCommit,
+                createdAt: new Date().toISOString()
+              })
+            } else if (
+              (found.branch && found.branch !== rec.branch) ||
+              (found.baseCommit && !rec.baseCommit)
+            ) {
+              changed = true
+              next.push({
+                ...rec,
+                branch: found.branch || rec.branch,
+                baseCommit: rec.baseCommit ?? found.baseCommit
+              })
+            } else {
+              next.push(rec)
+            }
+          }
+          const onDisk = new Set(res.worktrees.map((f) => f.path))
+          if (records.some((w) => !onDisk.has(w.path))) changed = true
+        }
+        for (const w of prev) if (!scanned.has(w.projectId)) next.push(w)
+        return changed ? next : prev
+      })
+    }
+  }, [projectRoots])
+
+  // Also on window focus: agents and terminals create and remove worktrees
+  // outside this window all the time, and nothing notifies it when they do.
+  useEffect(() => {
+    void reconcileWorktrees()
+    const onFocus = (): void => void reconcileWorktrees()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      reconcileSeq.current++ // drop whatever is still in flight
+    }
+  }, [reconcileWorktrees])
+
   // ---------- appearance ----------
 
   // Live re-theme: CSS tokens for the whole UI, plus derived themes for the
@@ -824,13 +905,18 @@ export function App(): React.JSX.Element {
       // some project is open would show up as that project's terminal.
       const owner = assignProject(s, projects, worktrees)
       const projectId = owner?.id ?? null
+      // A session recorded inside a worktree resumes bound to it — without
+      // this the pane runs in the checkout but loses its merge button and the
+      // file tree points at the main checkout instead of the branch.
+      const wt = worktrees.find((w) => sessionInProject(s.project, w.path))
       setSelectedProjectId(projectId) // follow the terminal to its own section
       void openTerminal({
         source: s.source,
         sessionId: s.id,
         cwd: s.project,
-        label: s.title.slice(0, 30),
-        projectId
+        label: wt ? `⎇ ${wt.taskName}` : s.title.slice(0, 30),
+        projectId,
+        worktreeId: wt?.id
       })
     },
     [openTerminal, projects, worktrees]
@@ -851,6 +937,42 @@ export function App(): React.JSX.Element {
     [openTerminal, selectedProject, worktrees]
   )
 
+  /**
+   * Open an isolated branch from the sidebar. With no `source` it takes the
+   * first thing that exists — a live pane, the terminal we remember, then the
+   * newest session recorded inside the checkout — and returns false when the
+   * branch has nothing to resume, which is the sidebar's cue to ask for an
+   * agent. Every path keeps the worktree binding, so the pane gets its merge
+   * button and the file tree follows the branch.
+   */
+  const openWorktree = useCallback(
+    (wt: Worktree, source?: Source): boolean => {
+      setSelectedProjectId(wt.projectId)
+      const start = (opts: { source: PaneSource; sessionId?: string; label: string }): true => {
+        void openTerminal({ ...opts, cwd: wt.path, projectId: wt.projectId, worktreeId: wt.id })
+        return true
+      }
+      if (source) return start({ source, label: `⎇ ${wt.taskName}` })
+
+      const live = tabs.find((t) => t.worktreeId === wt.id)
+      if (live) {
+        setView({ kind: 'terminal', termId: live.termId })
+        return true
+      }
+      const project = projects.find((p) => p.id === wt.projectId)
+      const saved = project?.terminals.find((t) => t.worktreeId === wt.id)
+      if (saved)
+        return start({ source: saved.source, sessionId: saved.sessionId, label: saved.label })
+
+      const last = sessions
+        .filter((s) => sessionInProject(s.project, wt.path))
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+      if (last) return start({ source: last.source, sessionId: last.id, label: `⎇ ${wt.taskName}` })
+      return false
+    },
+    [openTerminal, projects, sessions, tabs]
+  )
+
   /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
   const createIsolated = useCallback(
     async (taskName: string, agent: Source, setup: string, base: string): Promise<string | null> => {
@@ -865,6 +987,7 @@ export function App(): React.JSX.Element {
         branch: res.branch,
         path: res.path,
         baseBranch: res.baseBranch,
+        baseCommit: res.baseCommit,
         createdAt: new Date().toISOString()
       }
       setWorktrees((ws) => [...ws, wt])
@@ -915,6 +1038,32 @@ export function App(): React.JSX.Element {
     },
     [projects, tabs, showToast]
   )
+
+  /** Sidebar's remove on a spent branch — git still refuses if work would be lost. */
+  const confirmRemoveWorktree = useCallback(
+    (wt: Worktree) => {
+      const what = wt.branch ? `and delete branch ${wt.branch}` : '(it has no branch)'
+      // Removal kills every pane running in the checkout — say so before it happens
+      const open = tabs.filter((t) => t.worktreeId === wt.id).length
+      const alsoCloses = open
+        ? `\n\nThis closes ${open} open terminal${open === 1 ? '' : 's'} running there.`
+        : ''
+      if (!window.confirm(`Remove the ${wt.taskName} worktree ${what}?${alsoCloses}`)) return
+      void removeWorktree(wt).then((err) => {
+        if (err) showToast(err)
+      })
+    },
+    [removeWorktree, showToast, tabs]
+  )
+
+  /** The escape hatch for a squash/rebase merge, which git can't recognise. */
+  const setWorktreeDone = useCallback((wt: Worktree, done: boolean) => {
+    setWorktrees((ws) =>
+      ws.map((w) =>
+        w.id === wt.id ? { ...w, doneAt: done ? new Date().toISOString() : undefined } : w
+      )
+    )
+  }, [])
 
   const closeTerminal = useCallback(
     (termId: number) => {
@@ -1359,6 +1508,13 @@ export function App(): React.JSX.Element {
         onSelect={openSession}
         onNewTerminal={newTerminal}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
+        liveWorktreeIds={
+          new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
+        }
+        onOpenWorktree={openWorktree}
+        onMergeWorktree={setWtMerge}
+        onRemoveWorktree={confirmRemoveWorktree}
+        onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
         onOpenSettings={(id) => setSettingsFor({ id })}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
@@ -1726,6 +1882,7 @@ export function App(): React.JSX.Element {
             project={wtMergeProject}
             onClose={() => setWtMerge(null)}
             onRemove={() => removeWorktree(wtMerge)}
+            onMarkDone={() => setWorktreeDone(wtMerge, true)}
           />
         )}
 

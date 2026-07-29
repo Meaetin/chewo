@@ -87,8 +87,10 @@ import { structureTranscript, type StructureArgs } from './structure'
 import {
   createWorktree,
   listBranches,
+  listWorktrees,
   mergeWorktree,
   removeWorktree,
+  worktreeState,
   worktreeStatus
 } from './worktrees'
 import {
@@ -219,6 +221,14 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('worktree:branches', (_e, projectPath: string) => listBranches(projectPath))
+  ipcMain.handle('worktree:list', (_e, projectPath: string) => listWorktrees(projectPath))
+  ipcMain.handle(
+    'worktree:state',
+    (
+      _e,
+      a: { projectPath: string; worktreePath: string; branch: string; baseCommit?: string }
+    ) => worktreeState(a.projectPath, a.worktreePath, a.branch, a.baseCommit)
+  )
   ipcMain.handle(
     'worktree:create',
     (_e, a: { projectPath: string; taskName: string; base?: string }) =>

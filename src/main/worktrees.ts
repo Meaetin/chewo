@@ -69,6 +69,141 @@ export async function listBranches(projectPath: string): Promise<ListBranchesRes
   return { ok: true, current: head.ok ? head.stdout.trim() : 'HEAD', local, remote }
 }
 
+export interface DiscoveredWorktree {
+  path: string
+  /** Empty when the worktree sits on a detached HEAD — nothing to merge by name */
+  branch: string
+  taskName: string
+  /** Commit the branch was cut at; undefined when its reflog can't say */
+  baseCommit?: string
+}
+
+/**
+ * Where a branch started, read from its own reflog (`branch: Created from X`
+ * is its oldest entry). Worktrees we created carry this on their record, but
+ * an adopted one has no record — and without a start point there is no way to
+ * tell a branch whose work landed from one that was never worked on at all.
+ */
+async function creationCommit(projectPath: string, branch: string): Promise<string | undefined> {
+  if (!branch) return undefined
+  const res = await git(projectPath, ['reflog', 'show', '--no-abbrev', '--format=%H', branch])
+  if (!res.ok) return undefined
+  const entries = res.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+  return entries.at(-1)
+}
+
+export type ListWorktreesResult =
+  | { ok: true; head: string; worktrees: DiscoveredWorktree[] }
+  | { ok: false; error: string }
+
+/**
+ * Isolated checkouts git itself knows about. The sidebar lists these rather
+ * than only our own records, so a worktree removed with `git worktree remove`
+ * outside the app disappears from it, and one whose record we never kept (a
+ * different install writes a different projects.json — dev and packaged builds
+ * don't share one) is still reachable. Only paths under our root are returned:
+ * worktrees the user keeps elsewhere are not the app's business.
+ */
+export async function listWorktrees(projectPath: string): Promise<ListWorktreesResult> {
+  const inside = await git(projectPath, ['rev-parse', '--is-inside-work-tree'])
+  if (!inside.ok) return { ok: false, error: `${basename(projectPath)} is not a git repository` }
+
+  const res = await git(projectPath, ['worktree', 'list', '--porcelain'])
+  if (!res.ok) return { ok: false, error: gitError(res) }
+
+  const ours = join(WORKTREES_ROOT, basename(projectPath)) + '/'
+  const found: DiscoveredWorktree[] = []
+  let path = ''
+  let branch = ''
+  // Records are blank-line separated; `worktree <path>` opens each one
+  const flush = (): void => {
+    if (path.startsWith(ours)) found.push({ path, branch, taskName: basename(path) })
+    path = ''
+    branch = ''
+  }
+  for (const line of res.stdout.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      flush()
+      path = line.slice('worktree '.length).trim()
+    } else if (line.startsWith('branch ')) {
+      branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '')
+    }
+  }
+  flush()
+
+  for (const w of found) w.baseCommit = await creationCommit(projectPath, w.branch)
+
+  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  return { ok: true, head: head.ok ? head.stdout.trim() : 'HEAD', worktrees: found }
+}
+
+export interface WorktreeState {
+  /** git can no longer reach the checkout — the folder was deleted or moved */
+  missing: boolean
+  /** False on a detached HEAD, or when the branch was deleted underneath us */
+  branchExists: boolean
+  /** Commits the main checkout's branch doesn't have yet */
+  ahead: number
+  behind: number
+  /** Uncommitted files in the checkout */
+  dirty: number
+  /**
+   * The branch did work and all of it is on the main checkout's branch — the
+   * worktree is spent. Requires a known start point: "nothing ahead" alone
+   * describes a freshly created branch just as well as a merged one, and
+   * locking a fresh worktree would be worse than leaving a spent one open.
+   * Uncommitted work always keeps it live, whatever the commits say.
+   */
+  merged: boolean
+}
+
+/** Everything the sidebar needs to decide whether a branch is still live work. */
+export async function worktreeState(
+  projectPath: string,
+  worktreePath: string,
+  branch: string,
+  baseCommit?: string
+): Promise<WorktreeState> {
+  const missing = !existsSync(worktreePath)
+  const dead: WorktreeState = {
+    missing,
+    branchExists: false,
+    ahead: 0,
+    behind: 0,
+    dirty: 0,
+    merged: false
+  }
+  if (!branch) return dead
+
+  const tip = await git(projectPath, ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`])
+  if (!tip.ok) return dead
+
+  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  const target = head.ok ? head.stdout.trim() : 'HEAD'
+  const counts = await git(projectPath, [
+    'rev-list',
+    '--left-right',
+    '--count',
+    `${target}...${branch}`
+  ])
+  const [behindRaw, aheadRaw] = counts.ok ? counts.stdout.trim().split(/\s+/) : []
+  const ahead = Number(aheadRaw) || 0
+  const behind = Number(behindRaw) || 0
+
+  const status = missing ? null : await git(worktreePath, ['status', '--porcelain'])
+  const dirty = status?.ok ? status.stdout.split('\n').filter((l) => l.trim()).length : 0
+
+  const start = baseCommit ?? (await creationCommit(projectPath, branch))
+  return {
+    missing,
+    branchExists: true,
+    ahead,
+    behind,
+    dirty,
+    merged: ahead === 0 && dirty === 0 && !!start && start !== tip.stdout.trim()
+  }
+}
+
 /** A base ref reaches git as an argv element — anything flag-shaped is refused. */
 export function validateBaseRef(base: string): string | null {
   if (!base.trim()) return 'Base branch is required'
@@ -77,7 +212,7 @@ export function validateBaseRef(base: string): string | null {
 }
 
 export type CreateWorktreeResult =
-  | { ok: true; path: string; branch: string; baseBranch: string }
+  | { ok: true; path: string; branch: string; baseBranch: string; baseCommit: string }
   | { ok: false; error: string }
 
 /**
@@ -100,9 +235,12 @@ export async function createWorktree(
   if (existsSync(dir)) return { ok: false, error: `Worktree folder already exists: ${dir}` }
 
   let baseBranch: string
+  let baseCommit: string
   if (base === undefined) {
     const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
     baseBranch = head.ok ? head.stdout.trim() : 'HEAD'
+    const rev = await git(projectPath, ['rev-parse', 'HEAD'])
+    baseCommit = rev.ok ? rev.stdout.trim() : ''
   } else {
     const badBase = validateBaseRef(base)
     if (badBase) return { ok: false, error: badBase }
@@ -110,6 +248,7 @@ export async function createWorktree(
     const rev = await git(projectPath, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
     if (!rev.ok) return { ok: false, error: `Base branch not found: ${base}` }
     baseBranch = base
+    baseCommit = rev.stdout.trim()
   }
 
   const branch = branchFor(taskName)
@@ -117,7 +256,7 @@ export async function createWorktree(
   // Full checkout of the tree — can take a few seconds on large repos
   const res = await git(projectPath, ['worktree', 'add', '-b', branch, dir, baseBranch], 300_000)
   if (!res.ok) return { ok: false, error: gitError(res) }
-  return { ok: true, path: dir, branch, baseBranch }
+  return { ok: true, path: dir, branch, baseBranch, baseCommit }
 }
 
 /**
@@ -242,8 +381,15 @@ export async function removeWorktree(
   branch: string
 ): Promise<RemoveWorktreeResult> {
   const rm = await git(projectPath, ['worktree', 'remove', worktreePath], 120_000)
-  if (!rm.ok) return { ok: false, error: gitError(rm) }
+  if (!rm.ok) {
+    // A folder that is already gone can't be "removed" — git only lists the
+    // checkout until it's pruned. Anything else is a real refusal to surface.
+    if (existsSync(worktreePath)) return { ok: false, error: gitError(rm) }
+    const pruned = await git(projectPath, ['worktree', 'prune'])
+    if (!pruned.ok) return { ok: false, error: gitError(pruned) }
+  }
 
+  if (!branch) return { ok: true, branchDeleted: false }
   const br = await git(projectPath, ['branch', '-d', branch])
   return br.ok
     ? { ok: true, branchDeleted: true }

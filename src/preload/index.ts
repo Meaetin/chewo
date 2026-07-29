@@ -5,8 +5,10 @@ import type { AgentId, AgentModel } from '../shared/agents'
 import type {
   CreateWorktreeResult,
   ListBranchesResult,
+  ListWorktreesResult,
   MergeWorktreeResult,
   RemoveWorktreeResult,
+  WorktreeState,
   WorktreeStatusResult
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
@@ -138,6 +140,14 @@ const api = {
     ipcRenderer.invoke('capabilities:copyHook', args),
   worktreeBranches: (projectPath: string) =>
     ipcRenderer.invoke('worktree:branches', projectPath) as Promise<ListBranchesResult>,
+  worktreeList: (projectPath: string) =>
+    ipcRenderer.invoke('worktree:list', projectPath) as Promise<ListWorktreesResult>,
+  worktreeState: (args: {
+    projectPath: string
+    worktreePath: string
+    branch: string
+    baseCommit?: string
+  }) => ipcRenderer.invoke('worktree:state', args) as Promise<WorktreeState>,
   createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
   worktreeStatus: (args: {
