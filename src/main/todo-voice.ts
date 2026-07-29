@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
-import { DEFAULT_STT_MODEL } from '../shared/notes'
 import {
   GENERAL_SCOPE,
   projectScopeDir,
@@ -149,15 +148,17 @@ function onHotkey(): void {
 
 function startCapture(): void {
   showHud()
-  const err = sttStart(DEFAULT_STT_MODEL, 'todo', onSttEvent)
+  const err = sttStart('todo', onSttEvent)
   if (err) {
     phase = 'idle'
-    pushHud({ phase: 'error', message: `Mic is busy — ${err}.` })
-    hideHudAfter(3000)
+    pushHud({ phase: 'error', message: err })
+    hideHudAfter(4000)
     return
   }
   phase = 'capturing'
-  pushHud({ phase: 'capturing', confirmed: '', tail: '', level: 0, loading: false })
+  // Connecting until `ready`: the Deepgram handshake is sub-second, but the
+  // mic isn't open yet and the HUD shouldn't claim to be listening.
+  pushHud({ phase: 'capturing', confirmed: '', tail: '', level: 0, loading: true })
 }
 
 function onSttEvent(ev: {
@@ -169,8 +170,11 @@ function onSttEvent(ev: {
   message?: string
 }): void {
   switch (ev.event) {
-    case 'loading':
+    case 'connecting':
       pushHud({ phase: 'capturing', loading: true })
+      break
+    case 'ready':
+      if (phase === 'capturing') pushHud({ phase: 'capturing', loading: false })
       break
     case 'level':
       if (phase === 'capturing') pushHud({ phase: 'capturing', level: ev.rms ?? 0 })

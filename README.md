@@ -24,7 +24,7 @@ Cross-model context is a **tool, not a pipe**: the models call MCP tools to pull
 - **Real embedded terminals** — the actual interactive `claude` / `codex` TUIs run in `node-pty` + `xterm.js` panes. Chewo wraps the CLIs; it doesn't reimplement them.
 - **Cross-model cohesion** (the spine) — a [`chewo`](packages/chewo-mcp) MCP server, bundled inside the app and registered with both CLIs from Settings → Connections (nothing to install separately, no Node runtime needed), exposes `search_sessions`, `get_session`, `list_recent_sessions`, `handoff`, and `check_inbox`, plus todo-board tools (`todos_list`, `todo_add`, `todo_move`, `todo_update`, `todo_delete`). Either agent can search the other's history, read a summarized transcript, and pass a note through a pull-based inbox.
 - **Opt-in worktree isolation** — spin up a `git worktree` + branch per agent task so multiple agents edit the same repo concurrently without touching the main checkout (where the dev servers live), then merge back through a guarded flow.
-- **Voice commands** — a global hotkey + local Whisper speech-to-text sidecar, interpreted by a small model into terminal actions.
+- **Voice commands** — a global hotkey + a Swift audio-capture sidecar streaming to Deepgram, interpreted by your chosen agent into terminal actions.
 
 ## Architecture
 
@@ -59,7 +59,8 @@ A single **session-adapter layer** normalizes two undocumented, drift-prone on-d
 | Terminals | `node-pty` + `@xterm/xterm` |
 | File watching | `chokidar` |
 | Cross-agent bridge | `@modelcontextprotocol/sdk` (stdio) |
-| Voice sidecar | Swift + `whisper` (`packages/stt-whisper`) |
+| Voice sidecar | Swift + Core Audio (`packages/audio-capture`) — capture only |
+| Speech-to-text | Deepgram streaming (`@deepgram/sdk`), key in the macOS Keychain |
 
 No database — the CLIs' JSONL session files *are* the database; the index is built in memory and rebuilt on watch events.
 

@@ -21,6 +21,7 @@ export interface StructureArgs {
   lessonPath: string
   transcript: string
   durationS: number
+  /** Deepgram model id, stamped into the .raw.md twin for provenance */
   sttModel: string
   /** How to read the transcript: lecture material vs meeting discussion. */
   style?: NoteStyle

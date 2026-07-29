@@ -3,9 +3,10 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import { DEFAULT_APPEARANCE, type SettingsFile } from '../shared/appearance'
 import { normalizeAgents, type AgentChoice, type AgentTask } from '../shared/agents'
+import { normalizeStt } from '../shared/stt'
 
 /**
- * App-wide user settings (appearance + agent assignments). Same shape as
+ * App-wide user settings (appearance, agent assignments, speech). Same shape as
  * projects.json: the renderer owns the state; main loads/saves the blob at
  * userData/settings.json. Loads deep-merge over defaults so settings written
  * by older versions pick up newly-added colors and newly-added features.
@@ -25,10 +26,15 @@ export function loadSettings(): SettingsFile {
         editor: { ...DEFAULT_APPEARANCE.editor, ...a?.editor },
         notes: { ...DEFAULT_APPEARANCE.notes, ...a?.notes }
       },
-      agents: normalizeAgents(parsed.agents)
+      agents: normalizeAgents(parsed.agents),
+      stt: normalizeStt(parsed.stt)
     }
   } catch {
-    return { appearance: DEFAULT_APPEARANCE, agents: normalizeAgents(undefined) }
+    return {
+      appearance: DEFAULT_APPEARANCE,
+      agents: normalizeAgents(undefined),
+      stt: normalizeStt(undefined)
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import type { AgentAssignments } from './agents'
+import type { SttSettings } from './stt'
 
 // User-customisable appearance settings. Dependency-free so the main process
 // can read them at window creation (native background color) while the
@@ -69,6 +70,8 @@ export interface SettingsFile {
   appearance: AppearanceSettings
   /** Which CLI agent runs each headless AI feature */
   agents: AgentAssignments
+  /** Deepgram model + language both dictation surfaces use */
+  stt: SttSettings
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Bot, FileCode, Palette, Plug, NotebookPen, Sparkles, SquareTerminal, X } from 'lucide-react'
+import {
+  Bot,
+  FileCode,
+  Mic,
+  NotebookPen,
+  Palette,
+  Plug,
+  Sparkles,
+  SquareTerminal,
+  X
+} from 'lucide-react'
 import {
   DEFAULT_APPEARANCE,
   type AppearanceSettings,
@@ -9,6 +19,7 @@ import {
 } from '../../../../shared/appearance'
 import { CURATED_ACCENTS, CURATED_BASES, matchPreset, type ThemePreset } from '../../../../shared/presets'
 import { DEFAULT_AGENTS, type AgentAssignments } from '../../../../shared/agents'
+import type { PendingRecovery, SttSettings } from '../../../../shared/stt'
 import { Button, IconButton } from '../ui'
 import { ColorField } from './ColorField'
 import { PresetGallery } from './PresetGallery'
@@ -17,6 +28,7 @@ import { TerminalPreview } from './TerminalPreview'
 import { EditorPreview } from './EditorPreview'
 import { NotesPreview } from './NotesPreview'
 import { AgentsTab } from './AgentsTab'
+import { VoiceTab } from './VoiceTab'
 import { ConnectionsTab } from './ConnectionsTab'
 
 const TERMINAL_FIELDS: Array<{ key: keyof TerminalAnsiColors; label: string }> = [
@@ -66,10 +78,18 @@ const NOTES_FIELDS: Array<{ key: keyof NotesColors; label: string }> = [
  * a body block below — the nav renders itself from this list, so there is no
  * second place to register a pane.
  */
-type Pane = 'presets' | 'app' | 'terminal' | 'editor' | 'notes' | 'agents' | 'connections'
+export type SettingsPane =
+  | 'presets'
+  | 'app'
+  | 'terminal'
+  | 'editor'
+  | 'notes'
+  | 'agents'
+  | 'voice'
+  | 'connections'
 
 interface NavItem {
-  id: Pane
+  id: SettingsPane
   label: string
   icon: typeof Palette
   /** Shown under the pane title */
@@ -121,6 +141,13 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
           'Which CLI runs each AI feature. The agent must already be installed and signed in — Chewo shells out to it, it does not carry its own API key.'
       },
       {
+        id: 'voice',
+        label: 'Voice',
+        icon: Mic,
+        blurb:
+          'The Deepgram key, model, and language behind notes dictation and to-do voice commands. Audio is streamed to Deepgram to be transcribed, so dictation needs a connection.'
+      },
+      {
         id: 'connections',
         label: 'Connections',
         icon: Plug,
@@ -142,6 +169,18 @@ interface AppSettingsProps {
   onChange: (a: AppearanceSettings) => void
   agents: AgentAssignments
   onAgentsChange: (a: AgentAssignments) => void
+  stt: SttSettings
+  onSttChange: (s: SttSettings) => void
+  /** Whether a Deepgram key is stored — the gate on every dictation control */
+  sttHasKey: boolean
+  /** Recordings whose stream died, still on disk */
+  sttPending: PendingRecovery[]
+  /** Re-reads STT status in App, so the whole app ungreys together */
+  onSttStatusChange: () => Promise<void>
+  onSttRecover: (id: string) => Promise<void>
+  onSttDiscardRecording: (id: string) => Promise<void>
+  /** Which pane opens first — 'voice' when something sent the user here */
+  initialPane?: SettingsPane
   onClose: () => void
 }
 
@@ -151,9 +190,17 @@ export function AppSettings({
   onChange,
   agents,
   onAgentsChange,
+  stt,
+  onSttChange,
+  sttHasKey,
+  sttPending,
+  onSttStatusChange,
+  onSttRecover,
+  onSttDiscardRecording,
+  initialPane = 'presets',
   onClose
 }: AppSettingsProps): React.JSX.Element {
-  const [pane, setPane] = useState<Pane>('presets')
+  const [pane, setPane] = useState<SettingsPane>(initialPane)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -218,6 +265,18 @@ export function AppSettings({
 
           <div className="settings-view-body">
             {pane === 'agents' && <AgentsTab agents={agents} onChange={onAgentsChange} />}
+
+            {pane === 'voice' && (
+              <VoiceTab
+                stt={stt}
+                onChange={onSttChange}
+                hasKey={sttHasKey}
+                onKeyChange={onSttStatusChange}
+                pending={sttPending}
+                onRecover={onSttRecover}
+                onDiscardRecording={onSttDiscardRecording}
+              />
+            )}
 
             {pane === 'connections' && <ConnectionsTab />}
 
