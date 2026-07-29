@@ -253,7 +253,7 @@ claude -p --output-format json --allowedTools "Read" \
   free via the filesystem; no MCP server needed in v1. Streamed into chat
   bubbles; multi-turn via `--resume <session-id>`.
 - Phase 4: add `search_notes` / `get_note` / `list_subjects` tools to
-  `packages/context-bridge/src/server.ts` so **coding agents** can also read
+  `packages/chewo-mcp/src/server.ts` so **coding agents** can also read
   the notes corpus (the sanctioned extensibility point per SPEC.md §4.4).
 - **Sidebar pollution guard:** these chat runs create real Claude sessions
   with `cwd` under the notes root — filter any session whose cwd is inside
@@ -273,7 +273,7 @@ claude -p --output-format json --allowedTools "Read" \
 - **N3 — Q&A:** inline chat panel, scope selector, `claude -p` stream-json
   runner in main, `--resume` multi-turn, coding-sidebar cwd filter.
 - **N4 — Later:** `chewo-stt-parakeet` + engine A/B setting; audio-file
-  import; image paste; notes tools in context-bridge; (todo workflow gets its
+  import; image paste; notes tools in the MCP server; (todo workflow gets its
   own spec).
 
 ---

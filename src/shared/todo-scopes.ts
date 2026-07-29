@@ -9,7 +9,7 @@ import { todosRootPath } from './todos-store'
  * Board directories are `p-<slug>-<hash8>` — stable, but they carry no
  * project path, and the project list itself lives in Electron's userData
  * where out-of-process tools can't reach it. So main mirrors the list here,
- * next to the boards it describes, and the context-bridge MCP server reads
+ * next to the boards it describes, and the chewo MCP server reads
  * it to turn a project name — or just the CLI session's cwd — into a scope
  * directory. Stale entries are harmless: they resolve to boards that exist.
  */

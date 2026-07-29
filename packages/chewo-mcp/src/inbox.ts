@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { MCP_ROOT } from '../../../src/shared/mcp-paths'
 
 export type AgentName = 'claude' | 'codex'
 
@@ -12,7 +12,7 @@ export interface Handoff {
   createdAt: string
 }
 
-export const DEFAULT_BRIDGE_ROOT = join(homedir(), '.context-bridge')
+export const DEFAULT_BRIDGE_ROOT = MCP_ROOT
 
 function inboxDir(root: string, agent: AgentName): string {
   return join(root, 'inbox', agent)

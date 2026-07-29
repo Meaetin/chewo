@@ -153,7 +153,7 @@ interface ArchiveFile {                   // T4
 - The store module (`src/shared/todos-store.ts` since T3) exposes plain
   functions — `loadBoard`, `addCard`, `moveCard`, `updateCard`, `deleteCard`,
   `archiveDone`, `restoreArchived`, `deleteArchived`, `deleteScope` — that
-  IPC handlers, voice commands, and context-bridge MCP tools all call.
+  IPC handlers, voice commands, and the MCP server's todo tools all call.
 
 ---
 
@@ -260,7 +260,7 @@ unbuilt.
 
 ## 9. Phase T3 — MCP (implemented 2026-07-20)
 
-Tools in `packages/context-bridge/src/server.ts` (the sanctioned
+Tools in `packages/chewo-mcp/src/server.ts` (the sanctioned
 extensibility point, SPEC.md §4.4), thin wrappers over the store module:
 `todos_list(scope?, all?)`, `todo_add`, `todo_update`, `todo_move`,
 `todo_delete`. Coding agents can file and complete todos ("add a todo to fix
@@ -391,7 +391,7 @@ Reference images (read these files):
   improvement — ship first; notes recording view prewarms on open);
   `globalShortcut` toggle + HUD window; sidecar conflict rule; Sonnet
   interpreter (`--json-schema`) + validation + undo toast.
-- **T3 — MCP:** context-bridge todo tools over the same store module. ✅
+- **T3 — MCP:** todo tools over the same store module. ✅
 - **T4 — Polish:** archive-on-clear + archive drawer; board filter;
   opt-in project-removal cleanup. ✅ Card thumbnails dropped — Q8's indicator
   icons keep card heights even, which matters more at four columns.
@@ -482,7 +482,7 @@ Reference images (read these files):
   confirm the move; say gibberish and confirm a graceful `none` toast; hit
   Undo and confirm reversal; start a notes recording and confirm the todo
   hotkey is rejected.
-- **T3:** from a coding agent terminal, call `todo_add` via context-bridge
+- **T3:** from a coding agent terminal, call `todo_add` via the MCP server
   and watch the card appear live on the board.
 - **T4:** move two cards to Done, hit "Archive done" — Done empties, the
   header shows "Archived 2". Open the drawer, restore one with an image —

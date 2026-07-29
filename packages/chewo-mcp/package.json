@@ -1,7 +1,7 @@
 {
-  "name": "@chewo/context-bridge",
+  "name": "@chewo/mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing Claude Code + Codex session history as tools — the shared memory both agents query",
+  "description": "Chewo's MCP server — exposes Claude Code + Codex session history, handoffs and todos as tools; the shared memory both agents query",
   "private": true,
   "type": "module",
   "scripts": {

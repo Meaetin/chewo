@@ -4,7 +4,7 @@ import { safeSend } from './safe-send'
 
 /**
  * Main's view of the todo store: the store itself is Electron-free (shared,
- * so the context-bridge MCP server calls the same functions out of process);
+ * so the chewo MCP server calls the same functions out of process);
  * main only wires the renderer push onto every commit.
  */
 export * from '../shared/todos-store'

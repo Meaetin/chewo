@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bot, FileCode, NotebookPen, Palette, Sparkles, SquareTerminal, X } from 'lucide-react'
+import { Bot, FileCode, Palette, Plug, NotebookPen, Sparkles, SquareTerminal, X } from 'lucide-react'
 import {
   DEFAULT_APPEARANCE,
   type AppearanceSettings,
@@ -17,6 +17,7 @@ import { TerminalPreview } from './TerminalPreview'
 import { EditorPreview } from './EditorPreview'
 import { NotesPreview } from './NotesPreview'
 import { AgentsTab } from './AgentsTab'
+import { ConnectionsTab } from './ConnectionsTab'
 
 const TERMINAL_FIELDS: Array<{ key: keyof TerminalAnsiColors; label: string }> = [
   { key: 'black', label: 'Black' },
@@ -65,7 +66,7 @@ const NOTES_FIELDS: Array<{ key: keyof NotesColors; label: string }> = [
  * a body block below — the nav renders itself from this list, so there is no
  * second place to register a pane.
  */
-type Pane = 'presets' | 'app' | 'terminal' | 'editor' | 'notes' | 'agents'
+type Pane = 'presets' | 'app' | 'terminal' | 'editor' | 'notes' | 'agents' | 'connections'
 
 interface NavItem {
   id: Pane
@@ -118,6 +119,13 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
         icon: Bot,
         blurb:
           'Which CLI runs each AI feature. The agent must already be installed and signed in — Chewo shells out to it, it does not carry its own API key.'
+      },
+      {
+        id: 'connections',
+        label: 'Connections',
+        icon: Plug,
+        blurb:
+          'Give your CLIs Chewo’s shared memory: searching each other’s past sessions, handing off context, and reading the to-do board. Nothing is registered until you connect it.'
       }
     ]
   }
@@ -210,6 +218,8 @@ export function AppSettings({
 
           <div className="settings-view-body">
             {pane === 'agents' && <AgentsTab agents={agents} onChange={onAgentsChange} />}
+
+            {pane === 'connections' && <ConnectionsTab />}
 
             {pane === 'presets' && <PresetGallery selectedId={activePreset} onPick={applyPreset} />}
 

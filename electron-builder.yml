@@ -7,9 +7,15 @@ files:
   - out/**
 # STT sidecar: `predist` builds it, this drops the executable at
 # Resources/bin/chewo-stt-whisper — where sidecarPath() looks when packaged.
+#
+# MCP server: `build:mcp` bundles it, this drops it at Resources/bin/chewo-mcp.cjs
+# — where mcpScriptPath() looks. The CLIs run it via the app's own binary with
+# ELECTRON_RUN_AS_NODE=1, so a user needs no Node install and nothing separate.
 extraResources:
   - from: packages/stt-whisper/.build/release/chewo-stt-whisper
     to: bin/chewo-stt-whisper
+  - from: packages/chewo-mcp/dist/index.cjs
+    to: bin/chewo-mcp.cjs
 asarUnpack:
   - node_modules/node-pty/**
 npmRebuild: false

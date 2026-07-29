@@ -22,7 +22,7 @@ Cross-model context is a **tool, not a pipe**: the models call MCP tools to pull
 
 - **Unified session sidebar** — every Claude Code and Codex session, merged, grouped by project, searchable by title or first message, live-updating via file watchers. Click any session to resume it in its original working directory.
 - **Real embedded terminals** — the actual interactive `claude` / `codex` TUIs run in `node-pty` + `xterm.js` panes. Chewo wraps the CLIs; it doesn't reimplement them.
-- **Cross-model cohesion** (the spine) — a [`context-bridge`](packages/context-bridge) MCP server registered with both CLIs exposes `search_sessions`, `get_session`, `list_recent_sessions`, `handoff`, and `check_inbox`, plus todo-board tools (`todos_list`, `todo_add`, `todo_move`, `todo_update`, `todo_delete`). Either agent can search the other's history, read a summarized transcript, and pass a note through a pull-based inbox.
+- **Cross-model cohesion** (the spine) — a [`chewo`](packages/chewo-mcp) MCP server, bundled inside the app and registered with both CLIs from Settings → Connections (nothing to install separately, no Node runtime needed), exposes `search_sessions`, `get_session`, `list_recent_sessions`, `handoff`, and `check_inbox`, plus todo-board tools (`todos_list`, `todo_add`, `todo_move`, `todo_update`, `todo_delete`). Either agent can search the other's history, read a summarized transcript, and pass a note through a pull-based inbox.
 - **Opt-in worktree isolation** — spin up a `git worktree` + branch per agent task so multiple agents edit the same repo concurrently without touching the main checkout (where the dev servers live), then merge back through a guarded flow.
 - **Voice commands** — a global hotkey + local Whisper speech-to-text sidecar, interpreted by a small model into terminal actions.
 
@@ -44,8 +44,8 @@ Cross-model context is a **tool, not a pipe**: the models call MCP tools to pull
          ▼
   ~/.claude/projects/**   ~/.codex/sessions/**   (read-only)
          ▲                        ▲
-         │      context-bridge MCP server (stdio)
-         └── shared inbox: ~/.context-bridge/inbox/<agent>/*.json
+         │      chewo MCP server (stdio)
+         └── shared inbox: ~/.chewo/mcp/inbox/<agent>/*.json
 ```
 
 A single **session-adapter layer** normalizes two undocumented, drift-prone on-disk formats — Claude's `parentUuid` message tree and Codex's OpenAI-Responses rollouts — into one model. Parsing is per-line skip-don't-crash, so a CLI update that changes the schema degrades gracefully instead of taking the app down. The same parser feeds both the sidebar and the bridge, so there's one fix point.
@@ -69,7 +69,7 @@ Early, single-developer project — **v0.1.0**, macOS (Apple Silicon) only. Buil
 
 ### Security note
 
-The bridge exposes the user's session history to any agent that can call its tools, which is a prompt-injection surface (a malicious repo could try to exfiltrate other sessions). Current mitigations: the bridge is **read-only** over history, `handoff` writes only to its own inbox, and every tool call is logged to an audit file. A per-project allow/deny list is the next step.
+The MCP server exposes the user's session history to any agent that can call its tools, which is a prompt-injection surface (a malicious repo could try to exfiltrate other sessions). This is why connecting it is an explicit opt-in per CLI rather than something the app arranges on first launch. Current mitigations: the server is **read-only** over history, `handoff` writes only to its own inbox, and every tool call is logged to `~/.chewo/mcp/audit.log`. A per-project allow/deny list is the next step.
 
 ## Running from source
 

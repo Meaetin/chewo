@@ -31,14 +31,15 @@ The bridge exposes ALL session history to any session that can call its
 tools. A malicious instruction in an untrusted repo (README, code comments)
 could ask a permissions-auto-approved agent to read other sessions and leak
 them. Mitigations shipped: read-only tools, audit log
-(`~/.context-bridge/audit.log`). Not shipped: per-project allowlist/denylist.
+(`~/.chewo/mcp/audit.log`). Not shipped: per-project allowlist/denylist.
 
-### 4. cwd-boost assumption UNVERIFIED
-Bridge search boosts sessions from the CLI's cwd, assuming both CLIs spawn
-MCP servers in the session's working directory. Never confirmed.
-**Check: `grep startup ~/.context-bridge/audit.log`** — if cwd is `/` or the
-app dir instead of project dirs, the boost silently degrades to neutral
-(safe failure) and the project path must be routed in differently.
+### 4. cwd-boost assumption HOLDS (verified 2026-07-29)
+Search boosts sessions from the CLI's cwd, assuming both CLIs spawn MCP
+servers in the session's working directory. Confirmed against 24 distinct
+startup cwds in the audit log: real project directories dominate, with a
+handful of `/` and `~` from sessions started outside a project. Those degrade
+the boost to neutral (safe failure), they don't misrank.
+**Re-check after CLI updates: `grep startup ~/.chewo/mcp/audit.log`.**
 
 ### 5. Codex env vars not scrubbed from ptys
 We scrub `CLAUDECODE` / `CLAUDE_*` from spawned pty envs (a nested claude
@@ -198,12 +199,14 @@ Isolated terminals trade fuss for safety. Known costs, all deliberate:
 ## Maintenance rituals
 
 - **After CLI updates:** `npm run canary` (drift check).
-- **After editing bridge code:** `npm run build -w @cohesion/context-bridge`
-  — CLIs spawn the bundled `dist/index.cjs`; running sessions keep the old
-  process, new sessions pick up the new build.
-- **If the repo moves:** re-register the bridge (absolute paths):
-  `claude mcp add --scope user context-bridge -- node <path>/dist/index.cjs --agent claude`
-  `codex mcp add context-bridge -- node <path>/dist/index.cjs --agent codex`
+- **After editing MCP server code:** `npm run build:mcp` — CLIs spawn the
+  bundled `dist/index.cjs`; running sessions keep the old process, new
+  sessions pick up the new build. (`predev`, `build` and `dist` run it too, so
+  this is only for rebuilding without restarting the app.)
+- **If the app or the repo moves:** nothing to do — the packaged app re-points
+  its own registration at launch. In dev, hit Reconnect in
+  Settings → Connections (dev deliberately does not auto-reconcile, or it
+  would fight the installed app over the same two config entries).
 - **Dev mode:** editing `src/main/**` hot-restarts Electron and KILLS open
   panes. Renderer edits hot-reload harmlessly.
 
@@ -232,7 +235,7 @@ Isolated terminals trade fuss for safety. Known costs, all deliberate:
 ## Deferred phases (from SPEC.md)
 
 - **Phase 3 remainder — inbox nudge**: app watches
-  `~/.context-bridge/inbox/`, types a visible "check your inbox" into the
+  `~/.chewo/mcp/inbox/`, types a visible "check your inbox" into the
   target pane for the user to submit. Handoff currently works pull-only.
 - ~~**Phase 4 — worktree isolation**~~ BUILT 2026-07-17 (opt-in isolated
   terminals; see #16 for accepted negatives).

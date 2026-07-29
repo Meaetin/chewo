@@ -14,7 +14,7 @@ import {
 /**
  * Todo store (SPEC-TODOS.md §4): ~/.chewo/todos/<scope>/board.json + assets/.
  * Plain functions over disk with no Electron dependency — the app's IPC
- * handlers (via src/main/todos.ts) and the out-of-process context-bridge MCP
+ * handlers (via src/main/todos.ts) and the out-of-process chewo MCP
  * server (T3) both call these same functions.
  *
  * Every mutation persists, then notifies the commit listener; main registers

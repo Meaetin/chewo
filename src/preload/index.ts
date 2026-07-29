@@ -27,6 +27,7 @@ import type {
   WriteFileResult
 } from '../main/file-explorer'
 import type { StructureArgs, StructureResult } from '../main/structure'
+import type { McpConnectResult, McpStatus } from '../shared/chewo-mcp'
 import type { NotesTree, SttEvent, SttSource } from '../shared/notes'
 import type { SettingsFile } from '../shared/appearance'
 import type { ArchiveFile, BoardFile, HudState, TodoStatus } from '../shared/todos'
@@ -305,6 +306,11 @@ const api = {
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
   listAgentModels: (agent: AgentId) =>
     ipcRenderer.invoke('agents:models', agent) as Promise<AgentModel[]>,
+  mcpStatus: () => ipcRenderer.invoke('mcp:status') as Promise<McpStatus>,
+  mcpConnect: (agent: AgentId) =>
+    ipcRenderer.invoke('mcp:connect', agent) as Promise<McpConnectResult>,
+  mcpDisconnect: (agent: AgentId) =>
+    ipcRenderer.invoke('mcp:disconnect', agent) as Promise<McpConnectResult>,
   loadSettings: () => ipcRenderer.invoke('settings:load') as Promise<SettingsFile>,
   saveSettings: (file: SettingsFile) => ipcRenderer.invoke('settings:save', file) as Promise<void>,
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>

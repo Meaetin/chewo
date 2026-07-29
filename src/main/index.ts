@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import { mkdirSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
 import {
@@ -15,6 +14,8 @@ import { scanCapabilities } from '../shared/capabilities/scan'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
 import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
 import { copyMcp } from './mcp-writer'
+import { adoptLegacyMcpRoot, MCP_ROOT } from '../shared/mcp-paths'
+import { connectMcpServer, disconnectMcpServer, mcpServerStatus, reconcileMcpServer } from './mcp-server'
 import type { HookRef, McpRef } from '../shared/capabilities/types'
 import { matchSessionToPane, type ProjectsFile } from '../shared/projects'
 import {
@@ -350,6 +351,9 @@ function registerIpc(): void {
     if (err) safeSend(mainWindow, 'app:toast', err)
   })
   ipcMain.handle('agents:models', (_e, agent: AgentId) => listAgentModels(agent))
+  ipcMain.handle('mcp:status', () => mcpServerStatus())
+  ipcMain.handle('mcp:connect', (_e, agent: AgentId) => connectMcpServer(agent))
+  ipcMain.handle('mcp:disconnect', (_e, agent: AgentId) => disconnectMcpServer(agent))
   ipcMain.handle('settings:load', () => loadSettings())
   ipcMain.handle('settings:save', (_e, file: SettingsFile) => {
     saveSettings(file)
@@ -441,7 +445,7 @@ function watchNotesStore(): void {
 
 /**
  * Mirror the project list into ~/.chewo/todos/scopes.json so out-of-process
- * callers (the context-bridge todo tools) can map a project name or cwd to a
+ * callers (the MCP server's todo tools) can map a project name or cwd to a
  * board directory — they can't read Electron's userData (SPEC-TODOS §9).
  */
 function publishScopeIndex(file: ProjectsFile): void {
@@ -484,12 +488,13 @@ function watchTodosStore(): void {
 }
 
 /**
- * Phase 3 nudge: when a bridge handoff lands in ~/.context-bridge/inbox/,
- * type "check your inbox" into the target agent's most recent pane (user
- * submits — never auto-sent) and toast the renderer.
+ * Phase 3 nudge: when a handoff lands in ~/.chewo/mcp/inbox/, type "check your
+ * inbox" into the target agent's most recent pane (user submits — never
+ * auto-sent) and toast the renderer.
  */
 function watchHandoffInbox(): void {
-  const inboxRoot = join(homedir(), '.context-bridge', 'inbox')
+  adoptLegacyMcpRoot()
+  const inboxRoot = join(MCP_ROOT, 'inbox')
   mkdirSync(join(inboxRoot, 'claude'), { recursive: true })
   mkdirSync(join(inboxRoot, 'codex'), { recursive: true })
 
@@ -558,6 +563,9 @@ app.whenReady().then(() => {
   watchNotesStore()
   watchTodosStore()
   watchHandoffInbox()
+  // Re-point an existing registration if the app moved or was renamed away
+  // from `context-bridge`. Never registers on its own — see mcp-server.ts.
+  void reconcileMcpServer()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

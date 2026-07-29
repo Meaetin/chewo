@@ -90,13 +90,13 @@ session history and hand context to each other** ("cohesion").
          ▼
   ~/.claude/projects/**  ~/.codex/sessions/**   (read-only)
          ▲                        ▲
-         │      context-bridge MCP server (stdio)
+         │      chewo MCP server (stdio)
          │  spawned independently by each CLI at startup
          │  tools: search_sessions / get_session /
          │         list_recent_sessions / handoff / check_inbox /
          │         todos_list / todo_add / todo_move / todo_update /
          │         todo_delete
-         └── shared inbox: ~/.context-bridge/inbox/<agent>/*.json
+         └── shared inbox: ~/.chewo/mcp/inbox/<agent>/*.json
 ```
 
 **Key design decision:** cross-model context is a **tool, not a pipe**.
@@ -140,8 +140,8 @@ Rules:
 - Codex → prefer `response_item` lines; `event_msg` only for lifecycle metadata.
 - Parse failures on individual lines are skipped and counted, never fatal
   (forward compatibility with schema drift).
-- Used by BOTH the Electron sidebar and the context-bridge server (one parser,
-  one fix point).
+- Used by BOTH the Electron sidebar and the MCP server (one parser, one fix
+  point).
 
 ### 4.2 Sidebar (Electron renderer)
 - Unified list of sessions from both tools; group by project, sort by
@@ -162,17 +162,33 @@ Rules:
   created after spawn), cwd.
 - Panes are dumb by design. All intelligence lives in the bridge.
 
-### 4.4 context-bridge MCP server (the spine)
-Single TypeScript program using `@modelcontextprotocol/sdk`, stdio transport.
-Registered once with each CLI:
+### 4.4 The `chewo` MCP server (the spine)
+Single TypeScript program (`packages/chewo-mcp`) using
+`@modelcontextprotocol/sdk`, stdio transport, bundled by esbuild to one
+`dist/index.cjs`. Registered once with each CLI:
 
 ```bash
-claude mcp add context-bridge -- node /path/to/bridge/dist/index.js --agent claude
-codex  mcp add context-bridge -- node /path/to/bridge/dist/index.js --agent codex
+claude mcp add --scope user -e ELECTRON_RUN_AS_NODE=1 chewo -- <chewo-binary> <bundle> --agent claude
+codex  mcp add --env ELECTRON_RUN_AS_NODE=1 chewo -- <chewo-binary> <bundle> --agent codex
 ```
 
 `--agent` tells the instance who "me" is (for inbox routing). Each CLI spawns
 its **own instance**; instances share state only via the filesystem.
+
+**Shipping (§4.4a).** The bundle rides in the app as an extraResource at
+`Resources/bin/chewo-mcp.cjs` — there is nothing for a user to install
+separately. The registered command is **Chewo's own binary with
+`ELECTRON_RUN_AS_NODE=1`**, which runs it as plain Node: Claude Code ships as
+a native binary and Codex is Rust, so a user can have both CLIs and no Node
+runtime, and `node <bundle>` would fail for them.
+
+Registration is **opt-in, in Settings → Connections** (`src/main/mcp-server.ts`).
+It writes to the user's global agent config and grants every session read
+access to their whole history, so it is never done silently at first launch.
+What *is* automatic is repair: at launch a registration the user already made
+is re-pointed if the app moved, or migrated if it still carries the old
+`context-bridge` name. Reads parse `~/.claude.json` and `~/.codex/config.toml`
+directly; every write shells out to the CLIs.
 
 **Tool surface (v1 — small on purpose):**
 
@@ -181,7 +197,7 @@ its **own instance**; instances share state only via the filesystem.
 | `search_sessions` | `query, model?, project?, limit=5` | ranked candidate list `{id, title, source, updatedAt, preview}` | Fuzzy over titles + first-user-message. **Always returns candidates, never a single silent guess** — titles collide; let the model disambiguate. |
 | `get_session` | `id, mode="summary"\|"full"\|"tail", page?` | transcript digest / paginated full text / last N turns | `summary` is default; `full` is paginated (sessions reach 1MB+). |
 | `list_recent_sessions` | `model?, project?, limit=10` | same shape as search results | The model's sidebar. |
-| `handoff` | `to: "claude"\|"codex", note, session_id?` | ack | Writes `~/.context-bridge/inbox/<to>/<ts>.json` with note + source-session pointer. |
+| `handoff` | `to: "claude"\|"codex", note, session_id?` | ack | Writes `~/.chewo/mcp/inbox/<to>/<ts>.json` with note + source-session pointer. |
 | `check_inbox` | — | pending handoffs for `--agent` me, then clears them | Pull-based. |
 | `todos_list` | `scope?, all?` | board columns with card ids + titles | Kanban board (SPEC-TODOS.md §9). |
 | `todo_add` | `title, text?, status?, scope?` | created card | Agents file follow-ups they aren't doing now. |
@@ -212,7 +228,7 @@ Chewo watches the store and re-renders the board live.
   untrusted repo, with permissions auto-approved) could exfiltrate other
   sessions' contents.
 - v1 mitigations: bridge is read-only over history; `handoff` writes only to
-  its own inbox dir; log every tool call to `~/.context-bridge/audit.log`.
+  its own inbox dir; log every tool call to `~/.chewo/mcp/audit.log`.
 - v1.5: per-project allowlist/denylist in bridge config.
 
 ---
@@ -242,7 +258,7 @@ optionally `get_session()` on the source for depth.
 | Phase | Deliverable | Proves |
 |---|---|---|
 | **1** | Session Adapter + read-only sidebar + transcript viewer + resume-on-click, terminals via pty | Data layer works; app is already useful |
-| **2** | context-bridge with `search_sessions` + `get_session` + `list_recent_sessions`, registered with both CLIs | **The core bet — cohesion.** Test from a plain terminal before any app integration |
+| **2** | the MCP server with `search_sessions` + `get_session` + `list_recent_sessions`, registered with both CLIs | **The core bet — cohesion.** Test from a plain terminal before any app integration |
 | **3** | `handoff` + `check_inbox` + inbox-watch nudge in app | Cross-agent workflow |
 | **4** | Opt-in isolated terminals: git worktree + branch per agent task, merge-back flow (§10) | Safe concurrent editing |
 | **5 (maybe)** | Custom chat rendering of live panes via Agent SDK / app-server (§9) | Prettier UI, approval handling — only if the terminal UX proves insufficient |

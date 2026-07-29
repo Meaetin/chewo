@@ -4796,3 +4796,121 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- Settings › Connections (MCP server registration) ---- */
+
+.settings-connections {
+  max-width: 720px;
+}
+
+.settings-connections-callout {
+  margin: var(--space-16) 0 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 2px solid var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--radius-1);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+}
+
+.settings-connections-callout code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.settings-connections-list {
+  margin-top: var(--space-16);
+}
+
+.settings-connection-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  padding: var(--space-12) 0;
+  border-top: var(--border-hair);
+}
+
+.settings-connection-meta {
+  min-width: 0;
+}
+
+.settings-connection-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.settings-connection-name {
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-connection-chip {
+  padding: 1px var(--space-8);
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-hover);
+}
+
+.settings-connection-chip-connected {
+  color: var(--live);
+  background: var(--live-bg);
+  border-color: color-mix(in srgb, var(--live) 40%, transparent);
+}
+
+.settings-connection-chip-stale,
+.settings-connection-chip-legacy {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+}
+
+.settings-connection-detail {
+  margin-top: var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+/* The exact command line the CLI will run — wraps rather than truncates, the
+   path is the whole point when a registration is stale. */
+.settings-connection-command {
+  display: block;
+  margin-top: var(--space-8);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.settings-connection-actions {
+  flex: none;
+  padding-top: var(--space-2);
+}
+
+.settings-connections-error {
+  margin-top: var(--space-16);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--danger);
+}
+
+.settings-connections-footnote {
+  margin-top: var(--space-16);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-tertiary);
+}
+
+.settings-connections-footnote code,
+.settings-connections-error code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}

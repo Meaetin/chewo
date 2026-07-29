@@ -12,6 +12,7 @@ import {
 } from './store'
 import { STATUS_HINT, todoAdd, todoDelete, todoMove, todoUpdate, todosList } from './todos'
 import { TODO_STATUSES } from '../../../src/shared/todos'
+import { MCP_SERVER_NAME } from '../../../src/shared/chewo-mcp'
 
 export interface BridgeOptions extends StoreOptions {
   /** Which agent this instance serves — routes handoff/inbox. */
@@ -30,7 +31,7 @@ export function buildServer(opts: BridgeOptions): McpServer {
   const storeOpts: StoreOptions = { claudeRoot: opts.claudeRoot, codexRoot: opts.codexRoot }
   const audit = (tool: string, args: unknown): void => auditLog(opts.agent, tool, args, bridgeRoot)
 
-  const server = new McpServer({ name: 'context-bridge', version: '0.1.0' })
+  const server = new McpServer({ name: MCP_SERVER_NAME, version: '0.1.0' })
 
   server.registerTool(
     'search_sessions',
