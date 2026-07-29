@@ -55,6 +55,12 @@ export interface ChangedFile {
   /** Line counts vs HEAD; null for untracked or binary files */
   additions: number | null
   deletions: number | null
+  /**
+   * A wholly-untracked directory, which git collapses into a single status
+   * entry with a trailing slash. It has no diff of its own — the files inside
+   * it are listed on demand via `gitUntrackedFiles`.
+   */
+  isDir?: boolean
 }
 
 export type RepoStatus =
@@ -180,13 +186,15 @@ export async function gitStatus(root: string): Promise<RepoStatus> {
         deletions: null
       })
     } else if (t.startsWith('? ')) {
+      const path = t.slice(2)
       files.push({
-        path: t.slice(2),
+        path,
         status: '?',
         staged: false,
         unstaged: true,
         additions: null,
-        deletions: null
+        deletions: null,
+        ...(path.endsWith('/') && { isDir: true })
       })
     }
   }
@@ -209,6 +217,36 @@ export async function gitStatus(root: string): Promise<RepoStatus> {
   }
 
   return { ok: true, isRepo: true, branch, detached, upstream, ahead, behind, headOid, files }
+}
+
+// ---------- untracked directories ----------
+
+export type UntrackedFilesResult =
+  | { ok: true; paths: string[]; total: number }
+  | { ok: false; error: string }
+
+/** A collapsed directory can hold thousands of files — the panel lists a page */
+const MAX_UNTRACKED_LISTED = 500
+
+/** Repo-relative, no traversal, no pathspec magic (`:(glob)`, `:!`) */
+const safePathspec = (p: string): boolean =>
+  p !== '' && !p.startsWith('/') && !p.startsWith(':') && !p.split('/').includes('..')
+
+/**
+ * The files inside an untracked directory. `git status` collapses such a
+ * directory into one entry rather than listing every file, so the panel
+ * expands it on demand instead of running status with `-uall` — that would
+ * flood the list with build output the moment one output dir goes unignored.
+ */
+export async function gitUntrackedFiles(root: string, dir: string): Promise<UntrackedFilesResult> {
+  const real = resolveInsideRoots(root)
+  if (!real) return { ok: false, error: `not readable: ${basename(root)}` }
+  if (!safePathspec(dir)) return { ok: false, error: 'invalid path' }
+
+  const res = await runGit(real, ['ls-files', '--others', '--exclude-standard', '-z', '--', dir])
+  if (!res.ok) return { ok: false, error: gitErrorOf(res) }
+  const paths = res.stdout.split('\0').filter(Boolean)
+  return { ok: true, paths: paths.slice(0, MAX_UNTRACKED_LISTED), total: paths.length }
 }
 
 // ---------- history ----------
@@ -369,6 +407,10 @@ export async function gitDiff(root: string, spec: GitDiffSpec): Promise<DiffResu
   }
 
   if (spec.untracked) {
+    // A collapsed untracked directory has no diff: --no-index given a file and
+    // a directory resolves the file's basename *inside* the directory, so this
+    // would ask git for `<dir>/null` and fail. Expand it in the panel instead.
+    if (spec.path.endsWith('/')) return { ok: false, error: 'New folder — open a file inside it' }
     // --no-index exits 1 when the files differ — success is "we got a diff"
     const res = await runGit(real, [
       'diff',

@@ -1,9 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { gitCommitDetail, gitDiff, gitLog, gitStatus, gitWatchIgnored } from '../src/main/git'
+import {
+  gitCommitDetail,
+  gitDiff,
+  gitLog,
+  gitStatus,
+  gitUntrackedFiles,
+  gitWatchIgnored
+} from '../src/main/git'
 import { parseDiff, unwrapCommitBody } from '../src/renderer/src/components/GitDiffView'
 
 // Real git against a scratch repo. It must live under an allowed root
@@ -85,6 +92,29 @@ describe('gitStatus', () => {
     git('mv', 'renamed.txt', 'a.txt')
   })
 
+  test('a wholly-untracked directory collapses into one isDir entry', async () => {
+    mkdirSync(join(repo, 'pkg/src'), { recursive: true })
+    writeFileSync(join(repo, 'pkg/one.txt'), 'one\n')
+    writeFileSync(join(repo, 'pkg/src/two.txt'), 'two\n')
+
+    const s = await gitStatus(repo)
+    if (!s.ok || !s.isRepo) throw new Error('expected repo status')
+    const entries = s.files.filter((f) => f.path.startsWith('pkg'))
+    // git reports the directory, not its files — trailing slash and all
+    expect(entries).toHaveLength(1)
+    expect(entries[0].path).toBe('pkg/')
+    expect(entries[0].status).toBe('?')
+    expect(entries[0].isDir).toBe(true)
+  })
+
+  test('a regular untracked file is not marked isDir', async () => {
+    writeFileSync(join(repo, 'loose.txt'), 'loose\n')
+    const s = await gitStatus(repo)
+    if (!s.ok || !s.isRepo) throw new Error('expected repo status')
+    expect(s.files.find((f) => f.path === 'loose.txt')?.isDir).toBeUndefined()
+    rmSync(join(repo, 'loose.txt'))
+  })
+
   test('a non-repo directory reports isRepo false', async () => {
     const outside = mkdtempSync(join(homedir(), '.chewo-git-test-plain-'))
     try {
@@ -159,12 +189,49 @@ describe('gitDiff', () => {
     rmSync(join(repo, 'newfile.txt'))
   })
 
+  test('an untracked directory reports a folder notice, not git stderr', async () => {
+    // --no-index given /dev/null and a directory looks for `<dir>/null` inside
+    // it and fails; the panel expands the folder instead of diffing it
+    const d = await gitDiff(repo, { kind: 'worktree', path: 'pkg/', untracked: true })
+    expect(d.ok).toBe(false)
+    if (d.ok) throw new Error('expected failure')
+    expect(d.error).not.toContain('null')
+    expect(d.error).toContain('New folder')
+  })
+
   test('commit diff for one file', async () => {
     const log = await gitLog(repo)
     if (!log.ok) throw new Error(log.error)
     const d = await gitDiff(repo, { kind: 'commit', hash: log.commits[0].hash, path: 'b.txt' })
     if (!d.ok) throw new Error(d.error)
     expect(d.text).toContain('+bee')
+  })
+})
+
+describe('gitUntrackedFiles', () => {
+  test('lists the files inside a collapsed directory, recursively', async () => {
+    const r = await gitUntrackedFiles(repo, 'pkg/')
+    if (!r.ok) throw new Error(r.error)
+    expect(r.paths).toEqual(['pkg/one.txt', 'pkg/src/two.txt'])
+    expect(r.total).toBe(2)
+  })
+
+  test('honours .gitignore inside the directory', async () => {
+    mkdirSync(join(repo, 'pkg/.build'), { recursive: true })
+    writeFileSync(join(repo, 'pkg/.build/junk.o'), 'binary-ish\n')
+    writeFileSync(join(repo, 'pkg/.gitignore'), '.build/\n')
+
+    const r = await gitUntrackedFiles(repo, 'pkg/')
+    if (!r.ok) throw new Error(r.error)
+    expect(r.paths).toContain('pkg/.gitignore')
+    expect(r.paths.some((p) => p.includes('.build'))).toBe(false)
+  })
+
+  test('rejects traversal and pathspec magic', async () => {
+    for (const bad of ['../elsewhere', '/etc', ':(exclude)pkg', 'pkg/../../out', '']) {
+      const r = await gitUntrackedFiles(repo, bad)
+      expect(r).toEqual({ ok: false, error: 'invalid path' })
+    }
   })
 })
 
