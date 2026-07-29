@@ -50,6 +50,8 @@ import {
 } from './file-explorer'
 import { loadProjects, saveProjects } from './projects'
 import { loadSettings, saveSettings } from './settings'
+import { listAgentModels } from './agent-models'
+import type { AgentId } from '../shared/agents'
 import type { SettingsFile } from '../shared/appearance'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
 import {
@@ -338,6 +340,7 @@ function registerIpc(): void {
     const err = updateTodoHotkey(file.todoHotkey)
     if (err) safeSend(mainWindow, 'app:toast', err)
   })
+  ipcMain.handle('agents:models', (_e, agent: AgentId) => listAgentModels(agent))
   ipcMain.handle('settings:load', () => loadSettings())
   ipcMain.handle('settings:save', (_e, file: SettingsFile) => {
     saveSettings(file)

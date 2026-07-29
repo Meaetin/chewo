@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
 import { DEFAULT_STT_MODEL } from '../shared/notes'
@@ -20,7 +19,8 @@ import {
   type TodoCommand
 } from './todo-interpreter'
 import { loadProjects } from './projects'
-import { buildPtyEnv } from './terminals'
+import { runAgentJson } from './agent-runner'
+import { agentFor } from './settings'
 import { safeSend } from './safe-send'
 import { sttOwner, sttStart, sttStop } from './stt'
 import {
@@ -251,46 +251,17 @@ function boardSnapshot(): ScopeSnapshot[] {
   })
 }
 
-function interpret(transcript: string, scopes: ScopeSnapshot[]): Promise<TodoCommand[]> {
-  return new Promise((resolve, reject) => {
-    // Schema is a compile-time constant (JSON — no single quotes to escape)
-    const cmd =
-      `claude -p --model sonnet --output-format json` + ` --json-schema '${COMMAND_SCHEMA}'`
+async function interpret(transcript: string, scopes: ScopeSnapshot[]): Promise<TodoCommand[]> {
+  const structured = await runAgentJson({
+    choice: agentFor('todoVoice'),
     // cwd pins the session under ~/.chewo so the coding sidebar filters it
-    const proc = spawn('/bin/zsh', ['-ilc', cmd], {
-      cwd: todosRootPath(),
-      env: buildPtyEnv(process.env)
-    })
-
-    const timeout = setTimeout(() => {
-      proc.kill()
-      reject(new Error('Interpreter timed out.'))
-    }, INTERPRET_TIMEOUT_MS)
-
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
-    proc.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
-    proc.on('error', (err) => {
-      clearTimeout(timeout)
-      reject(new Error(`Interpreter failed to start: ${err.message}`))
-    })
-    proc.on('close', (code) => {
-      clearTimeout(timeout)
-      if (code !== 0) {
-        reject(new Error(`Interpreter exited ${code}: ${stderr.slice(0, 160)}`))
-        return
-      }
-      try {
-        resolve(parseInterpreterOutput(stdout))
-      } catch (err) {
-        reject(err)
-      }
-    })
-
-    proc.stdin.write(buildPrompt(transcript, scopes))
-    proc.stdin.end()
+    cwd: todosRootPath(),
+    prompt: buildPrompt(transcript, scopes),
+    schema: COMMAND_SCHEMA,
+    timeoutMs: INTERPRET_TIMEOUT_MS,
+    label: 'Interpreter'
   })
+  return parseInterpreterOutput(structured)
 }
 
 // ---------- execution ----------

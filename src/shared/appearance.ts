@@ -1,3 +1,5 @@
+import type { AgentAssignments } from './agents'
+
 // User-customisable appearance settings. Dependency-free so the main process
 // can read them at window creation (native background color) while the
 // renderer derives CSS variables, the xterm theme, and the CodeMirror theme
@@ -62,9 +64,11 @@ export interface AppearanceSettings {
   notes: NotesColors
 }
 
-/** userData/settings.json — appearance today, room for future tabs */
+/** userData/settings.json — one key per settings tab */
 export interface SettingsFile {
   appearance: AppearanceSettings
+  /** Which CLI agent runs each headless AI feature */
+  agents: AgentAssignments
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

@@ -1,19 +1,19 @@
-import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { parseNote, type NoteStyle } from '../shared/notes'
 import { getNotesRoot } from './notes'
-import { buildPtyEnv } from './terminals'
+import { runAgentText } from './agent-runner'
+import { agentFor } from './settings'
 import { resolve, sep } from 'node:path'
 
 /**
  * Structuring pass for a dictation that APPENDS to an existing lesson
  * (SPEC-NOTES.md §7, revised): the raw transcript is appended to the
- * lesson's .raw.md twin first (audit trail, survives any failure), then
- * headless Claude structures the new material as a continuation of the
- * lesson's current content. The caller appends the returned body to the
- * lesson — main never writes the lesson file itself, so an open editor
- * can't be clobbered.
+ * lesson's .raw.md twin first (audit trail, survives any failure), then the
+ * agent chosen in Settings → Agents structures the new material as a
+ * continuation of the lesson's current content. The caller appends the
+ * returned body to the lesson — main never writes the lesson file itself, so
+ * an open editor can't be clobbered.
  */
 
 export interface StructureArgs {
@@ -33,7 +33,7 @@ export interface StructureResult {
   error?: string
 }
 
-const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000
+const STRUCTURE_TIMEOUT_MS = 5 * 60 * 1000
 
 const PROMPT = (existingBody: string, transcript: string): string => `You are extending a student's lesson note with newly dictated lecture material.
 
@@ -79,48 +79,6 @@ Structure the new transcript into markdown that CONTINUES the current note:
 
 Output ONLY the new markdown to append.`
 
-/** Run `claude -p`; prompt over stdin; resolves to the markdown body. */
-function runClaude(cwd: string, prompt: string): Promise<string> {
-  return new Promise((resolvePromise, reject) => {
-    // Login shell so PATH matches the user's terminal — same reason the pty
-    // terminals use zsh -il. Prompt goes over stdin, never through argv.
-    const child = spawn('/bin/zsh', ['-ilc', 'claude -p --model sonnet --output-format json'], {
-      cwd,
-      env: buildPtyEnv(process.env)
-    })
-    const timeout = setTimeout(() => {
-      child.kill()
-      reject(new Error('Structuring timed out after 5 minutes'))
-    }, CLAUDE_TIMEOUT_MS)
-
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
-    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
-    child.on('error', (err) => {
-      clearTimeout(timeout)
-      reject(err)
-    })
-    child.on('close', (code) => {
-      clearTimeout(timeout)
-      if (code !== 0) {
-        reject(new Error(`claude -p exited ${code}: ${stderr.slice(0, 300)}`))
-        return
-      }
-      try {
-        const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean }
-        if (parsed.is_error || typeof parsed.result !== 'string')
-          throw new Error('claude reported an error result')
-        resolvePromise(parsed.result.trim())
-      } catch (err) {
-        reject(err instanceof SyntaxError ? new Error('Unparseable claude -p output') : err)
-      }
-    })
-    child.stdin.write(prompt)
-    child.stdin.end()
-  })
-}
-
 function assertLessonInsideRoot(path: string): string {
   const resolved = resolve(path)
   const root = resolve(getNotesRoot())
@@ -150,7 +108,13 @@ export async function structureTranscript(args: StructureArgs): Promise<Structur
 
     const cwd = resolve(lessonPath, '..')
     const prompt = args.style === 'meeting' ? MEETING_PROMPT : PROMPT
-    const body = await runClaude(cwd, prompt(existingBody, args.transcript))
+    const body = await runAgentText({
+      choice: agentFor('notesStructure'),
+      cwd,
+      prompt: prompt(existingBody, args.transcript),
+      timeoutMs: STRUCTURE_TIMEOUT_MS,
+      label: 'Structuring'
+    })
     return { ok: true, body }
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) }

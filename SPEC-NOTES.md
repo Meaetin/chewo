@@ -20,7 +20,7 @@ agents** ("summarize what I've covered on X", "answer this from my notes").
 - live mic dictation → streaming raw transcript → on-stop LLM structuring
 - pasted text and typed notes in the same store
 - manual Subject → Topic filing, notes as markdown on disk
-- an inline chat panel that answers questions across notes via headless Claude
+- an inline chat panel that answers questions across notes via a headless agent
 
 **Non-goals (v1):**
 - image paste (future phases).
@@ -35,7 +35,7 @@ agents** ("summarize what I've covered on X", "answer this from my notes").
 | STT engine | **Local sidecar process**, pluggable engines | whisper.cpp in-process, cloud API |
 | v1 inputs | Live mic, paste text, typed notes | Audio-file import, images (deferred) |
 | Storage | **Markdown files + folders** on disk | projects.json blob, SQLite |
-| Intelligence | **Headless Claude Code** (`claude -p`) | Direct Anthropic API, Ollama |
+| Intelligence | **A headless agent CLI, user-selectable** (Settings → Agents): `claude -p` or `codex exec`. Registry + flag/envelope adapter in `src/shared/agents.ts` + `src/main/agent-runner.ts`; default Claude | Hardcoding one CLI (was the case until 2026-07-29), direct Anthropic API, Ollama |
 | Structuring trigger | **On stop** — one pass over the full transcript | Live incremental, manual-only |
 | Q&A surface | **Inline chat panel** in notes mode | Terminal pane, both-at-once |
 | Taxonomy | **Fully manual** — user names subject and topic | AI-suggested, fully automatic |
@@ -197,7 +197,7 @@ or temporarily keeping audio during the trial — acceptable).
 ## 7. Structuring pass (on stop)
 
 1. On `final`, main writes `<note>.raw.md` (frontmatter `status: raw`).
-2. Main runs headless Claude with env scrubbed exactly like `buildPtyEnv`:
+2. Main runs the agent chosen for `notesStructure` with env scrubbed exactly like `buildPtyEnv` (shown here as Claude; `agent-runner` swaps the flags per agent):
 
 ```
 claude -p --output-format json --allowedTools "Read" \

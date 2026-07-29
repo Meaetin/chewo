@@ -22,15 +22,9 @@ interface NotesChatProps {
   onClose: () => void
 }
 
-interface ContentBlock {
-  type: string
-  text?: string
-  name?: string
-}
-
 /**
  * Scoped Q&A over the notes corpus (SPEC-NOTES.md §9). Each conversation is
- * a headless Claude session whose cwd is the scope folder — the filesystem
+ * a headless agent session whose cwd is the scope folder — the filesystem
  * IS the scope. Stays mounted while the notes workflow is up so history
  * survives collapse/expand; changing scope starts a fresh conversation.
  */
@@ -54,34 +48,36 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
   }, [messages, status])
 
   useEffect(() => {
+    // Events are normalized in main (see agent-runner's ChatEvent), so this
+    // is the same regardless of which agent answers.
     const off = window.api.onNotesChatEvent((ev) => {
       const type = ev.type as string
-      if (type === 'system' && (ev.subtype as string) === 'init') {
-        sessionId.current = (ev.session_id as string) ?? null
+      if (type === 'chat_session') {
+        sessionId.current = (ev.sessionId as string) ?? null
         return
       }
-      if (type === 'assistant') {
-        const message = ev.message as { content?: ContentBlock[] } | undefined
-        for (const block of message?.content ?? []) {
-          if (block.type === 'text' && block.text) {
-            const text = block.text
-            setStatus(null)
-            setMessages((m) => {
-              const last = m[m.length - 1]
-              if (last?.role === 'assistant')
-                return [...m.slice(0, -1), { role: 'assistant' as const, text: last.text + text }]
-              return [...m, { role: 'assistant' as const, text }]
-            })
-          } else if (block.type === 'tool_use') {
-            setStatus(`Searching notes (${block.name ?? 'tool'})…`)
-          }
-        }
+      if (type === 'chat_text') {
+        const text = ev.text as string
+        // Claude streams deltas to append; codex sends whole messages, each of
+        // which is its own bubble.
+        const delta = Boolean(ev.delta)
+        setStatus(null)
+        setMessages((m) => {
+          const last = m[m.length - 1]
+          if (delta && last?.role === 'assistant')
+            return [...m.slice(0, -1), { role: 'assistant' as const, text: last.text + text }]
+          return [...m, { role: 'assistant' as const, text }]
+        })
         return
       }
-      if (type === 'result') {
+      if (type === 'chat_tool') {
+        setStatus(`Searching notes (${(ev.name as string) ?? 'tool'})…`)
+        return
+      }
+      if (type === 'chat_result') {
         setRunning(false)
         setStatus(null)
-        if (ev.is_error)
+        if (ev.isError)
           setMessages((m) => [...m, { role: 'error', text: 'The answer failed — try again.' }])
         return
       }

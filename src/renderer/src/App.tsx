@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderTree, GitBranch, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
+import { DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -131,7 +132,8 @@ export function App(): React.JSX.Element {
   const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
-  const appearanceLoaded = useRef(false)
+  const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
+  const settingsLoaded = useRef(false)
   const [toast, setToast] = useState<string | null>(null)
   const [workflow, setWorkflow] = useState<Workflow>('code')
   const [notesTree, setNotesTree] = useState<NotesTree | null>(null)
@@ -264,7 +266,8 @@ export function App(): React.JSX.Element {
     })
     void window.api.loadSettings().then((file) => {
       setAppearance(file.appearance)
-      appearanceLoaded.current = true
+      setAgents(file.agents)
+      settingsLoaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offStt = window.api.onSttEvent((ev) => {
@@ -383,10 +386,10 @@ export function App(): React.JSX.Element {
 
   // Persist debounced — dragging the macOS color picker fires per-frame changes
   useEffect(() => {
-    if (!appearanceLoaded.current) return
-    const t = setTimeout(() => void window.api.saveSettings({ appearance }), 400)
+    if (!settingsLoaded.current) return
+    const t = setTimeout(() => void window.api.saveSettings({ appearance, agents }), 400)
     return () => clearTimeout(t)
-  }, [appearance])
+  }, [appearance, agents])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const wtMergeProject = wtMerge
@@ -1245,6 +1248,8 @@ export function App(): React.JSX.Element {
           <AppSettings
             appearance={appearance}
             onChange={setAppearance}
+            agents={agents}
+            onAgentsChange={setAgents}
             onClose={() => setAppSettingsOpen(false)}
           />
         )}

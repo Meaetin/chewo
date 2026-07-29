@@ -57,33 +57,17 @@ Utterance (may begin with the wake word "che-wo" — ignore it): ${JSON.stringif
 Rules: return the commands to perform, in utterance order — usually one, several when the utterance asks for several things ("delete A and B" → two delete commands; "the rest of the todos" → one command per matching card). "add" needs scope + title (concise imperative title; put extra detail in "text"). "move" needs cardId + to (one of ${JSON.stringify(TODO_STATUSES)}; fuzzy-match the card by title — dictation garbles words). "edit" needs cardId plus the new title and/or text. "delete" needs cardId. Use the scope whose project name the utterance mentions (fuzzy-match); otherwise scope "${GENERAL_SCOPE}". If intent is unclear or nothing matches, return exactly one command with action "none" and the reason in "text" — never mix "none" with real commands.`
 
 /**
- * `structured_output` is the --json-schema result; `result` (a JSON string)
- * is the fallback in case a CLI update moves or renames it. A bare single
- * command object is tolerated in case the model sidesteps the wrapper.
+ * Reads the command list out of the agent's schema-constrained answer. The
+ * per-agent envelope (claude's `structured_output`, codex's final message) is
+ * already unwrapped by `agent-runner`; what arrives here is the object the
+ * schema describes. A bare single command is tolerated in case the model
+ * sidesteps the wrapper.
  */
-export function parseInterpreterOutput(stdout: string): TodoCommand[] {
-  let envelope: Record<string, unknown>
-  try {
-    envelope = JSON.parse(stdout.trim()) as Record<string, unknown>
-  } catch {
+export function parseInterpreterOutput(structured: unknown): TodoCommand[] {
+  if (!structured || typeof structured !== 'object')
     throw new Error('Interpreter returned unparseable output.')
-  }
-  const commandsOf = (value: unknown): TodoCommand[] | null => {
-    if (!value || typeof value !== 'object') return null
-    const commands = (value as { commands?: unknown }).commands
-    if (Array.isArray(commands)) return commands as TodoCommand[]
-    if ('action' in value) return [value as TodoCommand]
-    return null
-  }
-  const structured = commandsOf(envelope['structured_output'])
-  if (structured) return structured
-  if (typeof envelope['result'] === 'string') {
-    try {
-      const fallback = commandsOf(JSON.parse(envelope['result']))
-      if (fallback) return fallback
-    } catch {
-      /* fall through to the error below */
-    }
-  }
-  throw new Error(`Interpreter gave no command: ${String(envelope['result'] ?? '').slice(0, 120)}`)
+  const commands = (structured as { commands?: unknown }).commands
+  if (Array.isArray(commands)) return commands as TodoCommand[]
+  if ('action' in structured) return [structured as TodoCommand]
+  throw new Error(`Interpreter gave no command: ${JSON.stringify(structured).slice(0, 120)}`)
 }

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
 import type { ScanResult } from '../shared/adapter/types'
+import type { AgentId, AgentModel } from '../shared/agents'
 import type {
   CreateWorktreeResult,
   MergeWorktreeResult,
@@ -299,6 +300,8 @@ const api = {
 
   loadProjects: () => ipcRenderer.invoke('projects:load'),
   saveProjects: (file: unknown) => ipcRenderer.invoke('projects:save', file),
+  listAgentModels: (agent: AgentId) =>
+    ipcRenderer.invoke('agents:models', agent) as Promise<AgentModel[]>,
   loadSettings: () => ipcRenderer.invoke('settings:load') as Promise<SettingsFile>,
   saveSettings: (file: SettingsFile) => ipcRenderer.invoke('settings:save', file) as Promise<void>,
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder') as Promise<string | null>
