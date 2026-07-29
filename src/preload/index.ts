@@ -4,6 +4,7 @@ import type { ScanResult } from '../shared/adapter/types'
 import type { AgentId, AgentModel } from '../shared/agents'
 import type {
   CreateWorktreeResult,
+  ListBranchesResult,
   MergeWorktreeResult,
   RemoveWorktreeResult,
   WorktreeStatusResult
@@ -131,7 +132,9 @@ const api = {
     ipcRenderer.invoke('capabilities:copyMcp', args),
   copyHook: (args: { ref: unknown; destinations: unknown[] }) =>
     ipcRenderer.invoke('capabilities:copyHook', args),
-  createWorktree: (args: { projectPath: string; taskName: string }) =>
+  worktreeBranches: (projectPath: string) =>
+    ipcRenderer.invoke('worktree:branches', projectPath) as Promise<ListBranchesResult>,
+  createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
   worktreeStatus: (args: { projectPath: string; worktreePath: string; branch: string }) =>
     ipcRenderer.invoke('worktree:status', args) as Promise<WorktreeStatusResult>,

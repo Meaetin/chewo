@@ -30,13 +30,65 @@ export function worktreeDirFor(projectPath: string, taskName: string): string {
   return join(WORKTREES_ROOT, basename(projectPath), taskName)
 }
 
+export type ListBranchesResult =
+  | {
+      ok: true
+      /** Branch the main checkout is on — the default base; 'HEAD' when detached */
+      current: string
+      local: string[]
+      /** `origin/feature`, … — basing on one gives the new branch that upstream */
+      remote: string[]
+    }
+  | { ok: false; error: string }
+
+/** Branches offered as the base for a new isolated terminal. */
+export async function listBranches(projectPath: string): Promise<ListBranchesResult> {
+  const inside = await git(projectPath, ['rev-parse', '--is-inside-work-tree'])
+  if (!inside.ok) return { ok: false, error: `${basename(projectPath)} is not a git repository` }
+
+  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  const refs = await git(projectPath, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    '--sort=-committerdate',
+    'refs/heads',
+    'refs/remotes'
+  ])
+  if (!refs.ok) return { ok: false, error: gitError(refs) }
+
+  const local: string[] = []
+  const remote: string[] = []
+  for (const name of refs.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+    // `origin/HEAD` is a symref alias for the remote's default branch, not a base
+    if (name.endsWith('/HEAD')) continue
+    if (name.includes('/')) remote.push(name)
+    else local.push(name)
+  }
+  // A remote-only ref can share a local branch's name once fetched; both are
+  // still distinct start points, so neither list is filtered against the other.
+  return { ok: true, current: head.ok ? head.stdout.trim() : 'HEAD', local, remote }
+}
+
+/** A base ref reaches git as an argv element — anything flag-shaped is refused. */
+export function validateBaseRef(base: string): string | null {
+  if (!base.trim()) return 'Base branch is required'
+  if (base.startsWith('-')) return 'Base branch is not a valid git ref'
+  return null
+}
+
 export type CreateWorktreeResult =
   | { ok: true; path: string; branch: string; baseBranch: string }
   | { ok: false; error: string }
 
+/**
+ * `base` is the start point for the new branch — any branch in the repo,
+ * including a remote-tracking one. Omitted means the main checkout's HEAD,
+ * which is what the app did before the base was selectable.
+ */
 export async function createWorktree(
   projectPath: string,
-  taskName: string
+  taskName: string,
+  base?: string
 ): Promise<CreateWorktreeResult> {
   const invalid = validateTaskName(taskName)
   if (invalid) return { ok: false, error: invalid }
@@ -47,12 +99,23 @@ export async function createWorktree(
   const dir = worktreeDirFor(projectPath, taskName)
   if (existsSync(dir)) return { ok: false, error: `Worktree folder already exists: ${dir}` }
 
-  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-  const baseBranch = head.ok ? head.stdout.trim() : 'HEAD'
+  let baseBranch: string
+  if (base === undefined) {
+    const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    baseBranch = head.ok ? head.stdout.trim() : 'HEAD'
+  } else {
+    const badBase = validateBaseRef(base)
+    if (badBase) return { ok: false, error: badBase }
+    // Resolve before the expensive checkout so a typo fails in milliseconds
+    const rev = await git(projectPath, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
+    if (!rev.ok) return { ok: false, error: `Base branch not found: ${base}` }
+    baseBranch = base
+  }
+
   const branch = branchFor(taskName)
 
   // Full checkout of the tree — can take a few seconds on large repos
-  const res = await git(projectPath, ['worktree', 'add', '-b', branch, dir, 'HEAD'], 300_000)
+  const res = await git(projectPath, ['worktree', 'add', '-b', branch, dir, baseBranch], 300_000)
   if (!res.ok) return { ok: false, error: gitError(res) }
   return { ok: true, path: dir, branch, baseBranch }
 }

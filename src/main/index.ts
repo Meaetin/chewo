@@ -78,7 +78,13 @@ import { writeScopeIndex } from '../shared/todo-scopes'
 import { disposeSidecar, sttPrewarm, sttStart, sttStop } from './stt'
 import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
-import { createWorktree, mergeWorktree, removeWorktree, worktreeStatus } from './worktrees'
+import {
+  createWorktree,
+  listBranches,
+  mergeWorktree,
+  removeWorktree,
+  worktreeStatus
+} from './worktrees'
 import {
   disposeAllGitWatches,
   gitCommitDetail,
@@ -206,8 +212,11 @@ function registerIpc(): void {
       copyHook(args.ref, args.destinations)
   )
 
-  ipcMain.handle('worktree:create', (_e, a: { projectPath: string; taskName: string }) =>
-    createWorktree(a.projectPath, a.taskName)
+  ipcMain.handle('worktree:branches', (_e, projectPath: string) => listBranches(projectPath))
+  ipcMain.handle(
+    'worktree:create',
+    (_e, a: { projectPath: string; taskName: string; base?: string }) =>
+      createWorktree(a.projectPath, a.taskName, a.base)
   )
   ipcMain.handle(
     'worktree:status',

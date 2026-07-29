@@ -791,10 +791,10 @@ export function App(): React.JSX.Element {
 
   /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
   const createIsolated = useCallback(
-    async (taskName: string, agent: Source, setup: string): Promise<string | null> => {
+    async (taskName: string, agent: Source, setup: string, base: string): Promise<string | null> => {
       const project = selectedProject
       if (!project) return 'Select a project first'
-      const res = await window.api.createWorktree({ projectPath: project.path, taskName })
+      const res = await window.api.createWorktree({ projectPath: project.path, taskName, base })
       if (!res.ok) return res.error
       const wt: Worktree = {
         id: crypto.randomUUID(),

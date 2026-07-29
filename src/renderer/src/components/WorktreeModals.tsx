@@ -3,6 +3,7 @@ import { ArrowRight, GitBranch, RotateCw } from 'lucide-react'
 import type { Source } from '../../../shared/adapter/types'
 import type { Project, Worktree } from '../../../shared/projects'
 import { ModalShell } from './ModalShell'
+import { Select, type SelectOption } from './Select'
 import { Badge, Button, IconButton, Input } from './ui'
 
 type WorktreeStatus = Awaited<ReturnType<typeof window.api.worktreeStatus>>
@@ -13,7 +14,12 @@ interface CreateModalProps {
   project: Project
   onCancel: () => void
   /** Returns an error message, or null on success (modal closes itself) */
-  onCreate: (taskName: string, agent: Source, setup: string) => Promise<string | null>
+  onCreate: (
+    taskName: string,
+    agent: Source,
+    setup: string,
+    base: string
+  ) => Promise<string | null>
 }
 
 /** "New isolated terminal" — task name → branch agent/<task> in its own worktree. */
@@ -25,15 +31,43 @@ export function WorktreeCreateModal({
   const [taskName, setTaskName] = useState('')
   const [agent, setAgent] = useState<Source>('claude')
   const [setup, setSetup] = useState(project.worktreeSetup ?? '')
+  const [base, setBase] = useState('')
+  const [baseOptions, setBaseOptions] = useState<SelectOption<string>[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const nameValid = TASK_NAME_RE.test(taskName)
 
+  // Branch list is read once on open — a stale entry just fails the create,
+  // and refetching per keystroke would spawn git processes on every render.
+  useEffect(() => {
+    let live = true
+    void window.api.worktreeBranches(project.path).then((res) => {
+      if (!live) return
+      if (!res.ok) {
+        setBaseOptions([])
+        setError(res.error)
+        return
+      }
+      setBase(res.current)
+      setBaseOptions([
+        ...res.local.map((b) => ({
+          value: b,
+          label: b,
+          ...(b === res.current && { detail: 'current' })
+        })),
+        ...res.remote.map((b) => ({ value: b, label: b, detail: 'remote' }))
+      ])
+    })
+    return () => {
+      live = false
+    }
+  }, [project.path])
+
   const create = async (): Promise<void> => {
     setBusy(true)
     setError(null)
-    const err = await onCreate(taskName, agent, setup)
+    const err = await onCreate(taskName, agent, setup, base)
     if (err) {
       setError(err)
       setBusy(false)
@@ -61,7 +95,7 @@ export function WorktreeCreateModal({
             intent="primary"
             loading={busy}
             loadingText="Creating…"
-            disabled={!nameValid}
+            disabled={!nameValid || !base}
             onClick={() => void create()}
           >
             Create
@@ -97,6 +131,25 @@ export function WorktreeCreateModal({
               'Names the branch, the worktree folder, and the tab'
             )}
           </div>
+        )}
+      </div>
+
+      <div className="wt-field">
+        <label className="wt-field-label" htmlFor="wt-base">
+          Branch from
+        </label>
+        {baseOptions === null ? (
+          <div className="wt-field-hint">Reading branches…</div>
+        ) : baseOptions.length === 0 ? (
+          <div className="wt-field-hint">No branches found in this repository</div>
+        ) : (
+          <>
+            <Select id="wt-base" value={base} options={baseOptions} onChange={setBase} />
+            <div className="wt-field-hint">
+              {nameValid ? <code>agent/{taskName}</code> : 'The new branch'} starts at{' '}
+              <code>{base}</code> — not at whatever your main checkout is on
+            </div>
+          </>
         )}
       </div>
 
@@ -281,6 +334,18 @@ export function WorktreeMergeModal({
             <div className="wt-banner wt-banner-warning">
               <strong>Uncommitted changes in the worktree.</strong> Ask the agent to commit its
               work, then refresh — merging now would leave it behind.
+            </div>
+          )}
+
+          {worktree.baseBranch !== ok.targetBranch && (
+            <div className="wt-banner wt-banner-warning">
+              <strong>Different base.</strong> This branch started at{' '}
+              <code>{worktree.baseBranch}</code>, but merging goes into{' '}
+              <code>{ok.targetBranch}</code> — the branch your main checkout is on. The commits
+              below are everything <code>{ok.targetBranch}</code> doesn’t already have, which can
+              include work from <code>{worktree.baseBranch}</code> that isn’t yours. Check out{' '}
+              <code>{worktree.baseBranch}</code> in {project.name} first if that isn’t what you
+              want.
             </div>
           )}
 

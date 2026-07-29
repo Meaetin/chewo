@@ -1,6 +1,17 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { describe, expect, test } from 'vitest'
-import { branchFor, validateTaskName, worktreeDirFor, WORKTREES_ROOT } from '../src/main/worktrees'
+import { basename, join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import {
+  branchFor,
+  createWorktree,
+  listBranches,
+  validateBaseRef,
+  validateTaskName,
+  worktreeDirFor,
+  WORKTREES_ROOT
+} from '../src/main/worktrees'
 import { buildCommand } from '../src/main/terminals'
 
 describe('validateTaskName', () => {
@@ -32,6 +43,96 @@ describe('worktree naming', () => {
     // worktrees live OUTSIDE the repo so main-checkout watchers never see them
     expect(WORKTREES_ROOT.startsWith(homedir())).toBe(true)
     expect(worktreeDirFor('/Users/m/dev/argo', 'x').startsWith('/Users/m/dev/argo')).toBe(false)
+  })
+})
+
+// Real git: a base branch that isn't the checked-out one is exactly the case
+// the branch picker exists for, and only git can prove the start point took.
+describe('base branch selection', () => {
+  let repo: string
+  let mainTip: string
+  let featureTip: string
+
+  const git = (...args: string[]): string =>
+    execFileSync(
+      'git',
+      [
+        '-C',
+        repo,
+        '-c',
+        'commit.gpgsign=false',
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=t@t',
+        ...args
+      ],
+      { encoding: 'utf8' }
+    )
+
+  const headOf = (dir: string): string =>
+    execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wt-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-m', 'initial')
+    mainTip = headOf(repo)
+
+    git('checkout', '-b', 'feature')
+    writeFileSync(join(repo, 'b.txt'), 'two\n')
+    git('add', '-A')
+    git('commit', '-m', 'feature work')
+    featureTip = headOf(repo)
+    git('checkout', 'main')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('lists local branches with the checked-out one as current', async () => {
+    const res = await listBranches(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.current).toBe('main')
+    expect(res.local.sort()).toEqual(['feature', 'main'])
+    expect(res.remote).toEqual([])
+  })
+
+  test('non-repo path is reported, not thrown', async () => {
+    const res = await listBranches(homedir())
+    expect(res.ok).toBe(false)
+  })
+
+  test('the new branch starts at the chosen base, not at HEAD', async () => {
+    const res = await createWorktree(repo, 'on-feature', 'feature')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.baseBranch).toBe('feature')
+    expect(res.branch).toBe('agent/on-feature')
+    expect(headOf(res.path)).toBe(featureTip)
+  })
+
+  test('no base keeps the old behaviour — the main checkout HEAD', async () => {
+    const res = await createWorktree(repo, 'on-head')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.baseBranch).toBe('main')
+    expect(headOf(res.path)).toBe(mainTip)
+  })
+
+  test('a base that does not resolve fails before the checkout', async () => {
+    const res = await createWorktree(repo, 'ghost', 'no-such-branch')
+    expect(res).toEqual({ ok: false, error: 'Base branch not found: no-such-branch' })
+  })
+
+  test('flag-shaped bases never reach git argv', async () => {
+    expect(validateBaseRef('--upload-pack=touch /tmp/pwn')).not.toBeNull()
+    expect(validateBaseRef('')).not.toBeNull()
+    expect(validateBaseRef('origin/main')).toBeNull()
+    const res = await createWorktree(repo, 'flagbase', '--force')
+    expect(res.ok).toBe(false)
   })
 })
 
