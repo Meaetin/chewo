@@ -1334,6 +1334,29 @@ body {
   background: var(--accent);
 }
 
+/* Expanded untracked folder — chevron sits where the nested rows' indent goes */
+/* 16px = the chevron's 12px box + the 8px row gap − its −4px pull-in */
+.git-file-row-nested {
+  padding-left: calc(var(--space-8) + 16px);
+}
+
+.git-dir-chevron {
+  flex: none;
+  margin-right: -4px;
+  color: var(--text-faint);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.git-dir-chevron-open {
+  transform: rotate(90deg);
+}
+
+.git-dir-count {
+  flex: none;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
 .git-file-path {
   flex: 1;
   min-width: 0;

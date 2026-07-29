@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import { GitBranch, X } from 'lucide-react'
-import type { ChangedFile, CommitMeta, FileStatus, RepoStatus } from '../../../main/git'
+import { ChevronRight, GitBranch, X } from 'lucide-react'
+import type {
+  ChangedFile,
+  CommitMeta,
+  FileStatus,
+  RepoStatus,
+  UntrackedFilesResult
+} from '../../../main/git'
 import { Dot, IconButton } from './ui'
 
 /** What the diff layer is showing — drives row highlights here too */
@@ -56,6 +62,47 @@ function splitPath(path: string): { dir: string; name: string } {
     : { dir: path.slice(0, slash + 1), name: path.slice(slash + 1) }
 }
 
+/** A file inside a collapsed untracked directory is untracked like its parent */
+const untrackedChild = (path: string): ChangedFile => ({
+  path,
+  status: '?',
+  staged: false,
+  unstaged: true,
+  additions: null,
+  deletions: null
+})
+
+function FileRow({
+  file,
+  label,
+  active,
+  nested,
+  onClick
+}: {
+  file: ChangedFile
+  /** Path to display — relative to the parent folder for nested rows */
+  label: string
+  active: boolean
+  nested?: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  const { dir, name } = splitPath(label)
+  return (
+    <div
+      className={`git-file-row ${nested ? 'git-file-row-nested' : ''} ${active ? 'git-file-row-active' : ''}`}
+      title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
+      onClick={onClick}
+    >
+      <StatusLetter status={file.status} />
+      <span className="git-file-path">
+        <span className="git-file-name">{name}</span>
+        {dir && <span className="git-file-dir">{dir}</span>}
+      </span>
+      <FileStat additions={file.additions} deletions={file.deletions} />
+    </div>
+  )
+}
+
 export function FileStat({
   additions,
   deletions
@@ -103,6 +150,9 @@ export function GitPanel({
 }: GitPanelProps): React.JSX.Element {
   const [tab, setTab] = useState<'changes' | 'history'>('changes')
   const [commits, setCommits] = useState<CommitMeta[] | null>(null)
+  /** Untracked directories the user expanded, and their loaded contents */
+  const [expanded, setExpanded] = useState<string[]>([])
+  const [dirFiles, setDirFiles] = useState<Record<string, UntrackedFilesResult>>({})
 
   const repo = status?.ok && status.isRepo ? status : null
   const headOid = repo?.headOid ?? null
@@ -110,7 +160,24 @@ export function GitPanel({
   // History follows HEAD: refetch when it moves (commit, merge, branch switch)
   useEffect(() => {
     setCommits(null)
+    setExpanded([])
+    setDirFiles({})
   }, [root])
+
+  // An expanded folder's contents move under us like any other working-tree
+  // state, so they reload whenever status does — never cached across a change
+  useEffect(() => {
+    if (!status || expanded.length === 0) return
+    let cancelled = false
+    for (const dir of expanded) {
+      void window.api.gitUntrackedFiles({ root, dir }).then((res) => {
+        if (!cancelled) setDirFiles((prev) => ({ ...prev, [dir]: res }))
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [root, status, expanded])
   useEffect(() => {
     if (!visible || tab !== 'history') return
     let cancelled = false
@@ -123,6 +190,9 @@ export function GitPanel({
   }, [visible, tab, root, headOid])
 
   const files = repo?.files ?? []
+
+  const toggleDir = (dir: string): void =>
+    setExpanded((prev) => (prev.includes(dir) ? prev.filter((d) => d !== dir) : [...prev, dir]))
 
   return (
     <div className="git-panel" style={{ display: visible ? 'flex' : 'none' }}>
@@ -170,22 +240,63 @@ export function GitPanel({
             <div className="git-panel-empty">Working tree clean</div>
           )}
           {files.map((f) => {
-            const { dir, name } = splitPath(f.path)
-            const active = selection?.kind === 'file' && selection.file.path === f.path
+            // git collapses a wholly-untracked directory into one entry; it has
+            // no diff of its own, so the row expands into the files instead
+            if (f.isDir) {
+              const { dir, name } = splitPath(f.path.replace(/\/$/, ''))
+              const open = expanded.includes(f.path)
+              const loaded = dirFiles[f.path]
+              return (
+                <div key={f.path}>
+                  <div className="git-file-row" title={f.path} onClick={() => toggleDir(f.path)}>
+                    <ChevronRight
+                      className={`git-dir-chevron ${open ? 'git-dir-chevron-open' : ''}`}
+                      size={12}
+                      strokeWidth={2.25}
+                    />
+                    <StatusLetter status={f.status} />
+                    <span className="git-file-path">
+                      <span className="git-file-name">{name}</span>
+                      {dir && <span className="git-file-dir">{dir}</span>}
+                    </span>
+                    {loaded?.ok && (
+                      <span className="git-dir-count">
+                        {loaded.total} {loaded.total === 1 ? 'file' : 'files'}
+                      </span>
+                    )}
+                  </div>
+                  {open && !loaded && <div className="git-panel-more">reading folder…</div>}
+                  {open && loaded?.ok === false && (
+                    <div className="git-panel-more">{loaded.error}</div>
+                  )}
+                  {open &&
+                    loaded?.ok &&
+                    loaded.paths.map((p) => (
+                      <FileRow
+                        key={p}
+                        nested
+                        file={untrackedChild(p)}
+                        label={p.slice(f.path.length)}
+                        active={selection?.kind === 'file' && selection.file.path === p}
+                        onClick={() => onShowFile(untrackedChild(p))}
+                      />
+                    ))}
+                  {open && loaded?.ok && loaded.total > loaded.paths.length && (
+                    <div className="git-panel-more">
+                      first {loaded.paths.length} of {loaded.total}
+                    </div>
+                  )}
+                </div>
+              )
+            }
             return (
-              <div
+              <FileRow
                 key={f.path}
-                className={`git-file-row ${active ? 'git-file-row-active' : ''}`}
-                title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                file={f}
+                label={f.path}
+                active={selection?.kind === 'file' && selection.file.path === f.path}
                 onClick={() => onShowFile(f)}
-              >
-                <StatusLetter status={f.status} />
-                <span className="git-file-path">
-                  <span className="git-file-name">{name}</span>
-                  {dir && <span className="git-file-dir">{dir}</span>}
-                </span>
-                <FileStat additions={f.additions} deletions={f.deletions} />
-              </div>
+              />
             )
           })}
         </div>

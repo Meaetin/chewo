@@ -99,6 +99,7 @@ import {
   gitDiff,
   gitLog,
   gitStatus,
+  gitUntrackedFiles,
   startGitWatch,
   stopGitWatch,
   type GitDiffSpec
@@ -257,6 +258,9 @@ function registerIpc(): void {
   )
   ipcMain.handle('git:diff', (_e, a: { root: string; spec: GitDiffSpec }) =>
     gitDiff(a.root, a.spec)
+  )
+  ipcMain.handle('git:untracked-files', (_e, a: { root: string; dir: string }) =>
+    gitUntrackedFiles(a.root, a.dir)
   )
   ipcMain.handle('git:watch', (_e, root: string) => {
     if (!mainWindow) throw new Error('no window')
