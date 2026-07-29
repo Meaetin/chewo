@@ -4,15 +4,18 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
+  GitMerge,
   Plus,
   ScrollText,
   Settings,
+  Trash2,
   Undo2,
   X
 } from 'lucide-react'
-import type { SessionMeta } from '../../../shared/adapter/types'
+import type { SessionMeta, Source } from '../../../shared/adapter/types'
 import type { VersionStatus } from '../../../main/app-version'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
+import { useWorktreeState } from '../useGitStatus'
 import { Badge, Button, Dot, IconButton, Input, Row } from './ui'
 
 interface SidebarProps {
@@ -36,6 +39,15 @@ interface SidebarProps {
   onNewTerminal: (source: 'claude' | 'codex') => void
   /** undefined = no project selected → button disabled */
   onNewIsolated?: () => void
+  /** Worktrees with a live pane open — their row shows the live dot */
+  liveWorktreeIds: Set<string>
+  /** Focus/resume a branch; false = nothing to resume, ask for an agent instead */
+  onOpenWorktree: (wt: Worktree, source?: Source) => boolean
+  onMergeWorktree: (wt: Worktree) => void
+  /** Spent branches are the only ones offering this — it deletes the checkout */
+  onRemoveWorktree: (wt: Worktree) => void
+  /** Undo a hand-marked "done" — never offered for a branch git itself calls spent */
+  onReopenWorktree: (wt: Worktree) => void
   /** null = Home's settings */
   onOpenSettings: (id: string | null) => void
   onOpenCapabilities: () => void
@@ -235,6 +247,168 @@ function SessionGroup({
   )
 }
 
+/**
+ * One isolated checkout of a project. Clicking takes you to whatever is in it
+ * — the live pane, the remembered terminal, or the newest session recorded
+ * there; a branch with nothing to resume opens the agent menu instead, so a
+ * worktree whose pane was closed is never a dead end.
+ */
+function WorktreeRow({
+  worktree,
+  projectPath,
+  live,
+  onOpen,
+  onMerge,
+  onRemove,
+  onReopen
+}: {
+  worktree: Worktree
+  projectPath: string
+  live: boolean
+  onOpen: (wt: Worktree, source?: Source) => boolean
+  onMerge: (wt: Worktree) => void
+  onRemove: (wt: Worktree) => void
+  onReopen: (wt: Worktree) => void
+}): React.JSX.Element {
+  const [menu, setMenu] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const state = useWorktreeState({
+    projectPath,
+    worktreePath: worktree.path,
+    branch: worktree.branch,
+    baseCommit: worktree.baseCommit
+  })
+  const dirty = state?.dirty ?? 0
+  // Spent: its work already landed, or the branch/checkout is gone. Nothing
+  // left to merge and nothing that should be edited — the only way out is to
+  // remove it. Unknown state (first poll pending) is never treated as spent.
+  const byHand = !!worktree.doneAt
+  const spent = byHand || (!!state && (state.merged || state.missing || !state.branchExists))
+  const spentReason = byHand
+    ? 'Marked done by hand — reopen it with the undo button'
+    : !state
+      ? ''
+      : state.missing
+        ? 'This checkout is gone from disk — remove it to clear the entry'
+        : !state.branchExists
+          ? 'This checkout has no branch — remove it to clear the entry'
+          : 'Merged into the main checkout — nothing left to work on'
+
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setMenu(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenu(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  const pick = (source: Source): void => {
+    onOpen(worktree, source)
+    setMenu(false)
+  }
+
+  return (
+    <div className={`worktree-row${spent ? ' worktree-row--spent' : ''}`} ref={ref} title={spentReason}>
+      <Row
+        live={live}
+        density="compact"
+        // Row paints the live dot itself — the glyph is the resting state only
+        leading={
+          live ? undefined : <GitBranch className="worktree-row-glyph" size={14} strokeWidth={1.75} />
+        }
+        trailing={
+          <>
+            {dirty > 0 && (
+              <span
+                className="worktree-row-dirty"
+                title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'} on this branch`}
+              >
+                {dirty}
+              </span>
+            )}
+            {spent ? (
+              <>
+                {byHand && (
+                  <IconButton
+                    label="Not done after all — put this branch back to work"
+                    dense
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onReopen(worktree)
+                    }}
+                  >
+                    <Undo2 size={14} strokeWidth={1.75} />
+                  </IconButton>
+                )}
+                <IconButton
+                  label={`${spentReason} — remove this checkout`}
+                  dense
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(worktree)
+                  }}
+                >
+                  <Trash2 size={14} strokeWidth={1.75} />
+                </IconButton>
+              </>
+            ) : (
+              worktree.branch && (
+                <IconButton
+                  label="Review & merge this branch into the main checkout"
+                  dense
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onMerge(worktree)
+                  }}
+                >
+                  <GitMerge size={14} strokeWidth={1.75} />
+                </IconButton>
+              )
+            )}
+          </>
+        }
+        onClick={
+          spent
+            ? undefined
+            : () => {
+                if (!onOpen(worktree)) setMenu(true)
+              }
+        }
+      >
+        <span className="session-row-line">
+          {/* The task name is just this branch without its prefix — one is enough */}
+          <span className="session-row-title">{worktree.branch || worktree.taskName}</span>
+          {spent && (
+            <span className="worktree-row-tag">
+              {byHand ? 'done' : state?.merged ? 'merged' : state?.missing ? 'gone' : 'no branch'}
+            </span>
+          )}
+        </span>
+      </Row>
+      {menu && (
+        <div className="new-session__menu worktree-row__menu" role="menu">
+          <button className="new-session__item" role="menuitem" onClick={() => pick('claude')}>
+            <Badge source="claude" />
+            Claude
+          </button>
+          <button className="new-session__item" role="menuitem" onClick={() => pick('codex')}>
+            <Badge source="codex" />
+            Codex
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Section header row (Home / a project) — chevron + name + live/count + settings. */
 function SectionRow({
   name,
@@ -364,6 +538,11 @@ export function Sidebar({
   onOpenTranscript,
   onNewTerminal,
   onNewIsolated,
+  liveWorktreeIds,
+  onOpenWorktree,
+  onMergeWorktree,
+  onRemoveWorktree,
+  onReopenWorktree,
   onOpenSettings,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
@@ -404,6 +583,17 @@ export function Sidebar({
     }
     return map
   }, [sessions, projects, worktrees])
+
+  const projectWorktrees = useMemo(() => {
+    const map = new Map<string, Worktree[]>()
+    for (const w of worktrees) {
+      const list = map.get(w.projectId)
+      if (list) list.push(w)
+      else map.set(w.projectId, [w])
+    }
+    for (const list of map.values()) list.sort((a, b) => a.taskName.localeCompare(b.taskName))
+    return map
+  }, [worktrees])
 
   const toggleProject = (id: string): void => {
     onSelectProject(selectedProjectId === id ? null : id)
@@ -509,6 +699,23 @@ export function Sidebar({
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
                 />
+                {expanded && projectWorktrees.get(p.id)?.length ? (
+                  <div className="worktree-group">
+                    <div className="worktree-group-header">Isolated branches</div>
+                    {projectWorktrees.get(p.id)?.map((w) => (
+                      <WorktreeRow
+                        key={w.id}
+                        worktree={w}
+                        projectPath={p.path}
+                        live={liveWorktreeIds.has(w.id)}
+                        onOpen={onOpenWorktree}
+                        onMerge={onMergeWorktree}
+                        onRemove={onRemoveWorktree}
+                        onReopen={onReopenWorktree}
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {expanded && (
                   <SessionGroup
                     sessions={projectSessions}

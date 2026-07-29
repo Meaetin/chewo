@@ -201,6 +201,8 @@ interface MergeModalProps {
   onClose: () => void
   /** App kills panes, runs git worktree remove, drops records. Error message or null. */
   onRemove: () => Promise<string | null>
+  /** Marks the branch finished by hand — for work that shipped as a squash/rebase */
+  onMarkDone: () => void
 }
 
 /** Review & merge: dirty check → commits/diffstat → merge into main checkout → cleanup. */
@@ -208,7 +210,8 @@ export function WorktreeMergeModal({
   worktree,
   project,
   onClose,
-  onRemove
+  onRemove,
+  onMarkDone
 }: MergeModalProps): React.JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -307,6 +310,16 @@ export function WorktreeMergeModal({
             Remove worktree…
           </Button>
           <div className="wt-footer-spacer" />
+          <Button
+            disabled={busy}
+            title="Locks this branch in the sidebar without touching git — use it when the work shipped as a squash or rebase, which leaves nothing here for git to recognise"
+            onClick={() => {
+              onMarkDone()
+              onClose()
+            }}
+          >
+            Mark as done
+          </Button>
           <Button
             intent="primary"
             loading={busy}

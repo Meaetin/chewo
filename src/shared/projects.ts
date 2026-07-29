@@ -63,6 +63,14 @@ export interface Worktree {
   path: string
   /** Branch the main checkout was on at creation — shown as the merge target */
   baseBranch: string
+  /** Commit the branch was cut at — how "did any work happen here" is answered */
+  baseCommit?: string
+  /**
+   * Marked finished by hand. The override for what git can't see: a squash or
+   * rebase merge rewrites the commits, so the branch reads as unmerged forever
+   * however long ago its work shipped.
+   */
+  doneAt?: string
   createdAt: string
 }
 

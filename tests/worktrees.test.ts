@@ -8,8 +8,11 @@ import {
   createWorktree,
   landingBranchFor,
   listBranches,
+  listWorktrees,
   mergeWorktree,
+  removeWorktree,
   validateBaseRef,
+  worktreeState,
   worktreeStatus,
   validateTaskName,
   worktreeDirFor,
@@ -136,6 +139,190 @@ describe('base branch selection', () => {
     expect(validateBaseRef('origin/main')).toBeNull()
     const res = await createWorktree(repo, 'flagbase', '--force')
     expect(res.ok).toBe(false)
+  })
+})
+
+// The sidebar's branch list comes from git, not from our records — this is
+// what makes a worktree survive a closed pane or a wiped projects.json.
+describe('listWorktrees', () => {
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wtlist-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-m', 'initial')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('reports every isolated checkout, with the main checkout excluded', async () => {
+    await createWorktree(repo, 'alpha')
+    await createWorktree(repo, 'beta')
+
+    const res = await listWorktrees(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.head).toBe('main')
+    expect(res.worktrees.map((w) => w.taskName).sort()).toEqual(['alpha', 'beta'])
+    expect(res.worktrees.map((w) => w.branch).sort()).toEqual([
+      'agent/alpha',
+      'agent/beta'
+    ])
+    expect(res.worktrees.every((w) => w.path.startsWith(WORKTREES_ROOT))).toBe(true)
+  })
+
+  test('a worktree the user made elsewhere is not ours to list', async () => {
+    const outside = mkdtempSync(join(homedir(), '.chewo-wt-outside-'))
+    rmSync(outside, { recursive: true, force: true })
+    git('worktree', 'add', '-b', 'mine', outside)
+    try {
+      const res = await listWorktrees(repo)
+      if (!res.ok) throw new Error(res.error)
+      expect(res.worktrees.some((w) => w.path === outside)).toBe(false)
+    } finally {
+      git('worktree', 'remove', '--force', outside)
+    }
+  })
+
+  test('a removed checkout disappears from the list', async () => {
+    const made = await createWorktree(repo, 'gone')
+    if (!made.ok) throw new Error(made.error)
+    await removeWorktree(repo, made.path, made.branch)
+    const res = await listWorktrees(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.worktrees.some((w) => w.taskName === 'gone')).toBe(false)
+  })
+
+  test('non-repo path is reported, not thrown', async () => {
+    const res = await listWorktrees(homedir())
+    expect(res.ok).toBe(false)
+  })
+})
+
+// Locking a branch the sidebar thinks is spent is destructive if it's wrong —
+// a fresh worktree and a merged one both sit at "nothing ahead of main".
+describe('worktreeState', () => {
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  const commitIn = (dir: string, file: string, body: string): void => {
+    writeFileSync(join(dir, file), body)
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'user.name=Test', '-c', 'user.email=t@t', 'add', '-A'],
+      { encoding: 'utf8' }
+    )
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'user.name=Test', '-c', 'user.email=t@t', 'commit', '-m', body],
+      { encoding: 'utf8' }
+    )
+  }
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wtstate-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    commitIn(repo, 'a.txt', 'one')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('a worktree nobody has committed in is not merged, however far main moves', async () => {
+    const made = await createWorktree(repo, 'untouched')
+    if (!made.ok) throw new Error(made.error)
+    // main advances underneath it: 0 ahead, 1 behind — the shape of a merged
+    // branch, and the exact case that must stay open for work
+    commitIn(repo, 'b.txt', 'two')
+
+    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
+    expect(state.ahead).toBe(0)
+    expect(state.behind).toBe(1)
+    expect(state.merged).toBe(false)
+  })
+
+  test('unmerged commits keep it live', async () => {
+    const made = await createWorktree(repo, 'working')
+    if (!made.ok) throw new Error(made.error)
+    commitIn(made.path, 'c.txt', 'work')
+
+    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
+    expect(state.ahead).toBe(1)
+    expect(state.merged).toBe(false)
+  })
+
+  test('once its commits land on the main checkout it is spent', async () => {
+    const made = await createWorktree(repo, 'landed')
+    if (!made.ok) throw new Error(made.error)
+    commitIn(made.path, 'd.txt', 'shipped')
+    const merge = await mergeWorktree(repo, made.branch, 'main')
+    expect(merge.ok).toBe(true)
+
+    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
+    expect(state.ahead).toBe(0)
+    expect(state.merged).toBe(true)
+  })
+
+  test('uncommitted work always keeps it live, whatever the commits say', async () => {
+    const made = await createWorktree(repo, 'landed-but-dirty')
+    if (!made.ok) throw new Error(made.error)
+    commitIn(made.path, 'e.txt', 'shipped too')
+    await mergeWorktree(repo, made.branch, 'main')
+    writeFileSync(join(made.path, 'e.txt'), 'edited after the merge\n')
+
+    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
+    expect(state.dirty).toBe(1)
+    expect(state.merged).toBe(false)
+  })
+
+  test('the start point is recovered from the reflog when we have no record', async () => {
+    const made = await createWorktree(repo, 'adopted')
+    if (!made.ok) throw new Error(made.error)
+    commitIn(made.path, 'f.txt', 'adopted work')
+    await mergeWorktree(repo, made.branch, 'main')
+
+    // No baseCommit passed — an adopted worktree has none until git supplies it
+    const state = await worktreeState(repo, made.path, made.branch)
+    expect(state.merged).toBe(true)
+    const listed = await listWorktrees(repo)
+    if (!listed.ok) throw new Error(listed.error)
+    expect(listed.worktrees.find((w) => w.taskName === 'adopted')?.baseCommit).toBe(
+      made.baseCommit
+    )
+  })
+
+  test('a checkout deleted from disk reports missing, and removal still clears it', async () => {
+    const made = await createWorktree(repo, 'vanished')
+    if (!made.ok) throw new Error(made.error)
+    rmSync(made.path, { recursive: true, force: true })
+
+    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
+    expect(state.missing).toBe(true)
+
+    const removed = await removeWorktree(repo, made.path, made.branch)
+    expect(removed.ok).toBe(true)
+    const listed = await listWorktrees(repo)
+    if (!listed.ok) throw new Error(listed.error)
+    expect(listed.worktrees.some((w) => w.taskName === 'vanished')).toBe(false)
   })
 })
 

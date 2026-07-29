@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RepoStatus } from '../../main/git'
+import type { WorktreeState } from '../../main/worktrees'
 
 /**
  * Live repo status for one root: initial fetch, then refetch on every
@@ -45,6 +46,42 @@ export function useGitStatus(root: string | null): RepoStatus | null {
 }
 
 const DIRTY_POLL_MS = 15_000
+
+/**
+ * Is this isolated branch still live work? Polled on the same terms as the
+ * dirty count: the answer changes when an agent commits or when someone
+ * merges elsewhere (a GitHub PR lands and a pull follows), neither of which
+ * this window can be notified about. Null until the first answer arrives —
+ * the sidebar must not lock a branch on a guess.
+ */
+export function useWorktreeState(
+  args: { projectPath: string; worktreePath: string; branch: string; baseCommit?: string } | null
+): WorktreeState | null {
+  const [state, setState] = useState<WorktreeState | null>(null)
+  const key = args ? `${args.projectPath}\0${args.worktreePath}\0${args.branch}\0${args.baseCommit ?? ''}` : ''
+
+  useEffect(() => {
+    setState(null)
+    if (!key) return
+    const [projectPath, worktreePath, branch, baseCommit] = key.split('\0')
+    let cancelled = false
+    const poll = (): void => {
+      void window.api
+        .worktreeState({ projectPath, worktreePath, branch, baseCommit: baseCommit || undefined })
+        .then((s) => {
+          if (!cancelled) setState(s)
+        })
+    }
+    poll()
+    const timer = setInterval(poll, DIRTY_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [key])
+
+  return state
+}
 
 /**
  * Uncommitted-change count for a root, polled — no filesystem watcher. Cheap
