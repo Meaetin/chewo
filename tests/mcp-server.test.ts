@@ -22,14 +22,25 @@ describe('add/remove commands', () => {
   test('claude registers at user scope, as node-mode Chewo', () => {
     const cmd = buildAddCommand('claude', EXEC, SCRIPT)
     expect(cmd).toBe(
-      `claude mcp add --scope user -e ELECTRON_RUN_AS_NODE=1 chewo -- '${EXEC}' '${SCRIPT}' --agent claude`
+      `claude mcp add chewo --scope user -e ELECTRON_RUN_AS_NODE=1 -- '${EXEC}' '${SCRIPT}' --agent claude`
     )
   })
 
   test('codex spells the same thing its own way', () => {
     expect(buildAddCommand('codex', EXEC, SCRIPT)).toBe(
-      `codex mcp add --env ELECTRON_RUN_AS_NODE=1 chewo -- '${EXEC}' '${SCRIPT}' --agent codex`
+      `codex mcp add chewo --env ELECTRON_RUN_AS_NODE=1 -- '${EXEC}' '${SCRIPT}' --agent codex`
     )
+  })
+
+  /**
+   * Regression: `-e` is variadic in Commander, so a name placed after it is
+   * parsed as a second env var — "Invalid environment variable format: chewo".
+   */
+  test('the server name precedes the env flag on both CLIs', () => {
+    for (const agent of ['claude', 'codex'] as const) {
+      const cmd = buildAddCommand(agent, EXEC, SCRIPT)
+      expect(cmd.indexOf(' chewo ')).toBeLessThan(cmd.indexOf('ELECTRON_RUN_AS_NODE'))
+    }
   })
 
   test('a relocated app with spaces in its path stays one argument', () => {

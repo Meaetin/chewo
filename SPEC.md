@@ -168,9 +168,12 @@ Single TypeScript program (`packages/chewo-mcp`) using
 `dist/index.cjs`. Registered once with each CLI:
 
 ```bash
-claude mcp add --scope user -e ELECTRON_RUN_AS_NODE=1 chewo -- <chewo-binary> <bundle> --agent claude
-codex  mcp add --env ELECTRON_RUN_AS_NODE=1 chewo -- <chewo-binary> <bundle> --agent codex
+claude mcp add chewo --scope user -e ELECTRON_RUN_AS_NODE=1 -- <chewo-binary> <bundle> --agent claude
+codex  mcp add chewo --env ELECTRON_RUN_AS_NODE=1 -- <chewo-binary> <bundle> --agent codex
 ```
+
+The **name comes before the env flag**: Claude's `-e` is variadic, so
+`-e KEY=1 chewo` reads the name as a second env var and errors out.
 
 `--agent` tells the instance who "me" is (for inbox routing). Each CLI spawns
 its **own instance**; instances share state only via the filesystem.

@@ -133,12 +133,17 @@ async function installedClis(): Promise<Set<AgentId>> {
  * the CLI launches Chewo as a plain Node runtime, so the server needs no
  * `node` on PATH and no separate install. `mcp add` overwrites an existing
  * entry of the same name, so this doubles as the repair command.
+ *
+ * The server NAME MUST COME FIRST, before the env flag. Claude's `-e` is a
+ * variadic option, so `-e KEY=1 chewo` swallows the name as a second env var
+ * and fails with "Invalid environment variable format: chewo". Both CLIs
+ * accept name-then-flags, so both are spelled that way.
  */
 export function buildAddCommand(agent: AgentId, execPath: string, scriptPath: string): string {
   const target = `${shellQuote(execPath)} ${shellQuote(scriptPath)} --agent ${agent}`
   return agent === 'claude'
-    ? `claude mcp add --scope user -e ELECTRON_RUN_AS_NODE=1 ${MCP_SERVER_NAME} -- ${target}`
-    : `codex mcp add --env ELECTRON_RUN_AS_NODE=1 ${MCP_SERVER_NAME} -- ${target}`
+    ? `claude mcp add ${MCP_SERVER_NAME} --scope user -e ELECTRON_RUN_AS_NODE=1 -- ${target}`
+    : `codex mcp add ${MCP_SERVER_NAME} --env ELECTRON_RUN_AS_NODE=1 -- ${target}`
 }
 
 export function buildRemoveCommand(agent: AgentId, name: string): string {
