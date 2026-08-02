@@ -2,8 +2,8 @@ import type { Source } from './adapter/types'
 
 /**
  * Registry of the CLI agents that can run our headless AI features (notes
- * structuring, notes Q&A, todo voice commands) and the per-feature choice of
- * which one runs what.
+ * structuring, notes Q&A, todo voice commands, git branch/commit/PR text) and
+ * the per-feature choice of which one runs what.
  *
  * `AgentId` is deliberately `Source` rather than a new union — there were
  * already four parallel 'claude' | 'codex' unions in the tree and a fifth
@@ -106,7 +106,7 @@ export function agentDef(id: AgentId): AgentDef {
 // ---------- per-feature assignment ----------
 
 /** The headless features a user can point at an agent. */
-export type AgentTask = 'notesStructure' | 'notesChat' | 'todoVoice'
+export type AgentTask = 'notesStructure' | 'notesChat' | 'todoVoice' | 'gitText'
 
 export interface AgentChoice {
   agent: AgentId
@@ -121,7 +121,8 @@ export type AgentAssignments = Record<AgentTask, AgentChoice>
 export const DEFAULT_AGENTS: AgentAssignments = {
   notesStructure: { agent: 'claude' },
   notesChat: { agent: 'claude' },
-  todoVoice: { agent: 'claude' }
+  todoVoice: { agent: 'claude' },
+  gitText: { agent: 'claude' }
 }
 
 /** Drives the Agents settings tab; order and grouping are the UI's. */
@@ -148,6 +149,12 @@ export const AGENT_TASKS: Array<{
     group: 'To-dos',
     label: 'Voice commands',
     hint: 'Interprets a dictated utterance into board commands.'
+  },
+  {
+    id: 'gitText',
+    group: 'Git',
+    label: 'Branch & commit text',
+    hint: 'Names isolated branches from your first message, and writes commit messages and PR text for Ship. Never blocks: a failure falls back to a plain generated string.'
   }
 ]
 

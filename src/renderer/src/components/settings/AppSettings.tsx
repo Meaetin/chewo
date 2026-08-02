@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   Bot,
   FileCode,
-  GitBranch,
   Mic,
   NotebookPen,
   Palette,
@@ -21,10 +20,6 @@ import {
 import { CURATED_ACCENTS, CURATED_BASES, matchPreset, type ThemePreset } from '../../../../shared/presets'
 import { DEFAULT_AGENTS, type AgentAssignments } from '../../../../shared/agents'
 import type { PendingRecovery, SttSettings } from '../../../../shared/stt'
-import {
-  DEFAULT_WORKTREE_SETTINGS,
-  type WorktreeSettings
-} from '../../../../shared/worktree-settings'
 import { Button, IconButton } from '../ui'
 import { ColorField } from './ColorField'
 import { PresetGallery } from './PresetGallery'
@@ -35,7 +30,6 @@ import { NotesPreview } from './NotesPreview'
 import { AgentsTab } from './AgentsTab'
 import { VoiceTab } from './VoiceTab'
 import { ConnectionsTab } from './ConnectionsTab'
-import { WorktreesTab } from './WorktreesTab'
 
 const TERMINAL_FIELDS: Array<{ key: keyof TerminalAnsiColors; label: string }> = [
   { key: 'black', label: 'Black' },
@@ -93,7 +87,6 @@ export type SettingsPane =
   | 'agents'
   | 'voice'
   | 'connections'
-  | 'worktrees'
 
 interface NavItem {
   id: SettingsPane
@@ -160,13 +153,6 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
         icon: Plug,
         blurb:
           'Give your CLIs Chewo’s shared memory: searching each other’s past sessions, handing off context, and reading the to-do board. Nothing is registered until you connect it.'
-      },
-      {
-        id: 'worktrees',
-        label: 'Worktrees',
-        icon: GitBranch,
-        blurb:
-          'What happens to an isolated branch once its work has landed. Every cleanup git could refuse, it still refuses — these settings only decide what Chewo attempts.'
       }
     ]
   }
@@ -193,8 +179,6 @@ interface AppSettingsProps {
   onSttStatusChange: () => Promise<void>
   onSttRecover: (id: string) => Promise<void>
   onSttDiscardRecording: (id: string) => Promise<void>
-  worktrees: WorktreeSettings
-  onWorktreesChange: (w: WorktreeSettings) => void
   /** Which pane opens first — 'voice' when something sent the user here */
   initialPane?: SettingsPane
   onClose: () => void
@@ -213,8 +197,6 @@ export function AppSettings({
   onSttStatusChange,
   onSttRecover,
   onSttDiscardRecording,
-  worktrees,
-  onWorktreesChange,
   initialPane = 'presets',
   onClose
 }: AppSettingsProps): React.JSX.Element {
@@ -233,13 +215,10 @@ export function AppSettings({
   const resetLabel =
     pane === 'agents'
       ? 'Reset agents to defaults'
-      : pane === 'worktrees'
-        ? 'Reset worktrees to defaults'
         : 'Reset appearance to defaults'
 
   const reset = (): void => {
     if (pane === 'agents') return onAgentsChange(DEFAULT_AGENTS)
-    if (pane === 'worktrees') return onWorktreesChange(DEFAULT_WORKTREE_SETTINGS)
     onChange(DEFAULT_APPEARANCE)
   }
 
@@ -312,9 +291,6 @@ export function AppSettings({
             )}
 
             {pane === 'connections' && <ConnectionsTab />}
-            {pane === 'worktrees' && (
-              <WorktreesTab worktrees={worktrees} onChange={onWorktreesChange} />
-            )}
 
             {pane === 'presets' && <PresetGallery selectedId={activePreset} onPick={applyPreset} />}
 

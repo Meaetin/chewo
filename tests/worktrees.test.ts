@@ -6,19 +6,22 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import {
   branchFor,
   createWorktree,
-  landingBranchFor,
   listBranches,
   listWorktrees,
-  mergeWorktree,
   removeWorktree,
   validateBaseRef,
   worktreeState,
-  worktreeStatus,
   validateTaskName,
   worktreeDirFor,
   WORKTREES_ROOT
 } from '../src/main/worktrees'
 import { buildCommand } from '../src/main/terminals'
+
+/** Land a branch in the main checkout — the app no longer does this, but the
+ *  "this branch is spent" detection still has to recognise it when git does. */
+const landInMain = (repo: string, branch: string): void => {
+  execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@t', 'merge', '--no-ff', '--no-edit', branch])
+}
 
 describe('validateTaskName', () => {
   test('accepts plain task slugs', () => {
@@ -247,35 +250,13 @@ describe('worktreeState', () => {
     rmSync(repo, { recursive: true, force: true })
   })
 
-  test('a worktree nobody has committed in is not merged, however far main moves', async () => {
-    const made = await createWorktree(repo, 'untouched')
-    if (!made.ok) throw new Error(made.error)
-    // main advances underneath it: 0 ahead, 1 behind — the shape of a merged
-    // branch, and the exact case that must stay open for work
-    commitIn(repo, 'b.txt', 'two')
 
-    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
-    expect(state.ahead).toBe(0)
-    expect(state.behind).toBe(1)
-    expect(state.merged).toBe(false)
-  })
-
-  test('unmerged commits keep it live', async () => {
-    const made = await createWorktree(repo, 'working')
-    if (!made.ok) throw new Error(made.error)
-    commitIn(made.path, 'c.txt', 'work')
-
-    const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
-    expect(state.ahead).toBe(1)
-    expect(state.merged).toBe(false)
-  })
 
   test('once its commits land on the main checkout it is spent', async () => {
     const made = await createWorktree(repo, 'landed')
     if (!made.ok) throw new Error(made.error)
     commitIn(made.path, 'd.txt', 'shipped')
-    const merge = await mergeWorktree(repo, made.branch, 'main')
-    expect(merge.ok).toBe(true)
+    landInMain(repo, made.branch)
 
     const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
     expect(state.ahead).toBe(0)
@@ -286,7 +267,7 @@ describe('worktreeState', () => {
     const made = await createWorktree(repo, 'landed-but-dirty')
     if (!made.ok) throw new Error(made.error)
     commitIn(made.path, 'e.txt', 'shipped too')
-    await mergeWorktree(repo, made.branch, 'main')
+    landInMain(repo, made.branch)
     writeFileSync(join(made.path, 'e.txt'), 'edited after the merge\n')
 
     const state = await worktreeState(repo, made.path, made.branch, made.baseCommit)
@@ -298,7 +279,7 @@ describe('worktreeState', () => {
     const made = await createWorktree(repo, 'adopted')
     if (!made.ok) throw new Error(made.error)
     commitIn(made.path, 'f.txt', 'adopted work')
-    await mergeWorktree(repo, made.branch, 'main')
+    landInMain(repo, made.branch)
 
     // No baseCommit passed — an adopted worktree has none until git supplies it
     const state = await worktreeState(repo, made.path, made.branch)
@@ -326,113 +307,9 @@ describe('worktreeState', () => {
   })
 })
 
-describe('landingBranchFor', () => {
-  test('a remote-tracking base lands on the local branch of the same name', () => {
-    expect(landingBranchFor('origin/main', ['origin'])).toBe('main')
-    expect(landingBranchFor('upstream/release/2', ['origin', 'upstream'])).toBe('release/2')
-  })
-
-  test('a slash in a local branch name is not a remote prefix', () => {
-    expect(landingBranchFor('feature/login', ['origin'])).toBe('feature/login')
-    expect(landingBranchFor('main', ['origin'])).toBe('main')
-    expect(landingBranchFor('origin/main', [])).toBe('origin/main')
-  })
-})
 
 // The main checkout is shared by every non-isolated agent, so any of them can
 // move HEAD out from under a merge. These are the guards for that.
-describe('merge target drift', () => {
-  let repo: string
-  let wt: string
-
-  const git = (dir: string, ...args: string[]): string =>
-    execFileSync(
-      'git',
-      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
-      { encoding: 'utf8' }
-    )
-
-  beforeAll(async () => {
-    repo = mkdtempSync(join(homedir(), '.chewo-wt-drift-'))
-    execFileSync('git', ['init', '-b', 'main', repo])
-    writeFileSync(join(repo, 'a.txt'), 'one\n')
-    git(repo, 'add', '-A')
-    git(repo, 'commit', '-m', 'initial')
-
-    const res = await createWorktree(repo, 'task')
-    if (!res.ok) throw new Error(res.error)
-    wt = res.path
-    writeFileSync(join(wt, 'b.txt'), 'two\n')
-    git(wt, 'add', '-A')
-    git(wt, 'commit', '-m', 'agent work')
-  })
-
-  afterAll(() => {
-    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
-    rmSync(repo, { recursive: true, force: true })
-  })
-
-  test('the base branch still checked out is the landing branch', async () => {
-    const res = await worktreeStatus(repo, wt, 'agent/task', 'main')
-    if (!res.ok) throw new Error(res.error)
-    expect(res.targetBranch).toBe('main')
-    expect(res.landingBranch).toBe('main')
-    expect(res.targetIsLanding).toBe(true)
-    expect(res.detached).toBe(false)
-    expect(res.commits).toHaveLength(1)
-  })
-
-  test('an origin/ base does not read as drift — the cry-wolf case', async () => {
-    const res = await worktreeStatus(repo, wt, 'agent/task', 'origin/main')
-    if (!res.ok) throw new Error(res.error)
-    // no remote configured here, so the prefix is not stripped and it drifts
-    expect(res.landingBranch).toBe('origin/main')
-    git(repo, 'remote', 'add', 'origin', repo)
-    const withRemote = await worktreeStatus(repo, wt, 'agent/task', 'origin/main')
-    if (!withRemote.ok) throw new Error(withRemote.error)
-    expect(withRemote.landingBranch).toBe('main')
-    expect(withRemote.targetIsLanding).toBe(true)
-  })
-
-  test('another agent branching the main checkout is reported as drift', async () => {
-    git(repo, 'checkout', '-b', 'agent/other')
-    const res = await worktreeStatus(repo, wt, 'agent/task', 'main')
-    if (!res.ok) throw new Error(res.error)
-    expect(res.targetBranch).toBe('agent/other')
-    expect(res.landingBranch).toBe('main')
-    expect(res.targetIsLanding).toBe(false)
-    git(repo, 'checkout', 'main')
-  })
-
-  test('a merge whose target moved since the modal opened is refused', async () => {
-    git(repo, 'checkout', '-b', 'agent/other2')
-    const res = await mergeWorktree(repo, 'agent/task', 'main')
-    expect(res.ok).toBe(false)
-    if (res.ok) throw new Error('expected refusal')
-    expect(res.error).toContain('agent/other2')
-    // nothing landed on the branch the user was actually shown
-    expect(git(repo, 'log', '--oneline', 'main')).not.toContain('agent work')
-    git(repo, 'checkout', 'main')
-  })
-
-  test('a detached main checkout is refused rather than merged into', async () => {
-    git(repo, 'checkout', '--detach')
-    const status = await worktreeStatus(repo, wt, 'agent/task', 'main')
-    if (!status.ok) throw new Error(status.error)
-    expect(status.detached).toBe(true)
-    expect(status.targetIsLanding).toBe(false)
-    const res = await mergeWorktree(repo, 'agent/task', 'main')
-    expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.error).toContain('detached')
-    git(repo, 'checkout', 'main')
-  })
-
-  test('the expected target matching HEAD still merges', async () => {
-    const res = await mergeWorktree(repo, 'agent/task', 'main')
-    if (!res.ok) throw new Error(res.error)
-    expect(git(repo, 'log', '--oneline', 'main')).toContain('agent work')
-  })
-})
 
 describe('buildCommand with setup', () => {
   test('setup command chains before the agent and gates its launch', () => {

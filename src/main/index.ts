@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import chokidar from 'chokidar'
@@ -85,13 +85,12 @@ import type { SttModelInfo, SttStatus } from '../shared/stt'
 import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './todo-voice'
 import { structureTranscript, type StructureArgs } from './structure'
 import {
+  cloneNodeModules,
   createWorktree,
   listBranches,
   listWorktrees,
-  mergeWorktree,
   removeWorktree,
-  worktreeState,
-  worktreeStatus
+  worktreeState
 } from './worktrees'
 import {
   disposeAllGitWatches,
@@ -104,7 +103,8 @@ import {
   stopGitWatch,
   type GitDiffSpec
 } from './git'
-import { gitBranches, gitCheckout, gitFetch, gitPull, gitPush } from './git-ops'
+import { gitUpdateFromBase } from './git-ops'
+import { mergedBranches, shipPreview, shipPullRequest, type ShipArgs } from './git-ship'
 import {
   disposeVersionWatch,
   getVersionStatus,
@@ -261,18 +261,17 @@ function registerIpc(): void {
   )
   ipcMain.handle(
     'worktree:create',
-    (_e, a: { projectPath: string; taskName: string; base?: string }) =>
-      createWorktree(a.projectPath, a.taskName, a.base)
-  )
-  ipcMain.handle(
-    'worktree:status',
-    (_e, a: { projectPath: string; worktreePath: string; branch: string; baseBranch: string }) =>
-      worktreeStatus(a.projectPath, a.worktreePath, a.branch, a.baseBranch)
-  )
-  ipcMain.handle(
-    'worktree:merge',
-    (_e, a: { projectPath: string; branch: string; expectedTarget: string }) =>
-      mergeWorktree(a.projectPath, a.branch, a.expectedTarget)
+    async (_e, a: { projectPath: string; taskName: string; base?: string }) => {
+      const res = await createWorktree(a.projectPath, a.taskName, a.base)
+      // Deliberately not awaited: the pane opens the moment the checkout
+      // exists, and the dependency clone lands ~8s later while the agent is
+      // still reading code. Only a failure is worth interrupting for.
+      if (res.ok)
+        void cloneNodeModules(a.projectPath, res.path).then((err) => {
+          if (err) safeSend(mainWindow, 'app:toast', `node_modules not copied to ${a.taskName}: ${err}`)
+        })
+      return res
+    }
   )
   ipcMain.handle(
     'worktree:remove',
@@ -297,13 +296,17 @@ function registerIpc(): void {
   })
   ipcMain.on('git:unwatch', (_e, a: { watchId: number }) => stopGitWatch(a.watchId))
 
-  ipcMain.handle('git:branches', (_e, root: string) => gitBranches(root))
-  ipcMain.handle('git:checkout', (_e, a: { root: string; ref: string; create?: boolean }) =>
-    gitCheckout(a)
-  )
-  ipcMain.handle('git:fetch', (_e, root: string) => gitFetch(root))
-  ipcMain.handle('git:pull', (_e, root: string) => gitPull(root))
-  ipcMain.handle('git:push', (_e, a: { root: string; setUpstream?: boolean }) => gitPush(a))
+  ipcMain.handle('git:update', (_e, root: string) => gitUpdateFromBase(root))
+  ipcMain.handle('git:ship', (_e, a: ShipArgs) => shipPullRequest(a))
+  ipcMain.handle('git:ship-preview', (_e, a: { root: string }) => shipPreview(a))
+  ipcMain.handle('git:merged-branches', (_e, root: string) => mergedBranches(root))
+  // Only ever a web URL: this hands a string to the OS opener, and a file://
+  // or custom scheme would launch an application of the string's choosing
+  ipcMain.handle('open-external', (_e, url: string) => {
+    if (!/^https?:\/\//i.test(url)) return false
+    void shell.openExternal(url)
+    return true
+  })
 
   ipcMain.handle('notes:scan', () => scanNotes())
   ipcMain.handle('notes:read', (_e, path: string) => readNote(path))
