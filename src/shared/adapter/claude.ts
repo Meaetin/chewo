@@ -207,7 +207,6 @@ export function parseClaudeSession(
   }
 
   const toolResults = collectToolResults(records)
-  const messages: NormalizedMessage[] = chain.flatMap((r) => recordToMessages(r, toolResults))
 
   // Emptiness gate (scan.ts) counts across the whole main timeline, not the
   // linearized `chain` above. Mid-turn the chain can momentarily hold 0
@@ -216,6 +215,23 @@ export function parseClaudeSession(
   // sidebar until the next scan. Records are only ever appended, so this count
   // never dips back to 0 once a session has real content.
   const mainMessages: NormalizedMessage[] = mainRecs.flatMap((r) => recordToMessages(r, toolResults))
+
+  /**
+   * The parentUuid walk is only trustworthy when it actually reaches the first
+   * record. Compaction and summary boundaries re-point or drop parentUuid, and
+   * every boundary severs the chain — measured on a real long session, 964
+   * main records yielded a 16-record chain across 58 breaks, so the transcript
+   * showed the last handful of messages and nothing else.
+   *
+   * When the walk is short, fall back to append order. That gives up pruning
+   * abandoned rewind branches, but only in the case where the links are too
+   * broken to prune by — and showing a few superseded messages beats showing
+   * 2% of the conversation.
+   */
+  const chainReachesStart = chain.length > 0 && chain[0] === mainRecs[0]
+  const messages: NormalizedMessage[] = chainReachesStart
+    ? chain.flatMap((r) => recordToMessages(r, toolResults))
+    : [...mainMessages]
   if (opts.includeSidechains) {
     messages.push(
       ...msgRecs.filter((r) => r.isSidechain).flatMap((r) => recordToMessages(r, toolResults))

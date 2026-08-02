@@ -23,6 +23,8 @@ interface RowProps {
   onKeyDown?: (e: React.KeyboardEvent) => void
   /** The row element itself, for callers that move focus between rows. */
   ref?: React.Ref<HTMLDivElement>
+  /** Native tooltip — for explaining a row's state, e.g. why it is dimmed. */
+  title?: string
   className?: string
   children: React.ReactNode
 }
@@ -42,6 +44,7 @@ export function Row({
   onContextMenu,
   onKeyDown,
   ref,
+  title,
   className,
   children
 }: RowProps): React.JSX.Element {
@@ -61,6 +64,7 @@ export function Row({
     <div
       ref={ref}
       className={classes}
+      title={title}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       aria-pressed={interactive ? selected : undefined}

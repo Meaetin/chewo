@@ -195,6 +195,42 @@ body {
   color: var(--c-text-primary);
 }
 
+/* Scrollbars. Chromium's default is a light grey overlay drawn for a light
+   page, which reads as a bright white bar against every dark surface we have.
+   Themed once here rather than per-pane so the sidebar, transcript, editor and
+   chat all scroll the same way; `.terminal-tabs::-webkit-scrollbar` is more
+   specific and still wins where the bar is hidden outright.
+
+   The thumb is a surface step, not a line colour, so it reads as a raised
+   sliver of the panel rather than a border floating in space. The transparent
+   border + background-clip is what insets it: without it the thumb spans the
+   full gutter and looks like a scrollbar from 2003. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--c-surface-5);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-line-2);
+  background-clip: padding-box;
+}
+
+/* The wedge where a vertical and horizontal bar meet — default is light grey */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .app-layout {
   display: flex;
   height: 100%;
@@ -2024,159 +2060,6 @@ body {
   gap: 8px;
   color: var(--text-dim);
 }
-
-/* ---------- transcript ---------- */
-
-.transcript-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.transcript-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-12);
-  padding: var(--space-16) var(--space-20);
-  border-bottom: var(--border-hair);
-}
-
-.transcript-title {
-  font-size: var(--fs-lg);
-  line-height: var(--lh-lg);
-  font-weight: var(--weight-semibold);
-  margin-bottom: var(--space-4);
-}
-
-.transcript-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-}
-
-.transcript-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-16) var(--space-20);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-  font-size: var(--fs-md);
-  line-height: var(--lh-md);
-}
-
-/* Editorial measure — widest reading column in the app (design/03 §5) */
-.message {
-  max-width: 740px;
-}
-
-.message-role-label {
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-  font-weight: var(--weight-semibold);
-  font-variant: small-caps;
-  letter-spacing: var(--tracking-caps);
-  color: var(--text-tertiary);
-  margin-bottom: var(--space-4);
-}
-
-.message-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: var(--lh-md);
-}
-
-.message-user .message-text {
-  background: var(--bg-card);
-  padding: var(--space-8) var(--space-12);
-  border-radius: var(--radius-3);
-}
-
-.tool-call-chip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-4) var(--space-12);
-  background: var(--bg-card);
-  border: var(--border-hair);
-  border-radius: var(--radius-2);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-  width: fit-content;
-  max-width: 100%;
-}
-
-.tool-call-name {
-  font-weight: var(--weight-semibold);
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.tool-call-detail {
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
-  font-size: var(--fs-mono-sm);
-}
-
-.tool-call-chip-expandable {
-  cursor: pointer;
-}
-
-.tool-call-chip-expandable:hover {
-  background: var(--bg-hover);
-}
-
-.tool-call-chevron {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.tool-result-output {
-  margin-top: var(--space-4);
-  max-height: 320px;
-  overflow: auto;
-  background: var(--bg-card);
-  border: var(--border-hair);
-  border-radius: var(--radius-3);
-  padding: var(--space-12);
-  font-family: var(--font-mono);
-  font-size: var(--fs-mono-sm);
-  line-height: 1.5;
-  color: var(--text-tertiary);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.command-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-12);
-  background: var(--bg-card);
-  border: 1px dashed var(--border-hairline);
-  border-radius: var(--radius-1);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-  color: var(--text-tertiary);
-}
-
-.command-chip-symbol {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-}
-
 /* ---------- rendered markdown (assistant messages) ---------- */
 
 .message-markdown {
@@ -3878,16 +3761,6 @@ body {
   line-height: var(--lh-2xl);
   color: var(--text-primary);
 }
-
-/* ===== 2b: Transcript ===== */
-
-/* Branch chip in the header meta — Lucide git-branch icon + label. */
-.transcript-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
 /* Constrains the search Input (width: 100%) inside the find bar. */
 .find-search {
   flex: 1;
@@ -5579,4 +5452,412 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ============================================================
+   CHAT PANES — the agent CLIs rendered as a conversation instead
+   of a terminal. Shares .message-markdown with the transcript
+   layer so a live reply and the same reply re-read from the
+   session file look identical.
+   ============================================================ */
+
+.chat-pane {
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--c-surface-1);
+}
+
+.chat-pane-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-16);
+  border-bottom: var(--border-hair);
+  flex-shrink: 0;
+}
+
+.chat-pane-model {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.chat-pane-cwd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the leaf folder visible when it overflows */
+  text-align: left;
+}
+
+.chat-pane-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-20);
+  max-width: 780px; /* editorial measure, as .message */
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---- user turn ---- */
+.chat-user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  padding: var(--space-8) var(--space-12);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--fs-md);
+  line-height: var(--lh-md);
+}
+
+.chat-assistant {
+  font-size: var(--fs-md);
+  line-height: var(--lh-md);
+}
+
+/* The streaming cursor is the last character of the markdown source (see
+   CARET in ChatItems.tsx), so it flows inline with the sentence and needs no
+   styling of its own. It is deliberately not animated: a blinking caret beside
+   text that is already moving is two things competing for the eye. */
+
+/* ---- thinking ---- */
+.chat-thinking-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.chat-thinking-head:hover {
+  color: var(--text-secondary);
+}
+
+.chat-thinking-body {
+  margin-top: var(--space-6);
+  padding-left: var(--space-12);
+  border-left: 2px solid var(--border-hairline);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-md);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- tool chips ---- */
+.chat-tool-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-12);
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.chat-tool-head--expandable {
+  cursor: pointer;
+}
+
+.chat-tool-head--expandable:hover {
+  background: var(--bg-hover);
+}
+
+.chat-tool-chevron,
+.chat-tool-status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.chat-tool--ok .chat-tool-status { color: var(--c-accent-text); }
+.chat-tool--error .chat-tool-status { color: var(--c-danger); }
+.chat-tool--denied .chat-tool-status { color: var(--c-warning); }
+.chat-tool--running .chat-tool-status { color: var(--c-live); }
+
+.chat-tool-spin {
+  animation: chat-spin 1s linear infinite;
+}
+
+@keyframes chat-spin {
+  to { transform: rotate(360deg); }
+}
+
+.chat-tool-name {
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.chat-tool-summary {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+}
+
+.chat-tool-output {
+  margin-top: var(--space-4);
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  padding: var(--space-12);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- approval card ----
+   Amber, not emerald: this is "you must decide", and emerald is reserved for
+   "you are here / do this" (design/06 accent rule). */
+.chat-approval {
+  border: 1px solid var(--c-warning);
+  background: var(--c-warning-wash);
+  border-radius: var(--radius-3);
+  padding: var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.chat-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--c-warning);
+  font-size: var(--fs-sm);
+}
+
+.chat-approval-title {
+  color: var(--text-primary);
+}
+
+.chat-approval-target {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.chat-approval-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+}
+
+.chat-approval-toggle:hover { color: var(--text-secondary); }
+
+.chat-approval-actions {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+/* ---- notices ---- */
+.chat-notice {
+  border-radius: var(--radius-2);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-md);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-notice--error {
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
+}
+
+.chat-notice--info {
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+}
+
+.chat-working {
+  font-size: var(--fs-xs);
+}
+
+/* ---- composer ---- */
+.chat-composer {
+  position: relative;
+  flex-shrink: 0;
+  padding: var(--space-12) var(--space-20) var(--space-16);
+  max-width: 780px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.chat-composer-row {
+  display: flex;
+  /* Centred, not bottom-aligned: with one line of text the field is shorter
+     than the send button, so flex-end left the words riding high in the pill.
+     Growing to several lines still reads fine centred. */
+  align-items: center;
+  gap: var(--space-8);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-line-2);
+  border-radius: var(--radius-4);
+  padding: var(--space-8) var(--space-8) var(--space-8) var(--space-12);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.chat-composer-row:focus-within {
+  border-color: var(--c-accent);
+  box-shadow: var(--focus-ring);
+}
+
+.chat-composer-input {
+  flex: 1;
+  resize: none;
+  background: none;
+  border: 0;
+  /* Chromium gives a textarea its own padding, which the auto-grow measurement
+     in ChatComposer then bakes into the height — zero it so one line is
+     exactly one line-height and the pill hugs the text. */
+  padding: 0;
+  min-height: var(--lh-md);
+  display: block;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  line-height: var(--lh-md);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.chat-composer-input::placeholder { color: var(--text-faint); }
+
+.chat-send,
+.chat-stop {
+  flex-shrink: 0;
+}
+
+/* ---- slash palette ---- */
+.chat-palette {
+  position: absolute;
+  bottom: calc(100% - var(--space-8));
+  left: var(--space-20);
+  right: var(--space-20);
+  background: var(--c-surface-3);
+  border: 1px solid var(--c-line-2);
+  border-radius: var(--radius-3);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-overlay);
+  z-index: 10;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.chat-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-1);
+  padding: var(--space-6) var(--space-8);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+}
+
+.chat-palette-item--active {
+  background: var(--c-accent-wash);
+  color: var(--text-primary);
+}
+
+.chat-tool--cancelled .chat-tool-status { color: var(--text-faint); }
+.chat-tool--cancelled .chat-tool-name { color: var(--text-tertiary); }
+
+/* No disclosure to offer when the model encrypted its reasoning */
+.chat-thinking-head--static {
+  cursor: default;
+}
+
+.chat-thinking-head--static:hover {
+  color: var(--text-tertiary);
+}
+
+/* A session with a pane already open. Dimmed rather than disabled: clicking
+   still focuses that pane, which is the useful action — what must not happen
+   is a second process starting on the same conversation file. */
+.session-row--running .session-row-title,
+.session-row--running .session-row-sub {
+  color: var(--text-tertiary);
+}
+
+.session-row--running:hover .session-row-title {
+  color: var(--text-secondary);
+}
+
+/* Pull in the previous page of a resumed conversation */
+.chat-load-earlier {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  align-self: center;
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-pill);
+  padding: var(--space-6) var(--space-16);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.chat-load-earlier:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-load-earlier-count {
+  color: var(--text-faint);
 }

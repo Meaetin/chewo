@@ -10,6 +10,24 @@ import type { ScanResult } from '../src/shared/adapter/types'
 const fixture = (p: string): string => join(__dirname, 'fixtures', p)
 
 describe('claude adapter', () => {
+  test('a compaction boundary does not truncate the transcript', () => {
+    // The parentUuid walk stops dead at a summary record, because the turn
+    // after it parents onto something that is not a message. Following the
+    // chain alone returned the last 2 messages of this 6-message session —
+    // measured on a real session, 964 records collapsed to 16.
+    const { messages, meta } = parseClaudeSession(fixture('claude/v2.1-compacted.jsonl'))
+    expect(messages.map((m) => m.text)).toEqual([
+      'first question',
+      'first answer',
+      'second question',
+      'second answer',
+      'third question',
+      'third answer'
+    ])
+    // The count the sidebar uses was always whole-timeline; it must still agree
+    expect(meta.messageCount).toBe(messages.length)
+  })
+
   test('parses a basic session with correct meta', () => {
     const { meta } = parseClaudeSession(fixture('claude/v2.1-basic.jsonl'))
     expect(meta.id).toBe('aaaaaaaa-1111-2222-3333-444444444444')

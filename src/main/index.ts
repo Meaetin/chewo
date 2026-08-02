@@ -123,6 +123,17 @@ import {
   writeTerminal,
   type CreateTerminalOptions
 } from './terminals'
+import {
+  chatSessionId,
+  createChat,
+  disposeAllChats,
+  interruptChat,
+  killChat,
+  respondChat,
+  sendChat,
+  type CreateChatOptions
+} from './chat-sessions'
+import type { ApprovalDecision } from '../shared/agent-chat'
 
 // Keep the dev instance's state separate from the installed app's
 // (both would otherwise resolve to ~/Library/Application Support/chewo).
@@ -191,6 +202,23 @@ function registerIpc(): void {
     resizeTerminal(id, cols, rows)
   )
   ipcMain.on('terminal:kill', (_e, { id }: { id: number }) => killTerminal(id))
+
+  ipcMain.handle('chat:create', (_e, opts: CreateChatOptions) => {
+    if (!mainWindow) throw new Error('no window')
+    return createChat(mainWindow, opts)
+  })
+  ipcMain.on('chat:send', (_e, { id, text }: { id: number; text: string }) => {
+    if (mainWindow) sendChat(mainWindow, id, text)
+  })
+  ipcMain.on(
+    'chat:respond',
+    (_e, { id, requestId, decision }: { id: number; requestId: string; decision: ApprovalDecision }) => {
+      if (mainWindow) respondChat(mainWindow, id, requestId, decision)
+    }
+  )
+  ipcMain.on('chat:interrupt', (_e, { id }: { id: number }) => interruptChat(id))
+  ipcMain.on('chat:kill', (_e, { id }: { id: number }) => killChat(id))
+  ipcMain.handle('chat:sessionId', (_e, { id }: { id: number }) => chatSessionId(id))
 
   ipcMain.handle('capabilities:scan', (_e, projects: ProjectTarget[]) =>
     scanCapabilities(projects)
@@ -657,6 +685,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   disposeAllTerminals()
+  disposeAllChats()
   disposeAllWatches()
   disposeAllGitWatches()
   disposeVersionWatch()
@@ -664,3 +693,26 @@ app.on('window-all-closed', () => {
   disposeTodoVoice()
   app.quit()
 })
+
+/**
+ * A chat pane's agent is a plain child process, not a pty, so nothing sends it
+ * SIGHUP when we go away — quitting without closing the window (⌘Q, a signal
+ * from a terminal, a crash-adjacent shutdown) would otherwise leave an agent
+ * running and still editing files. Closing its stdin is what eventually stops
+ * it, but only after the turn in flight, so kill explicitly.
+ *
+ * SIGKILL cannot be caught; in that one case the child finishes its current
+ * turn and then exits on stdin EOF.
+ */
+app.on('before-quit', () => {
+  disposeAllTerminals()
+  disposeAllChats()
+})
+
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    disposeAllTerminals()
+    disposeAllChats()
+    app.quit()
+  })
+}

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
 import type { ScanResult } from '../shared/adapter/types'
+import type { AgentChatEvent, ApprovalDecision } from '../shared/agent-chat'
 import type { AgentId, AgentModel } from '../shared/agents'
 import type {
   CreateWorktreeResult,
@@ -83,6 +84,9 @@ function channelFanout<T>(channel: string): (cb: (e: T) => void) => () => void {
 
 const onTermData = channelFanout<TermDataEvent>('terminal:data')
 const onTermExit = channelFanout<TermExitEvent>('terminal:exit')
+// Same reason as the terminal channels: one listener regardless of how many
+// chat panes are open, or Node's 10-listener warning trips.
+const onChatEvent = channelFanout<{ id: number; event: AgentChatEvent }>('chat:event')
 
 const api = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
@@ -114,6 +118,26 @@ const api = {
   termKill: (id: number) => ipcRenderer.send('terminal:kill', { id }),
   onTermData,
   onTermExit,
+
+  createChat: (opts: {
+    source: 'claude'
+    cwd?: string | null
+    sessionId?: string
+    model?: string
+    effort?: string
+    permissionMode?: string
+    extraDirs?: string[]
+    setupCommand?: string
+  }) => ipcRenderer.invoke('chat:create', opts) as Promise<number>,
+  chatSend: (id: number, text: string) => ipcRenderer.send('chat:send', { id, text }),
+  chatRespond: (id: number, requestId: string, decision: ApprovalDecision) =>
+    ipcRenderer.send('chat:respond', { id, requestId, decision }),
+  chatInterrupt: (id: number) => ipcRenderer.send('chat:interrupt', { id }),
+  chatKill: (id: number) => ipcRenderer.send('chat:kill', { id }),
+  /** The CLI conversation id, once bound — what "open in terminal" resumes */
+  chatSessionId: (id: number) =>
+    ipcRenderer.invoke('chat:sessionId', { id }) as Promise<string | undefined>,
+  onChatEvent,
   onTermBound: (cb: (e: TermBoundEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
     ipcRenderer.on('terminal:session-bound', listener)

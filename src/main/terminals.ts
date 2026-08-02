@@ -9,6 +9,7 @@ import {
   type UnboundPane
 } from '../shared/projects'
 import { shellQuote } from '../shared/shell'
+import { nextPaneId } from './pane-ids'
 import { safeSend } from './safe-send'
 
 /** What a pane runs: an agent CLI or a plain shell */
@@ -46,7 +47,6 @@ interface PaneRecord {
 }
 
 const terminals = new Map<number, PaneRecord>()
-let nextId = 1
 
 /**
  * The app (or the dev server) may itself have been launched from inside a
@@ -143,7 +143,7 @@ export function createTerminal(win: BrowserWindow, opts: CreateTerminalOptions):
     env: buildPtyEnv(process.env)
   })
 
-  const id = nextId++
+  const id = nextPaneId()
   terminals.set(id, {
     proc,
     source: opts.source,

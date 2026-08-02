@@ -6,7 +6,6 @@ import {
   GitBranch,
   GitMerge,
   Plus,
-  ScrollText,
   Settings,
   Trash2,
   Undo2,
@@ -35,7 +34,6 @@ interface SidebarProps {
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
-  onOpenTranscript: (session: SessionMeta) => void
   onNewTerminal: (source: 'claude' | 'codex') => void
   /** undefined = no project selected → button disabled */
   onNewIsolated?: () => void
@@ -134,36 +132,23 @@ function SessionRow({
   live,
   showProject,
   onSelect,
-  onOpenTranscript,
   actionIcon,
   actionTitle,
   onAction
 }: {
   session: SessionMeta
   selected: boolean
-  /** A terminal is open for this session — clicking focuses it */
+  /** Already running — the row dims and a click focuses that pane rather than
+   *  starting a second process on the same conversation */
   live?: boolean
   showProject?: string
   onSelect: (s: SessionMeta) => void
-  onOpenTranscript?: (s: SessionMeta) => void
   actionIcon?: React.ReactNode
   actionTitle?: string
   onAction?: (id: string) => void
 }): React.JSX.Element {
   const trailing = (
     <>
-      {live && onOpenTranscript && (
-        <IconButton
-          label="View transcript"
-          dense
-          onClick={(e) => {
-            e.stopPropagation()
-            onOpenTranscript(session)
-          }}
-        >
-          <ScrollText size={14} strokeWidth={1.75} />
-        </IconButton>
-      )}
       {onAction && actionIcon && (
         <IconButton
           label={actionTitle ?? 'Action'}
@@ -183,8 +168,10 @@ function SessionRow({
     <Row
       selected={selected}
       live={live}
+      className={live ? 'session-row--running' : undefined}
       leading={<Badge source={session.source} />}
       trailing={trailing}
+      title={live ? 'Already open — click to focus it' : undefined}
       onClick={() => onSelect(session)}
     >
       <span className="session-row-line">
@@ -201,7 +188,6 @@ interface SessionGroupProps {
   selectedSessionId?: string
   liveSessionIds: Set<string>
   onSelect: (s: SessionMeta) => void
-  onOpenTranscript: (s: SessionMeta) => void
   onHideSession: (id: string) => void
   emptyText: string
 }
@@ -212,7 +198,6 @@ function SessionGroup({
   selectedSessionId,
   liveSessionIds,
   onSelect,
-  onOpenTranscript,
   onHideSession,
   emptyText
 }: SessionGroupProps): React.JSX.Element {
@@ -226,7 +211,6 @@ function SessionGroup({
           selected={s.id === selectedSessionId}
           live={liveSessionIds.has(s.id)}
           onSelect={onSelect}
-          onOpenTranscript={onOpenTranscript}
           actionIcon={<X size={14} strokeWidth={1.75} />}
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
@@ -535,7 +519,6 @@ export function Sidebar({
   onHideSession,
   onRestoreSession,
   onSelect,
-  onOpenTranscript,
   onNewTerminal,
   onNewIsolated,
   liveWorktreeIds,
@@ -643,7 +626,6 @@ export function Sidebar({
               live={liveSessionIds.has(s.id)}
               showProject={s.project ?? undefined}
               onSelect={onSelect}
-              onOpenTranscript={onOpenTranscript}
               actionIcon={<X size={14} strokeWidth={1.75} />}
               actionTitle="Hide session"
               onAction={onHideSession}
@@ -670,7 +652,6 @@ export function Sidebar({
                 selectedSessionId={selectedSessionId}
                 liveSessionIds={liveSessionIds}
                 onSelect={onSelect}
-                onOpenTranscript={onOpenTranscript}
                 onHideSession={onHideSession}
                 emptyText="No sessions started in your home folder"
               />
@@ -722,7 +703,6 @@ export function Sidebar({
                     selectedSessionId={selectedSessionId}
                     liveSessionIds={liveSessionIds}
                     onSelect={onSelect}
-                    onOpenTranscript={onOpenTranscript}
                     onHideSession={onHideSession}
                     emptyText="No sessions in this folder yet"
                   />

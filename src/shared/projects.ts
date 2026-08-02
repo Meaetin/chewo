@@ -7,6 +7,12 @@ export interface SavedTerminal {
   label: string
   /** Set when the terminal runs in an isolated worktree — wake resumes there */
   worktreeId?: string
+  /**
+   * Which runtime the session was last woken in. Absent means the pty, so
+   * every session saved before chat panes existed keeps resuming as one.
+   * Without this a chat conversation silently comes back as a terminal.
+   */
+  mode?: 'terminal' | 'chat'
 }
 
 /**

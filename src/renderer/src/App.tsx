@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderTree, GitBranch, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
+import { ChatPane } from './components/chat/ChatPane'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
 import { agentDef, DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
@@ -46,7 +47,6 @@ import { NotesChat } from './components/NotesChat'
 import { WorkflowSwitcher } from './components/WorkflowSwitcher'
 import { TodoSidebar } from './components/TodoSidebar'
 import { TodoBoard, type UpdateCardPayload } from './components/TodoBoard'
-import { TranscriptView } from './components/TranscriptView'
 import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { FileTreePanel } from './components/FileTreePanel'
@@ -67,10 +67,28 @@ import { reorderOpenFiles } from './fileTabs'
 export type PaneSource = Source | 'shell'
 
 export interface TerminalTab {
+  /** Pane id — allocated from one counter in main, whichever runtime backs it */
   termId: number
   projectId: string | null
   source: PaneSource
+  /**
+   * Which runtime is behind this pane. Both are the same agent CLI: 'terminal'
+   * is the pty, 'chat' drives it over JSON and renders a conversation. The tab
+   * strip treats them identically; only the pane body and the kill call differ.
+   */
+  mode: 'terminal' | 'chat'
   label: string
+  /** A card run's prompt, handed to the chat pane to submit on mount.
+   *  Transient — never persisted, or reopening a session would re-run it. */
+  initialPrompt?: string
+  /**
+   * The conversation this pane was opened to *resume*, as opposed to
+   * `sessionId`, which a fresh pane fills in once the CLI announces itself.
+   * A chat pane reads this one's transcript to show history, so it must never
+   * be set from a session the pane started on its own — that would render
+   * every live message twice.
+   */
+  resumeSessionId?: string
   sessionId?: string
   /** Pane runs in an isolated worktree — gets the merge button, keeps its ⎇ label */
   worktreeId?: string
@@ -78,7 +96,6 @@ export interface TerminalTab {
 }
 
 type MainView =
-  | { kind: 'transcript'; session: SessionMeta }
   | { kind: 'terminal'; termId: number }
   | { kind: 'capabilities' }
   | { kind: 'empty' }
@@ -414,7 +431,8 @@ export function App(): React.JSX.Element {
           source: t.source,
           sessionId: t.sessionId,
           label: t.label,
-          worktreeId: t.worktreeId
+          worktreeId: t.worktreeId,
+          mode: t.mode
         }))
       const liveIds = new Set(live.map((t) => t.sessionId))
       return [...live, ...dormant.filter((t) => !liveIds.has(t.sessionId))]
@@ -754,6 +772,22 @@ export function App(): React.JSX.Element {
   // Panes render in a stable termId order, decoupled from the reorderable tab
   // strip: moving a live terminal's DOM node corrupts its xterm renderer.
   const paneTabs = [...tabs].sort((a, b) => a.termId - b.termId)
+
+  /**
+   * Locate the transcript a resumed chat pane should open with. Returns
+   * undefined for a fresh pane, and for a resumed one whose session file the
+   * scan has not produced yet — in which case the pane simply opens without
+   * history rather than blocking on it.
+   */
+  const resumeSourceFor = (
+    tab: TerminalTab
+  ): { sessionId: string; source: Source; filePath: string } | undefined => {
+    if (!tab.resumeSessionId || tab.source === 'shell') return undefined
+    const meta = sessions.find((s) => s.id === tab.resumeSessionId)
+    return meta
+      ? { sessionId: meta.id, source: meta.source, filePath: meta.filePath }
+      : undefined
+  }
   const liveCounts = new Map<string | null, number>()
   for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
 
@@ -781,23 +815,6 @@ export function App(): React.JSX.Element {
   // terminal instead of the transcript
   const liveSessionTabs = new Map(tabs.filter((t) => t.sessionId).map((t) => [t.sessionId!, t]))
 
-  const openSession = useCallback(
-    (s: SessionMeta) => {
-      const tab = tabs.find((t) => t.sessionId === s.id)
-      if (tab) {
-        setSelectedProjectId(tab.projectId) // may jump sections (e.g. from search)
-        setView({ kind: 'terminal', termId: tab.termId })
-      } else {
-        setView({ kind: 'transcript', session: s })
-      }
-    },
-    [tabs]
-  )
-
-  const openTranscript = useCallback((s: SessionMeta) => {
-    setView({ kind: 'transcript', session: s })
-  }, [])
-
   const selectSection = useCallback(
     (id: string | null) => {
       setSelectedProjectId(id)
@@ -815,8 +832,6 @@ export function App(): React.JSX.Element {
 
   const hideSession = useCallback((id: string) => {
     setHiddenIds((prev) => new Set(prev).add(id))
-    // If the hidden session's transcript is open, close it
-    setView((v) => (v.kind === 'transcript' && v.session.id === id ? { kind: 'empty' } : v))
   }, [])
 
   const restoreSession = useCallback((id: string) => {
@@ -867,6 +882,7 @@ export function App(): React.JSX.Element {
           termId,
           projectId: opts.projectId,
           source: opts.source,
+          mode: 'terminal',
           label: opts.label ?? `${opts.source} (new)`,
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
@@ -879,16 +895,151 @@ export function App(): React.JSX.Element {
     [settingsForSection]
   )
 
-  const newTerminal = useCallback(
-    (source: PaneSource) =>
+  /** A plain shell. Agents go through `newAgent` — this is the only pane type
+   *  that is a terminal because it *is* a terminal, not because of a CLI. */
+  const newShell = useCallback(
+    () =>
       void openTerminal({
-        source,
+        source: 'shell',
         // Selected project → its path; no project → $HOME (main falls back)
         cwd: selectedProject?.path ?? null,
         projectId: selectedProject?.id ?? null,
-        label: source === 'shell' ? 'zsh' : undefined
+        label: 'zsh'
       }),
     [openTerminal, selectedProject]
+  )
+
+  /**
+   * Open an agent as a chat pane instead of a pty. Same session store, same
+   * `--resume` ids — so a conversation started here can be picked up in a
+   * terminal and vice versa (that swap is `openInTerminal` below).
+   */
+  const openChat = useCallback(
+    async (opts: {
+      source: 'claude'
+      cwd?: string | null
+      projectId: string | null
+      sessionId?: string
+      worktreeId?: string
+      label?: string
+      setupCommand?: string
+      initialPrompt?: string
+      extraDirs?: string[]
+    }): Promise<number> => {
+      const { claudeMode } = settingsForSection(opts.projectId)
+      const chatId = await window.api.createChat({
+        source: opts.source,
+        cwd: opts.cwd,
+        sessionId: opts.sessionId,
+        permissionMode: claudeMode,
+        setupCommand: opts.setupCommand,
+        extraDirs: opts.extraDirs
+      })
+      setTabs((t) => [
+        ...t,
+        {
+          termId: chatId,
+          projectId: opts.projectId,
+          source: opts.source,
+          mode: 'chat',
+          label: opts.label ?? opts.source,
+          sessionId: opts.sessionId,
+          worktreeId: opts.worktreeId,
+          initialPrompt: opts.initialPrompt,
+          resumeSessionId: opts.sessionId,
+          exited: false
+        }
+      ])
+      setView({ kind: 'terminal', termId: chatId })
+      return chatId
+    },
+    [settingsForSection]
+  )
+
+  /**
+   * Open an agent session. This is the one place that decides *how* an agent
+   * runs, so every caller — the tab bar, resume, wake, worktrees, card runs —
+   * gets the same answer.
+   *
+   * Claude runs as a chat pane; that is the UI now, and the pty is reached
+   * only through a pane's own "Terminal" button (`forceTerminal`), which
+   * exists for the things the JSON protocol cannot do: `claude auth`, an
+   * interactive `/config`, or a CLI update that breaks the wire format.
+   *
+   * Codex still runs as a pty because there is no chat backend for it yet —
+   * `codex app-server` is the next piece of work, and until it lands this
+   * function is the only file that needs to change.
+   */
+  const openAgent = useCallback(
+    (opts: {
+      source: Source
+      sessionId?: string
+      cwd?: string | null
+      projectId: string | null
+      label?: string
+      worktreeId?: string
+      setupCommand?: string
+      initialPrompt?: string
+      extraDirs?: string[]
+      attachImages?: string[]
+      forceTerminal?: boolean
+    }): Promise<number> =>
+      opts.source === 'claude' && !opts.forceTerminal
+        ? openChat({ ...opts, source: 'claude' })
+        : openTerminal(opts),
+    [openChat, openTerminal]
+  )
+
+  /** New agent session in the selected section — the tab bar and the sidebar's
+   *  "New session" button both land here, so neither can drift from the other. */
+  const newAgent = useCallback(
+    (source: Source) =>
+      void openAgent({
+        source,
+        // Selected project → its path; no project → $HOME (main falls back)
+        cwd: selectedProject?.path ?? null,
+        projectId: selectedProject?.id ?? null
+      }),
+    [openAgent, selectedProject]
+  )
+
+  /**
+   * A chat pane learns its conversation id from the CLI's own startup event, so
+   * it never goes through the session-store watcher that binds pty panes —
+   * but the tab still needs the id for persistence, resume and "open in
+   * terminal".
+   */
+  const bindChatSession = useCallback((termId: number, sessionId: string) => {
+    setTabs((t) => t.map((tab) => (tab.termId === termId ? { ...tab, sessionId } : tab)))
+  }, [])
+
+  /** Kill whichever runtime backs a pane. */
+  const killPane = useCallback((tab: TerminalTab) => {
+    if (tab.mode === 'chat') window.api.chatKill(tab.termId)
+    else window.api.termKill(tab.termId)
+  }, [])
+
+  /**
+   * The escape hatch coexistence buys us: hand a chat conversation to a real
+   * terminal, resuming the same session id. The chat pane is closed rather than
+   * left running, so two processes never drive one conversation at once.
+   */
+  const openInTerminal = useCallback(
+    (tab: TerminalTab, sessionId: string) => {
+      const project = projects.find((p) => p.id === tab.projectId)
+      const worktree = tab.worktreeId ? worktrees.find((w) => w.id === tab.worktreeId) : undefined
+      window.api.chatKill(tab.termId)
+      setTabs((ts) => ts.filter((t) => t.termId !== tab.termId))
+      void openTerminal({
+        source: tab.source === 'shell' ? 'claude' : tab.source,
+        sessionId,
+        cwd: worktree?.path ?? project?.path ?? null,
+        projectId: tab.projectId,
+        worktreeId: tab.worktreeId,
+        label: tab.label
+      })
+    },
+    [openTerminal, projects, worktrees]
   )
 
   /** Play button: one shell per non-empty line of the section's start command. */
@@ -920,7 +1071,7 @@ export function App(): React.JSX.Element {
       // file tree points at the main checkout instead of the branch.
       const wt = worktrees.find((w) => sessionInProject(s.project, w.path))
       setSelectedProjectId(projectId) // follow the terminal to its own section
-      void openTerminal({
+      void openAgent({
         source: s.source,
         sessionId: s.id,
         cwd: s.project,
@@ -929,22 +1080,47 @@ export function App(): React.JSX.Element {
         worktreeId: wt?.id
       })
     },
-    [openTerminal, projects, worktrees]
+    [openAgent, projects, worktrees]
+  )
+
+  /**
+   * Clicking a session in the sidebar *is* resuming it — a chat pane opens on
+   * its history, so there is no read-only stop along the way.
+   *
+   * A session that is already running focuses its existing pane instead of
+   * starting a second one: two processes appending to one conversation file is
+   * how a transcript gets interleaved and a resume picks up the wrong branch.
+   * Those rows are dimmed in the sidebar so it is visible before the click.
+   */
+  const openSession = useCallback(
+    (s: SessionMeta) => {
+      const tab = tabs.find((t) => t.sessionId === s.id)
+      if (tab) {
+        setSelectedProjectId(tab.projectId) // may jump sections (e.g. from search)
+        setView({ kind: 'terminal', termId: tab.termId })
+        return
+      }
+      resumeSession(s)
+    },
+    [resumeSession, tabs]
   )
 
   const wakeDormant = useCallback(
     (t: SavedTerminal) => {
       const wt = t.worktreeId ? worktrees.find((w) => w.id === t.worktreeId) : undefined
-      void openTerminal({
-        source: t.source,
+      const common = {
         sessionId: t.sessionId,
         cwd: wt?.path ?? selectedProject?.path ?? null,
         label: t.label,
         projectId: selectedProject?.id ?? null,
         worktreeId: wt?.id
-      })
+      }
+      // Sessions saved before chat panes existed have no mode; they wake as
+      // chat like everything else. Only an explicit 'terminal' — set by using
+      // a pane's Terminal button — keeps a session on the pty.
+      void openAgent({ ...common, source: t.source, forceTerminal: t.mode === 'terminal' })
     },
-    [openTerminal, selectedProject, worktrees]
+    [openAgent, selectedProject, worktrees]
   )
 
   /**
@@ -958,8 +1134,14 @@ export function App(): React.JSX.Element {
   const openWorktree = useCallback(
     (wt: Worktree, source?: Source): boolean => {
       setSelectedProjectId(wt.projectId)
-      const start = (opts: { source: PaneSource; sessionId?: string; label: string }): true => {
-        void openTerminal({ ...opts, cwd: wt.path, projectId: wt.projectId, worktreeId: wt.id })
+      // A worktree pane is always an agent — never a shell
+      const start = (opts: {
+        source: Source
+        sessionId?: string
+        label: string
+        forceTerminal?: boolean
+      }): true => {
+        void openAgent({ ...opts, cwd: wt.path, projectId: wt.projectId, worktreeId: wt.id })
         return true
       }
       if (source) return start({ source, label: `⎇ ${wt.taskName}` })
@@ -972,7 +1154,12 @@ export function App(): React.JSX.Element {
       const project = projects.find((p) => p.id === wt.projectId)
       const saved = project?.terminals.find((t) => t.worktreeId === wt.id)
       if (saved)
-        return start({ source: saved.source, sessionId: saved.sessionId, label: saved.label })
+        return start({
+          source: saved.source,
+          sessionId: saved.sessionId,
+          label: saved.label,
+          forceTerminal: saved.mode === 'terminal'
+        })
 
       const last = sessions
         .filter((s) => sessionInProject(s.project, wt.path))
@@ -980,7 +1167,7 @@ export function App(): React.JSX.Element {
       if (last) return start({ source: last.source, sessionId: last.id, label: `⎇ ${wt.taskName}` })
       return false
     },
-    [openTerminal, projects, sessions, tabs]
+    [openAgent, projects, sessions, tabs]
   )
 
   /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
@@ -1010,7 +1197,7 @@ export function App(): React.JSX.Element {
         )
       }
       setWtCreateOpen(false)
-      void openTerminal({
+      void openAgent({
         source: agent,
         cwd: res.path,
         projectId: project.id,
@@ -1020,7 +1207,7 @@ export function App(): React.JSX.Element {
       })
       return null
     },
-    [selectedProject, openTerminal]
+    [selectedProject, openAgent]
   )
 
   /** git worktree remove + branch -d, then drop panes/tabs/records. Error string or null. */
@@ -1034,8 +1221,9 @@ export function App(): React.JSX.Element {
         branch: wt.branch
       })
       if (!res.ok) return res.error
-      const killed = tabs.filter((t) => t.worktreeId === wt.id).map((t) => t.termId)
-      for (const id of killed) window.api.termKill(id)
+      const doomedTabs = tabs.filter((t) => t.worktreeId === wt.id)
+      const killed = doomedTabs.map((t) => t.termId)
+      for (const tab of doomedTabs) killPane(tab)
       setTabs((ts) => ts.filter((t) => t.worktreeId !== wt.id))
       setView((v) => (v.kind === 'terminal' && killed.includes(v.termId) ? { kind: 'empty' } : v))
       setWorktrees((ws) => ws.filter((w) => w.id !== wt.id))
@@ -1077,8 +1265,8 @@ export function App(): React.JSX.Element {
 
   const closeTerminal = useCallback(
     (termId: number) => {
-      window.api.termKill(termId)
       const closing = tabs.find((tab) => tab.termId === termId)
+      if (closing) killPane(closing)
       setTabs((t) => t.filter((tab) => tab.termId !== termId))
       // Closing a tab forgets the session for good — otherwise it would be
       // re-persisted as a resumable dormant tab and reappear on the next load.
@@ -1402,7 +1590,7 @@ export function App(): React.JSX.Element {
       ])
       const card = board.cards[cardId]
       if (!card) return
-      const termId = await openTerminal({
+      const termId = await openAgent({
         source: agent,
         // General runs in Home, like Home-section sessions
         cwd: todoProject?.path ?? null,
@@ -1421,7 +1609,7 @@ export function App(): React.JSX.Element {
         `Running “${card.title}” in ${agentDef(agent).label} — ${todoProject?.name ?? 'Home'}. It's in the Code tabs when you want it.`
       )
     },
-    [openTerminal, showToast, todoProject, todoScopeDir]
+    [openAgent, showToast, todoProject, todoScopeDir]
   )
 
   // A card's badge must not outlive its terminal
@@ -1450,7 +1638,7 @@ export function App(): React.JSX.Element {
       // Closing a project fully tears it down: kill its live terminals and drop
       // their tabs, rather than orphaning them into Home.
       const doomed = tabs.filter((tab) => tab.projectId === id)
-      for (const tab of doomed) window.api.termKill(tab.termId)
+      for (const tab of doomed) killPane(tab)
       const doomedIds = new Set(doomed.map((tab) => tab.termId))
       setTabs((t) => t.filter((tab) => !doomedIds.has(tab.termId)))
       setProjects((ps) => ps.filter((p) => p.id !== id))
@@ -1504,19 +1692,16 @@ export function App(): React.JSX.Element {
         liveSessionIds={new Set(liveSessionTabs.keys())}
         selectedProjectId={selectedProjectId}
         selectedSessionId={
-          view.kind === 'transcript'
-            ? view.session.id
-            : view.kind === 'terminal'
-              ? tabs.find((t) => t.termId === view.termId)?.sessionId
-              : undefined
+          view.kind === 'terminal'
+            ? tabs.find((t) => t.termId === view.termId)?.sessionId
+            : undefined
         }
         onHideSession={hideSession}
         onRestoreSession={restoreSession}
-        onOpenTranscript={openTranscript}
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
         onSelect={openSession}
-        onNewTerminal={newTerminal}
+        onNewTerminal={newAgent}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
         liveWorktreeIds={
           new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
@@ -1708,7 +1893,7 @@ export function App(): React.JSX.Element {
             <IconButton
               label={`New shell in ${selectedProject?.name ?? 'Home'}`}
               className="new-shell-button"
-              onClick={() => newTerminal('shell')}
+              onClick={newShell}
             >
               <Plus size={18} strokeWidth={1.75} />
             </IconButton>
@@ -1825,10 +2010,6 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          {workflow === 'code' && !editorVisible && view.kind === 'transcript' && (
-            <TranscriptView key={view.session.id} session={view.session} onResume={resumeSession} />
-          )}
-
           {workflow === 'code' && !editorVisible && view.kind === 'capabilities' && (
             <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
           )}
@@ -1843,6 +2024,29 @@ export function App(): React.JSX.Element {
               ? worktrees.find((w) => w.id === tab.worktreeId)
               : undefined
             const tabProject = projects.find((p) => p.id === tab.projectId)
+            const paneActive =
+              workflow === 'code' &&
+              !editorVisible &&
+              gitSel === null &&
+              view.kind === 'terminal' &&
+              view.termId === tab.termId
+
+            if (tab.mode === 'chat') {
+              return (
+                <ChatPane
+                  key={tab.termId}
+                  chatId={tab.termId}
+                  active={paneActive}
+                  source={tab.source === 'shell' ? 'claude' : tab.source}
+                  cwd={tabWorktree?.path ?? tabProject?.path ?? window.api.homeDir}
+                  initialPrompt={tab.initialPrompt}
+                  resumeFrom={resumeSourceFor(tab)}
+                  onSessionBound={(sessionId) => bindChatSession(tab.termId, sessionId)}
+                  onOpenInTerminal={(sessionId) => openInTerminal(tab, sessionId)}
+                />
+              )
+            }
+
             return (
               <TerminalPane
                 key={tab.termId}
@@ -1850,13 +2054,7 @@ export function App(): React.JSX.Element {
                 root={tabWorktree?.path ?? tabProject?.path ?? window.api.homeDir}
                 theme={terminalTheme}
                 onOpenFile={openFile}
-                active={
-                  workflow === 'code' &&
-                  !editorVisible &&
-                  gitSel === null &&
-                  view.kind === 'terminal' &&
-                  view.termId === tab.termId
-                }
+                active={paneActive}
               />
             )
           })}
@@ -1881,6 +2079,7 @@ export function App(): React.JSX.Element {
           />
         </div>
         </div>
+
 
         {toast && (
           <div className="toast" onClick={() => setToast(null)}>
