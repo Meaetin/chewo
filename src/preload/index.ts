@@ -7,10 +7,8 @@ import type {
   CreateWorktreeResult,
   ListBranchesResult,
   ListWorktreesResult,
-  MergeWorktreeResult,
   RemoveWorktreeResult,
-  WorktreeState,
-  WorktreeStatusResult
+  WorktreeState
 } from '../main/worktrees'
 import type { NotesOpResult } from '../main/notes'
 import type { VersionStatus } from '../main/app-version'
@@ -23,7 +21,8 @@ import type {
   RepoStatus,
   UntrackedFilesResult
 } from '../main/git'
-import type { BranchListResult, GitOpResult } from '../main/git-ops'
+import type { GitOpResult } from '../main/git-ops'
+import type { ShipArgs, ShipPreviewResult, ShipResult } from '../main/git-ship'
 import type {
   FileOpResult,
   FsChangedEvent,
@@ -176,14 +175,6 @@ const api = {
   }) => ipcRenderer.invoke('worktree:state', args) as Promise<WorktreeState>,
   createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
-  worktreeStatus: (args: {
-    projectPath: string
-    worktreePath: string
-    branch: string
-    baseBranch: string
-  }) => ipcRenderer.invoke('worktree:status', args) as Promise<WorktreeStatusResult>,
-  worktreeMerge: (args: { projectPath: string; branch: string; expectedTarget: string }) =>
-    ipcRenderer.invoke('worktree:merge', args) as Promise<MergeWorktreeResult>,
   worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
     ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
 
@@ -196,14 +187,15 @@ const api = {
     ipcRenderer.invoke('git:diff', args) as Promise<DiffResult>,
   gitUntrackedFiles: (args: { root: string; dir: string }) =>
     ipcRenderer.invoke('git:untracked-files', args) as Promise<UntrackedFilesResult>,
-  gitBranches: (root: string) =>
-    ipcRenderer.invoke('git:branches', root) as Promise<BranchListResult>,
-  gitCheckout: (args: { root: string; ref: string; create?: boolean }) =>
-    ipcRenderer.invoke('git:checkout', args) as Promise<GitOpResult>,
-  gitFetch: (root: string) => ipcRenderer.invoke('git:fetch', root) as Promise<GitOpResult>,
-  gitPull: (root: string) => ipcRenderer.invoke('git:pull', root) as Promise<GitOpResult>,
-  gitPush: (args: { root: string; setUpstream?: boolean }) =>
-    ipcRenderer.invoke('git:push', args) as Promise<GitOpResult>,
+  /** Fetch, then fast-forward the base branch or merge it into a task branch */
+  gitUpdate: (root: string) => ipcRenderer.invoke('git:update', root) as Promise<GitOpResult>,
+  gitShip: (args: ShipArgs) => ipcRenderer.invoke('git:ship', args) as Promise<ShipResult>,
+  gitShipPreview: (args: { root: string }) =>
+    ipcRenderer.invoke('git:ship-preview', args) as Promise<ShipPreviewResult>,
+  gitMergedBranches: (root: string) =>
+    ipcRenderer.invoke('git:merged-branches', root) as Promise<string[]>,
+  /** Opens a web URL in the default browser; anything else is refused in main */
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url) as Promise<boolean>,
   gitWatch: (root: string) => ipcRenderer.invoke('git:watch', root) as Promise<number>,
   gitUnwatch: (watchId: number) => ipcRenderer.send('git:unwatch', { watchId }),
   onGitChanged: (cb: (e: GitChangedEvent) => void) => {

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
-import { Terminal } from 'lucide-react'
 import {
   appendUserMessage,
   emptyChatState,
@@ -12,7 +11,7 @@ import {
   type ChatState
 } from '../../../../shared/agent-chat'
 import type { NormalizedMessage } from '../../../../shared/adapter/types'
-import { Badge, Button, WorkingText } from '../ui'
+import { WorkingText } from '../ui'
 import { ChatComposer } from './ChatComposer'
 import { FindBar } from './FindBar'
 import { ChatItemView } from './ChatItems'
@@ -31,8 +30,6 @@ interface ChatPaneProps {
   chatId: number
   active: boolean
   source: 'claude' | 'codex'
-  /** Known at spawn — the CLI does not report it until the first turn */
-  cwd: string
   /**
    * A card run or worktree task that should start without the user typing.
    * Sent from here rather than from main so it goes through the ordinary send
@@ -47,10 +44,18 @@ interface ChatPaneProps {
    * session the pane opened itself would duplicate the live messages.
    */
   resumeFrom?: { sessionId: string; source: 'claude' | 'codex'; filePath: string }
+  /**
+   * Consulted once, on the very first message this pane sends. Returning true
+   * means the caller took the message — this pane sends nothing and is about
+   * to be replaced. It is how "work on a separate branch" defers branch
+   * creation until there is a task to name the branch after: the text becomes
+   * the `initialPrompt` of a new pane inside the worktree.
+   */
+  beforeFirstSend?: (text: string) => boolean
+  /** Blocks the composer and explains why — e.g. while a worktree is being cut */
+  notice?: string
   /** Fires once, when the CLI reports the conversation id it opened */
   onSessionBound: (sessionId: string) => void
-  /** Escape hatch: hand this conversation to a real terminal */
-  onOpenInTerminal: (sessionId: string) => void
 }
 
 type Action =
@@ -82,11 +87,11 @@ export function ChatPane({
   chatId,
   active,
   source,
-  cwd,
   initialPrompt,
   resumeFrom,
-  onSessionBound,
-  onOpenInTerminal
+  beforeFirstSend,
+  notice,
+  onSessionBound
 }: ChatPaneProps): React.JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, emptyChatState)
   const [pinned, setPinned] = useState(true)
@@ -156,8 +161,20 @@ export function ChatPane({
     else bottomGapRef.current = el.scrollHeight - el.scrollTop - el.clientHeight
   })
 
+  // Ref so `send` keeps a stable identity — the initial-prompt effect below
+  // depends on it, and a new callback from App re-rendering must not re-fire it
+  const beforeFirstSendRef = useRef(beforeFirstSend)
+  beforeFirstSendRef.current = beforeFirstSend
+  const consultedFirstSend = useRef(false)
+
   const send = useCallback(
     (text: string) => {
+      if (!consultedFirstSend.current) {
+        consultedFirstSend.current = true
+        // Taken by the caller: this pane is being replaced by one in a fresh
+        // worktree, so echoing the message here would render it twice
+        if (beforeFirstSendRef.current?.(text)) return
+      }
       dispatch({ kind: 'sent', text })
       window.api.chatSend(chatId, text)
     },
@@ -222,33 +239,15 @@ export function ChatPane({
   const shown = hidden > 0 ? state.items.slice(hidden) : state.items
   const awaiting = pendingApprovals(state)
   const exited = state.exitCode !== null
-  // A resumed pane knows its conversation id from the start; a fresh one only
-  // learns it when the CLI announces itself on the first turn.
-  const knownSessionId = state.info?.sessionId || resumeFrom?.sessionId
 
   return (
     <div className="chat-pane" style={{ display: active ? 'flex' : 'none' }}>
-      <header className="chat-pane-header">
-        <Badge source={source} />
-        {/* The model is not known until the CLI reports it, and it only does
-            that once the first turn begins. The pane is usable the whole time,
-            so its absence is shown as nothing at all — an indefinite
-            "Starting…" reads as a pane that never finished loading. */}
-        {state.info?.model && <span className="chat-pane-model">{state.info.model}</span>}
-        <span className="chat-pane-cwd">{state.info?.cwd || cwd}</span>
-        <div className="chat-pane-actions">
-          <Button
-            size="compact"
-            intent="ghost"
-            leadingIcon={<Terminal size={14} strokeWidth={1.75} />}
-            disabled={!knownSessionId}
-            title="Continue this conversation in a real terminal"
-            onClick={() => knownSessionId && onOpenInTerminal(knownSessionId)}
-          >
-            Terminal
-          </Button>
-        </div>
-      </header>
+      {/* No header. The cwd was a duplicate of the tab's own ⎇ label and the
+          branch chip beside it, and the "Terminal" escape hatch cost a full
+          bar's height to sit there unused — a conversation still moves to a
+          pty through `openInTerminal`, it just needs a caller again if that is
+          ever wanted back. What is left worth showing is the model, and it is
+          unknown until the first turn anyway. */}
 
       {/* Find searches the DOM, so it needs the whole conversation rendered —
           opening it expands the window rather than quietly searching a page. */}
@@ -280,6 +279,11 @@ export function ChatPane({
               onDecide={decide}
             />
           ))}
+          {notice && (
+            <div className="chat-working">
+              <WorkingText>{notice}</WorkingText>
+            </div>
+          )}
           {state.busy && awaiting.length === 0 && (
             <div className="chat-working">
               <WorkingText>Working…</WorkingText>
@@ -297,14 +301,16 @@ export function ChatPane({
         busy={state.busy}
         // A parked permission request blocks the agent, so a typed message
         // would queue behind it with no sign of why nothing happened
-        disabled={exited || awaiting.length > 0}
+        disabled={exited || awaiting.length > 0 || Boolean(notice)}
         slashCommands={state.info?.slashCommands ?? []}
         placeholder={
           exited
             ? 'Session ended'
-            : awaiting.length > 0
-              ? 'Waiting on the permission above…'
-              : 'Ask anything…'
+            : notice
+              ? notice
+              : awaiting.length > 0
+                ? 'Waiting on the permission above…'
+                : 'Ask anything…'
         }
         onSend={send}
         onInterrupt={interrupt}

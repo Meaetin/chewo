@@ -2362,6 +2362,9 @@ body {
   position: absolute;
   bottom: 16px;
   right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   max-width: 420px;
   padding: 12px 16px;
   background: var(--bg-panel);
@@ -2372,6 +2375,25 @@ body {
   cursor: pointer;
   box-shadow: var(--shadow-toast);
   z-index: var(--z-toast);
+}
+/* git and gh messages arrive with their own line breaks — keep them */
+.toast-text {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+.toast-action {
+  flex: none;
+  padding: var(--space-4) var(--space-8);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-1);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* ---------- terminal ---------- */
@@ -3371,6 +3393,99 @@ body {
   background: var(--bg-hover);
 }
 
+/* Where a session's checkout is decided — isolation is the default, so this
+   row reads as a state you can turn off, not an option you must find. */
+.new-session__sep {
+  height: 1px;
+  margin: var(--space-4) var(--space-6);
+  background: var(--border);
+}
+.new-session__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-8);
+  background: none;
+  border: none;
+  border-radius: var(--radius-1);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.new-session__toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.new-session__toggle-text {
+  flex: 1;
+  min-width: 0;
+}
+.new-session__toggle-switch {
+  flex: none;
+  width: 26px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: var(--border-hair);
+  position: relative;
+}
+.new-session__toggle-switch[data-on='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.new-session__toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  transition: transform 120ms ease;
+}
+.new-session__toggle-switch[data-on='true']::after {
+  transform: translateX(11px);
+}
+.new-session__hint {
+  padding: 0 var(--space-8) var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+.new-session__task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-6);
+}
+.new-session__task-label {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.new-session__task-input {
+  width: 100%;
+  padding: var(--space-6) var(--space-8);
+  background: var(--bg-window);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.new-session__task-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.new-session__task-input::placeholder {
+  color: var(--text-faint);
+}
+.new-session__task .new-session__hint {
+  padding: 0;
+}
+
 /* Dense 14px glyphs for the sidebar create-row icon actions */
 .sidebar-create-row .icon-btn svg {
   width: 14px;
@@ -3511,16 +3626,41 @@ body {
   height: 16px;
 }
 
-/* ---------- branch control (tab bar, right of the tabs) ---------- */
-/* A labelled chip rather than a bare glyph: which branch the checkout is on is
-   the fact, and the menu behind it is the action. */
-.branch-button {
+/* ---------- branch chip + update (tab bar, right of the tabs) ---------- */
+/* A label, not a control: which checkout the focused session is in. The menu
+   this used to open went when a session became a checkout of its own. */
+.branch-chip {
   display: flex;
   align-items: center;
   gap: var(--space-6);
   max-width: 220px;
-  /* The .tooltip wrapper carries the shared 4px lift off the rail; only the
-     gap to the Run button belongs here */
+  margin-right: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+.branch-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-chip-track {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
+
+/* Quiet next to Ship: this one only ever brings work in. */
+.update-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
   margin-right: var(--space-4);
   padding: var(--space-4) var(--space-8);
   background: var(--bg-card);
@@ -3531,99 +3671,23 @@ body {
   line-height: var(--lh-sm);
   cursor: pointer;
 }
-.branch-button:hover {
+.update-button:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.branch-button-open {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-.branch-button-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.branch-button-track {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  color: var(--text-tertiary);
-}
-.branch-button-chevron {
-  flex: none;
-  color: var(--text-faint);
-}
-
-.branch-menu {
-  position: fixed;
-  z-index: var(--z-popover);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: var(--space-4);
-  background: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-3);
-  box-shadow: var(--shadow-float);
-}
-.branch-menu-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-8);
-  padding: var(--space-4) var(--space-8) var(--space-6);
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-}
-.branch-menu-root {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-}
-.branch-menu-upstream {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-}
-
-.branch-menu-actions {
-  display: flex;
-  gap: var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: var(--border-hair);
-}
-.branch-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-6);
-  flex: 1;
-  padding: var(--space-6);
-  background: none;
-  border: var(--border-hair);
-  border-radius: var(--radius-1);
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-.branch-action:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.branch-action:disabled {
-  opacity: 0.5;
+.update-button:disabled {
+  opacity: 0.6;
   cursor: default;
 }
-.branch-action-count {
+.update-button-label {
+  white-space: nowrap;
+}
+.update-button-count {
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   color: var(--accent);
 }
-.branch-action-spin {
+.update-button-spin {
   animation: branch-spin 900ms linear infinite;
 }
 @keyframes branch-spin {
@@ -3632,122 +3696,40 @@ body {
   }
 }
 
-/* git's own message, verbatim — wrapped and scrollable rather than truncated */
-.branch-menu-error {
-  max-height: 120px;
-  overflow-y: auto;
-  margin: var(--space-4) 0;
-  padding: var(--space-6) var(--space-8);
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: var(--radius-1);
-  background: var(--danger-bg);
-  color: var(--danger);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-  white-space: pre-wrap;
-}
-
-.branch-menu-search {
+/* ---------- ship (one-click commit + push + PR) ---------- */
+/* Accented rather than quiet: it is the only control in the bar that reaches
+   the remote, and it does so without asking anything. */
+.ship-button {
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  flex: none;
-  padding: var(--space-6) var(--space-8);
-  border-bottom: var(--border-hair);
-  color: var(--text-faint);
-}
-.branch-menu-search-input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  background: none;
-  border: 0;
-  outline: none;
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--text-primary);
-}
-.branch-menu-search-input::placeholder {
-  color: var(--text-faint);
-}
-
-.branch-menu-list {
-  overflow-y: auto;
-  min-height: 0;
-  padding-top: var(--space-4);
-}
-.branch-menu-section {
-  padding: var(--space-8) var(--space-8) var(--space-4);
-  font-size: var(--fs-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-}
-.branch-menu-empty,
-.branch-menu-foot {
-  padding: var(--space-8);
-  font-size: var(--fs-xs);
-  line-height: var(--lh-xs);
-  color: var(--text-tertiary);
-}
-.branch-menu-foot {
-  flex: none;
-  border-top: var(--border-hair);
-}
-
-.branch-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  padding: var(--space-6) var(--space-8);
-  background: none;
-  border: 0;
+  margin-right: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: var(--radius-1);
-  color: var(--text-primary);
-  font: inherit;
+  color: var(--accent);
   font-size: var(--fs-sm);
-  text-align: left;
+  line-height: var(--lh-sm);
   cursor: pointer;
 }
-.branch-row:hover:not(:disabled) {
-  background: var(--bg-hover);
+.ship-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
 }
-.branch-row-disabled {
-  color: var(--text-faint);
+.ship-button:disabled {
+  opacity: 0.6;
   cursor: default;
 }
-.branch-row-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  flex: none;
-  color: var(--accent);
-}
-.branch-row-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.ship-button-label {
   white-space: nowrap;
 }
-.branch-row-current .branch-row-name {
-  color: var(--accent);
-}
-.branch-row-tag {
-  flex: none;
-  padding: 1px 5px;
-  border-radius: var(--radius-1);
-  background: var(--bg-hover);
-  font-size: var(--fs-2xs);
-  color: var(--text-faint);
-}
-.branch-row-track {
-  flex: none;
+.ship-button-count {
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   color: var(--text-tertiary);
+}
+.ship-button-spin {
+  animation: branch-spin 900ms linear infinite;
 }
 
 /* Empty state — serif headline + one calm glyph (design/04 §2.11) */
@@ -5468,36 +5450,6 @@ body {
   background: var(--c-surface-1);
 }
 
-.chat-pane-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-8) var(--space-16);
-  border-bottom: var(--border-hair);
-  flex-shrink: 0;
-}
-
-.chat-pane-model {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-}
-
-.chat-pane-cwd {
-  font-family: var(--font-mono);
-  font-size: var(--fs-mono-sm);
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl; /* keep the leaf folder visible when it overflows */
-  text-align: left;
-}
-
-.chat-pane-actions {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
@@ -5860,4 +5812,168 @@ body {
 
 .chat-load-earlier-count {
   color: var(--text-faint);
+}
+
+/* ---------- ship review modal ---------- */
+/* The file list is the review: everything not ignored is going, and an agent's
+   scratch file looks exactly like the change you meant. */
+.ship-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.ship-route code {
+  padding: 1px var(--space-6);
+  background: var(--bg-window);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.ship-route-note {
+  color: var(--text-tertiary);
+}
+
+.ship-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin-bottom: var(--space-16);
+}
+.ship-section-title {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.ship-files,
+.ship-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-4);
+  list-style: none;
+  background: var(--bg-window);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+}
+.ship-file {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--fs-xs);
+}
+.ship-file-status {
+  flex: none;
+  width: 62px;
+  color: var(--text-tertiary);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* A file git has never seen is the one most worth a second look */
+.ship-file-status--qq {
+  color: var(--accent);
+}
+.ship-file-status--D {
+  color: var(--danger);
+}
+.ship-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.ship-commit {
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.ship-input,
+.ship-textarea {
+  width: 100%;
+  padding: var(--space-6) var(--space-8);
+  background: var(--bg-window);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+.ship-textarea {
+  resize: vertical;
+}
+.ship-input:focus,
+.ship-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ship-loading,
+.ship-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-32) 0;
+  text-align: center;
+}
+.ship-empty-title {
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.ship-empty-sub {
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+
+/* git's and gh's own words, verbatim */
+.ship-error {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: var(--space-12);
+  padding: var(--space-8);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-1);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  white-space: pre-wrap;
+}
+
+.ship-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  width: 100%;
+}
+.ship-footer-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-left: auto;
+}
+.ship-danger {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.ship-danger:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

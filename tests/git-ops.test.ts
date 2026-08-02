@@ -3,14 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { gitBranches, gitCheckout, gitFetch, gitPull, gitPush } from '../src/main/git-ops'
+import { defaultRemoteRef, gitUpdateFromBase } from '../src/main/git-ops'
+import { createWorktree, removeWorktree } from '../src/main/worktrees'
 
 /**
  * Real git throughout — the value of this module is entirely in what git does
  * with the argv it is handed, so a mocked git would test nothing. The repos
  * live in the home directory because every entry point resolves through
- * resolveInsideRoots, and the "remote" is a bare repo on disk so push/pull run
- * without a network or credentials.
+ * resolveInsideRoots, and the "remote" is a bare repo on disk so the fetch
+ * runs without a network or credentials.
  */
 
 const run = (cwd: string, ...args: string[]): string =>
@@ -20,160 +21,149 @@ const run = (cwd: string, ...args: string[]): string =>
     { encoding: 'utf8' }
   )
 
+const commit = (cwd: string, file: string, body: string, message: string): void => {
+  writeFileSync(join(cwd, file), body)
+  run(cwd, 'add', '-A')
+  run(cwd, 'commit', '-m', message)
+}
+
 describe('git-ops', () => {
-  let repo: string
   let remote: string
-  let sibling: string
+  let author: string
+  let repo: string
 
   beforeAll(() => {
     remote = mkdtempSync(join(homedir(), '.chewo-ops-remote-'))
     execFileSync('git', ['init', '--bare', '-b', 'main', remote])
 
-    repo = mkdtempSync(join(homedir(), '.chewo-ops-test-'))
-    execFileSync('git', ['init', '-b', 'main', repo])
-    writeFileSync(join(repo, 'a.txt'), 'one\n')
-    run(repo, 'add', '-A')
-    run(repo, 'commit', '-m', 'initial')
-    run(repo, 'remote', 'add', 'origin', remote)
-    run(repo, 'push', '--set-upstream', 'origin', 'main')
+    // A second clone that plays "someone else landed a PR"
+    author = mkdtempSync(join(homedir(), '.chewo-ops-author-'))
+    execFileSync('git', ['init', '-b', 'main', author])
+    run(author, 'remote', 'add', 'origin', remote)
+    commit(author, 'a.txt', 'one\n', 'initial')
+    run(author, 'push', '--set-upstream', 'origin', 'main')
 
-    run(repo, 'branch', 'feature')
-    // A branch held by a second worktree — git refuses to check it out here
-    sibling = `${repo}-sibling`
-    run(repo, 'branch', 'held')
-    run(repo, 'worktree', 'add', sibling, 'held')
+    repo = mkdtempSync(join(homedir(), '.chewo-ops-test-'))
+    execFileSync('git', ['clone', remote, repo])
   })
 
   afterAll(() => {
-    rmSync(sibling, { recursive: true, force: true })
-    rmSync(repo, { recursive: true, force: true })
-    rmSync(remote, { recursive: true, force: true })
+    for (const d of [repo, author, remote]) rmSync(d, { recursive: true, force: true })
   })
 
-  test('lists local branches with current, upstream and worktree occupancy', async () => {
-    const res = await gitBranches(repo)
+  test('reads the default branch from the clone’s symref, with no network', async () => {
+    expect(await defaultRemoteRef(repo)).toBe('origin/main')
+  })
+
+  test('falls back to a known name when origin/HEAD was never written', async () => {
+    // `git init` + a hand-added remote leaves no symref, which is most repos
+    // that were not cloned
+    const bare = mkdtempSync(join(homedir(), '.chewo-ops-nohead-'))
+    execFileSync('git', ['init', '-b', 'main', bare])
+    run(bare, 'remote', 'add', 'origin', remote)
+    run(bare, 'fetch', 'origin')
+    expect(await defaultRemoteRef(bare)).toBe('origin/main')
+    rmSync(bare, { recursive: true, force: true })
+  })
+
+  test('on the default branch it fast-forwards to what the remote gained', async () => {
+    commit(author, 'b.txt', 'two\n', 'second')
+    run(author, 'push')
+
+    const res = await gitUpdateFromBase(repo)
     if (!res.ok) throw new Error(res.error)
-    expect(res.current).toBe('main')
-
-    const names = res.local.map((b) => b.name).sort()
-    expect(names).toEqual(['feature', 'held', 'main'])
-
-    const main = res.local.find((b) => b.name === 'main')
-    expect(main?.upstream).toBe('origin/main')
-    expect(main?.worktree).toBe(repo)
-
-    // The row the menu disables — the branch is checked out somewhere else
-    expect(res.local.find((b) => b.name === 'held')?.worktree).toBe(sibling)
-    expect(res.local.find((b) => b.name === 'feature')?.worktree).toBeUndefined()
-
-    // origin/HEAD is a symref alias, never an offered start point
-    expect(res.remote.some((b) => b.name.endsWith('/HEAD'))).toBe(false)
-    expect(res.remote.map((b) => b.name)).toContain('origin/main')
+    expect(run(repo, 'log', '--oneline')).toContain('second')
   })
 
-  test('a non-repo path is reported, not thrown', async () => {
-    const res = await gitBranches(homedir())
-    expect(res.ok).toBe(false)
-  })
+  test('on a task branch it merges the default branch in', async () => {
+    run(repo, 'switch', '-c', 'agent/task')
+    commit(repo, 'mine.txt', 'mine\n', 'my work')
 
-  test('switches to an existing local branch', async () => {
-    const res = await gitCheckout({ root: repo, ref: 'feature' })
-    expect(res.ok).toBe(true)
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('feature')
-    await gitCheckout({ root: repo, ref: 'main' })
-  })
+    commit(author, 'c.txt', 'three\n', 'third')
+    run(author, 'push')
 
-  test('creates a branch and refuses one that already exists', async () => {
-    const made = await gitCheckout({ root: repo, ref: 'brand-new', create: true })
-    expect(made.ok).toBe(true)
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('brand-new')
-
-    const again = await gitCheckout({ root: repo, ref: 'brand-new', create: true })
-    expect(again.ok).toBe(false)
-    await gitCheckout({ root: repo, ref: 'main' })
-  })
-
-  test('refuses flag-shaped and malformed refs before git sees them', async () => {
-    for (const ref of ['', '  ', '--force', '-d', 'has space']) {
-      expect((await gitCheckout({ root: repo, ref })).ok).toBe(false)
-    }
-    expect((await gitCheckout({ root: repo, ref: 'a..b', create: true })).ok).toBe(false)
-  })
-
-  test('a remote-tracking ref checks out a local branch that tracks it', async () => {
-    run(repo, 'push', 'origin', 'feature:published')
-    run(repo, 'fetch', 'origin')
-
-    const res = await gitCheckout({ root: repo, ref: 'origin/published' })
+    const res = await gitUpdateFromBase(repo)
     if (!res.ok) throw new Error(res.error)
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('published')
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'published@{upstream}').trim()).toBe(
-      'origin/published'
-    )
-    await gitCheckout({ root: repo, ref: 'main' })
+    const log = run(repo, 'log', '--oneline')
+    // Both histories present, and my own commit was not rewritten
+    expect(log).toContain('third')
+    expect(log).toContain('my work')
   })
 
-  test('a branch another worktree holds comes back as git’s refusal', async () => {
-    const res = await gitCheckout({ root: repo, ref: 'held' })
+  test('a conflicting merge is aborted, leaving the checkout untouched', async () => {
+    // Both sides change the same line
+    commit(repo, 'clash.txt', 'branch side\n', 'branch edit')
+    const tip = run(repo, 'rev-parse', 'HEAD').trim()
+
+    commit(author, 'clash.txt', 'main side\n', 'main edit')
+    run(author, 'push')
+
+    const res = await gitUpdateFromBase(repo)
     expect(res.ok).toBe(false)
-    if (res.ok) return
-    expect(res.error).toMatch(/already used by worktree|already checked out/i)
-    // Nothing moved
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
+    if (res.ok) throw new Error('expected a conflict')
+    expect(res.error).toContain('aborted')
+    // The abort is the point: no MERGE_HEAD, and HEAD never moved
+    expect(() => run(repo, 'rev-parse', '--verify', 'MERGE_HEAD')).toThrow()
+    expect(run(repo, 'rev-parse', 'HEAD').trim()).toBe(tip)
   })
 
-  test('fetch, ff-only pull and push run against the bare remote', async () => {
-    expect((await gitFetch(repo)).ok).toBe(true)
+  test('a repo with no remote is reported, not thrown', async () => {
+    const lonely = mkdtempSync(join(homedir(), '.chewo-ops-lonely-'))
+    execFileSync('git', ['init', '-b', 'main', lonely])
+    commit(lonely, 'a.txt', 'one\n', 'initial')
 
-    // A commit landing on the remote from elsewhere fast-forwards cleanly
-    const other = mkdtempSync(join(homedir(), '.chewo-ops-other-'))
-    execFileSync('git', ['clone', remote, other])
-    writeFileSync(join(other, 'b.txt'), 'two\n')
-    run(other, 'add', '-A')
-    run(other, 'commit', '-m', 'from elsewhere')
-    run(other, 'push', 'origin', 'main')
-
-    const pulled = await gitPull(repo)
-    if (!pulled.ok) throw new Error(pulled.error)
-    expect(run(repo, 'log', '-1', '--format=%s').trim()).toBe('from elsewhere')
-
-    writeFileSync(join(repo, 'c.txt'), 'three\n')
-    run(repo, 'add', '-A')
-    run(repo, 'commit', '-m', 'local work')
-    expect((await gitPush({ root: repo })).ok).toBe(true)
-    expect(run(remote, 'log', '-1', '--format=%s', 'main').trim()).toBe('local work')
-
-    rmSync(other, { recursive: true, force: true })
-  })
-
-  test('pull refuses to rewrite history when the branches have diverged', async () => {
-    const other = mkdtempSync(join(homedir(), '.chewo-ops-diverge-'))
-    execFileSync('git', ['clone', remote, other])
-    writeFileSync(join(other, 'theirs.txt'), 'theirs\n')
-    run(other, 'add', '-A')
-    run(other, 'commit', '-m', 'theirs')
-    run(other, 'push', 'origin', 'main')
-
-    writeFileSync(join(repo, 'ours.txt'), 'ours\n')
-    run(repo, 'add', '-A')
-    run(repo, 'commit', '-m', 'ours')
-    const before = run(repo, 'rev-parse', 'HEAD').trim()
-
-    const res = await gitPull(repo)
+    const res = await gitUpdateFromBase(lonely)
     expect(res.ok).toBe(false)
-    // --ff-only means a divergence is surfaced, never merged or rebased
-    expect(run(repo, 'rev-parse', 'HEAD').trim()).toBe(before)
-
-    rmSync(other, { recursive: true, force: true })
+    if (!res.ok) expect(res.error).toContain('No remote')
+    rmSync(lonely, { recursive: true, force: true })
   })
 
-  test('publishing an unpushed branch sets its upstream', async () => {
-    await gitCheckout({ root: repo, ref: 'unpublished', create: true })
-    const res = await gitPush({ root: repo, setUpstream: true })
+  test('a detached HEAD has nothing to update', async () => {
+    run(repo, 'checkout', '--detach')
+    const res = await gitUpdateFromBase(repo)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toContain('Detached')
+    run(repo, 'switch', 'agent/task')
+  })
+})
+
+describe('worktree base selection', () => {
+  let remote: string
+  let repo: string
+
+  beforeAll(() => {
+    remote = mkdtempSync(join(homedir(), '.chewo-base-remote-'))
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote])
+    const seed = mkdtempSync(join(homedir(), '.chewo-base-seed-'))
+    execFileSync('git', ['init', '-b', 'main', seed])
+    run(seed, 'remote', 'add', 'origin', remote)
+    commit(seed, 'a.txt', 'one\n', 'initial')
+    run(seed, 'push', '--set-upstream', 'origin', 'main')
+    rmSync(seed, { recursive: true, force: true })
+
+    repo = mkdtempSync(join(homedir(), '.chewo-base-repo-'))
+    execFileSync('git', ['clone', remote, repo])
+  })
+
+  afterAll(() => {
+    for (const d of [repo, remote]) rmSync(d, { recursive: true, force: true })
+  })
+
+  test('a new worktree starts from origin when local has nothing extra', async () => {
+    const res = await createWorktree(repo, 'from-origin')
     if (!res.ok) throw new Error(res.error)
-    expect(run(repo, 'rev-parse', '--abbrev-ref', 'unpublished@{upstream}').trim()).toBe(
-      'origin/unpublished'
-    )
-    await gitCheckout({ root: repo, ref: 'main' })
+    expect(res.baseBranch).toBe('origin/main')
+    await removeWorktree(repo, res.path, res.branch)
+  })
+
+  // The merge modal lands branches into local main and never pushes, so
+  // always cutting from origin would hand later sessions a stale checkout
+  test('an unpushed local merge wins over origin', async () => {
+    commit(repo, 'landed.txt', 'merged locally\n', 'landed without pushing')
+    const res = await createWorktree(repo, 'from-local')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.baseBranch).toBe('main')
+    expect(run(res.path, 'log', '--oneline')).toContain('landed without pushing')
+    await removeWorktree(repo, res.path, res.branch)
   })
 })

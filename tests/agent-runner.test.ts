@@ -169,7 +169,8 @@ describe('normalizeAgents', () => {
     expect(out).toEqual({
       notesStructure: { agent: 'claude' },
       notesChat: { agent: 'claude' },
-      todoVoice: { agent: 'claude' }
+      todoVoice: { agent: 'claude' },
+      gitText: { agent: 'claude' }
     })
   })
 

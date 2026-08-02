@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTree, GitBranch, GitMerge, Play, Plus, Settings, Terminal, X } from 'lucide-react'
+import {
+  FolderTree,
+  GitBranch,
+  Play,
+  Plus,
+  Settings,
+  Terminal,
+  X
+} from 'lucide-react'
 import { ChatPane } from './components/chat/ChatPane'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
 import { agentDef, DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
@@ -26,10 +34,6 @@ import {
   type SttSettings
 } from '../../shared/stt'
 import {
-  DEFAULT_WORKTREE_SETTINGS,
-  type WorktreeSettings
-} from '../../shared/worktree-settings'
-import {
   composeCardPrompt,
   GENERAL_SCOPE,
   projectScopeDir,
@@ -53,9 +57,13 @@ import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
-import { BranchMenu } from './components/BranchMenu'
+import { BranchChip, UpdateButton } from './components/BranchChip'
+import { ShipButton } from './components/ShipButton'
+import { ShipModal } from './components/ShipModal'
+import { branchNameFor } from '../../shared/branch-names'
+import type { ShipPreview, ShipSuccess } from '../../main/git-ship'
 import { useGitDirtyCount, useGitStatus } from './useGitStatus'
-import { WorktreeCreateModal, WorktreeMergeModal } from './components/WorktreeModals'
+import { WorktreeCreateModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
 import { AppSettings, type SettingsPane } from './components/settings/AppSettings'
 import { applyAppearance } from './theme/applyAppearance'
@@ -92,6 +100,13 @@ export interface TerminalTab {
   sessionId?: string
   /** Pane runs in an isolated worktree — gets the merge button, keeps its ⎇ label */
   worktreeId?: string
+  /**
+   * Where this session's work should land, chosen in the branch menu before
+   * the first message. 'separate' means "cut a worktree for this" — deferred
+   * until the user has typed something, because the branch is named after the
+   * task. Absent (and after the first message) means the checkout it opened in.
+   */
+  branchMode?: 'current' | 'separate'
   exited: boolean
 }
 
@@ -153,8 +168,19 @@ export function App(): React.JSX.Element {
   const [homeTerminals, setHomeTerminals] = useState<SavedTerminal[]>([])
   const [homeSettings, setHomeSettings] = useState<AgentSettings>({})
   const [worktrees, setWorktrees] = useState<Worktree[]>([])
+  /** Panes whose worktree is being cut right now — they show a notice, not a composer */
+  const [cuttingBranch, setCuttingBranch] = useState<Set<number>>(new Set())
   const [wtCreateOpen, setWtCreateOpen] = useState(false)
-  const [wtMerge, setWtMerge] = useState<Worktree | null>(null)
+  /**
+   * The Ship review, in two halves. `shipReading` is the root whose change is
+   * being read — the button spins on it — and `shipReview` is the finished
+   * result the dialog opens onto. Splitting them is what keeps the dialog from
+   * appearing on an empty "Reading the change…" for several seconds: the read
+   * costs two GitHub API calls and a model call, and all of that belongs
+   * behind the button, not behind a modal that is already in your way.
+   */
+  const [shipReading, setShipReading] = useState<string | null>(null)
+  const [shipReview, setShipReview] = useState<{ root: string; preview: ShipPreview } | null>(null)
   /** Section whose settings modal is open — string id, or null for Home */
   const [settingsFor, setSettingsFor] = useState<{ id: string | null } | null>(null)
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
@@ -162,14 +188,17 @@ export function App(): React.JSX.Element {
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
   const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
   const [stt, setStt] = useState<SttSettings>(DEFAULT_STT_SETTINGS)
-  const [wtSettings, setWtSettings] = useState<WorktreeSettings>(DEFAULT_WORKTREE_SETTINGS)
   // Whether a Deepgram key is stored. Dictation is disabled until it is —
   // the alternative is an open mic with nowhere to send the audio.
   const [sttReady, setSttReady] = useState(false)
   /** Recordings whose stream died; their audio is still on disk */
   const [sttPending, setSttPending] = useState<PendingRecovery[]>([])
   const settingsLoaded = useRef(false)
-  const [toast, setToast] = useState<string | null>(null)
+  /** `action` turns the toast into an offer — "Open PR" after a ship */
+  const [toast, setToast] = useState<{
+    text: string
+    action?: { label: string; onClick: () => void }
+  } | null>(null)
   const [workflow, setWorkflow] = useState<Workflow>('code')
   /** Agent the card modal's run button launches — sticky across restarts */
   const [todoRunAgent, setTodoRunAgent] = useState<Source>('claude')
@@ -210,11 +239,15 @@ export function App(): React.JSX.Element {
   // where you were instead of on an empty state
   const lastViewedTerm = useRef(new Map<string | null, number>())
 
-  const showToast = useCallback((text: string) => {
-    setToast(text)
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 8000)
-  }, [])
+  const showToast = useCallback(
+    (text: string, action?: { label: string; onClick: () => void }) => {
+      setToast({ text, ...(action && { action }) })
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+      // An offer needs longer than a status line — it is only useful while it's up
+      toastTimer.current = setTimeout(() => setToast(null), action ? 20000 : 8000)
+    },
+    []
+  )
 
   /** `pane` lets a nudge elsewhere in the app land on the right section. */
   const openAppSettings = useCallback((pane: SettingsPane = 'presets') => {
@@ -333,7 +366,6 @@ export function App(): React.JSX.Element {
       setAppearance(file.appearance)
       setAgents(file.agents)
       setStt(file.stt)
-      setWtSettings(file.worktrees)
       settingsLoaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
@@ -554,16 +586,13 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!settingsLoaded.current) return
     const t = setTimeout(
-      () => void window.api.saveSettings({ appearance, agents, stt, worktrees: wtSettings }),
+      () => void window.api.saveSettings({ appearance, agents, stt }),
       400
     )
     return () => clearTimeout(t)
-  }, [appearance, agents, stt, wtSettings])
+  }, [appearance, agents, stt])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
-  const wtMergeProject = wtMerge
-    ? (projects.find((p) => p.id === wtMerge.projectId) ?? null)
-    : null
 
   // ---------- file explorer ----------
 
@@ -857,6 +886,7 @@ export function App(): React.JSX.Element {
       label?: string
       projectId: string | null
       worktreeId?: string
+      branchMode?: 'current' | 'separate'
       setupCommand?: string
       runCommand?: string
       initialPrompt?: string
@@ -886,6 +916,7 @@ export function App(): React.JSX.Element {
           label: opts.label ?? `${opts.source} (new)`,
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
+          branchMode: opts.branchMode,
           exited: false
         }
       ])
@@ -911,8 +942,8 @@ export function App(): React.JSX.Element {
 
   /**
    * Open an agent as a chat pane instead of a pty. Same session store, same
-   * `--resume` ids — so a conversation started here can be picked up in a
-   * terminal and vice versa (that swap is `openInTerminal` below).
+   * `--resume` ids, so a conversation started in one can be picked up in the
+   * other — there is no UI for that swap now, but the ids still line up.
    */
   const openChat = useCallback(
     async (opts: {
@@ -921,6 +952,7 @@ export function App(): React.JSX.Element {
       projectId: string | null
       sessionId?: string
       worktreeId?: string
+      branchMode?: 'current' | 'separate'
       label?: string
       setupCommand?: string
       initialPrompt?: string
@@ -945,6 +977,7 @@ export function App(): React.JSX.Element {
           label: opts.label ?? opts.source,
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
+          branchMode: opts.branchMode,
           initialPrompt: opts.initialPrompt,
           resumeSessionId: opts.sessionId,
           exited: false
@@ -978,6 +1011,7 @@ export function App(): React.JSX.Element {
       projectId: string | null
       label?: string
       worktreeId?: string
+      branchMode?: 'current' | 'separate'
       setupCommand?: string
       initialPrompt?: string
       extraDirs?: string[]
@@ -990,18 +1024,6 @@ export function App(): React.JSX.Element {
     [openChat, openTerminal]
   )
 
-  /** New agent session in the selected section — the tab bar and the sidebar's
-   *  "New session" button both land here, so neither can drift from the other. */
-  const newAgent = useCallback(
-    (source: Source) =>
-      void openAgent({
-        source,
-        // Selected project → its path; no project → $HOME (main falls back)
-        cwd: selectedProject?.path ?? null,
-        projectId: selectedProject?.id ?? null
-      }),
-    [openAgent, selectedProject]
-  )
 
   /**
    * A chat pane learns its conversation id from the CLI's own startup event, so
@@ -1018,29 +1040,6 @@ export function App(): React.JSX.Element {
     if (tab.mode === 'chat') window.api.chatKill(tab.termId)
     else window.api.termKill(tab.termId)
   }, [])
-
-  /**
-   * The escape hatch coexistence buys us: hand a chat conversation to a real
-   * terminal, resuming the same session id. The chat pane is closed rather than
-   * left running, so two processes never drive one conversation at once.
-   */
-  const openInTerminal = useCallback(
-    (tab: TerminalTab, sessionId: string) => {
-      const project = projects.find((p) => p.id === tab.projectId)
-      const worktree = tab.worktreeId ? worktrees.find((w) => w.id === tab.worktreeId) : undefined
-      window.api.chatKill(tab.termId)
-      setTabs((ts) => ts.filter((t) => t.termId !== tab.termId))
-      void openTerminal({
-        source: tab.source === 'shell' ? 'claude' : tab.source,
-        sessionId,
-        cwd: worktree?.path ?? project?.path ?? null,
-        projectId: tab.projectId,
-        worktreeId: tab.worktreeId,
-        label: tab.label
-      })
-    },
-    [openTerminal, projects, worktrees]
-  )
 
   /** Play button: one shell per non-empty line of the section's start command. */
   const runStartCommands = useCallback(() => {
@@ -1170,14 +1169,21 @@ export function App(): React.JSX.Element {
     [openAgent, projects, sessions, tabs]
   )
 
-  /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
-  const createIsolated = useCallback(
-    async (taskName: string, agent: Source, setup: string, base: string): Promise<string | null> => {
-      const project = selectedProject
-      if (!project) return 'Select a project first'
+  /**
+   * `git worktree add -b` plus the record that makes it ours. The one place
+   * that mints a `Worktree`, shared by the create modal and by a session that
+   * chose a separate branch — so a worktree cut from a first message is
+   * indistinguishable from one cut by hand.
+   */
+  const cutWorktree = useCallback(
+    async (
+      project: Project,
+      taskName: string,
+      base?: string
+    ): Promise<{ ok: true; worktree: Worktree } | { ok: false; error: string }> => {
       const res = await window.api.createWorktree({ projectPath: project.path, taskName, base })
-      if (!res.ok) return res.error
-      const wt: Worktree = {
+      if (!res.ok) return { ok: false, error: res.error }
+      const worktree: Worktree = {
         id: crypto.randomUUID(),
         projectId: project.id,
         taskName,
@@ -1187,7 +1193,20 @@ export function App(): React.JSX.Element {
         baseCommit: res.baseCommit,
         createdAt: new Date().toISOString()
       }
-      setWorktrees((ws) => [...ws, wt])
+      setWorktrees((ws) => [...ws, worktree])
+      return { ok: true, worktree }
+    },
+    []
+  )
+
+  /** Create worktree + branch, remember it, launch the agent inside. Error string or null. */
+  const createIsolated = useCallback(
+    async (taskName: string, agent: Source, setup: string, base: string): Promise<string | null> => {
+      const project = selectedProject
+      if (!project) return 'Select a project first'
+      const cut = await cutWorktree(project, taskName, base)
+      if (!cut.ok) return cut.error
+      const wt = cut.worktree
       const trimmedSetup = setup.trim()
       if (trimmedSetup !== (project.worktreeSetup ?? '')) {
         setProjects((ps) =>
@@ -1199,7 +1218,7 @@ export function App(): React.JSX.Element {
       setWtCreateOpen(false)
       void openAgent({
         source: agent,
-        cwd: res.path,
+        cwd: wt.path,
         projectId: project.id,
         label: `⎇ ${taskName}`,
         worktreeId: wt.id,
@@ -1207,8 +1226,99 @@ export function App(): React.JSX.Element {
       })
       return null
     },
-    [selectedProject, openAgent]
+    [selectedProject, openAgent, cutWorktree]
   )
+
+  // ---------- separate-branch sessions ----------
+
+  /**
+   * Swap a pane for a fresh one in the same slot. Used when a session moves
+   * checkouts before it has said anything: the old runtime is killed and the
+   * new tab takes its place in the strip, so nothing jumps and no second
+   * process is ever left driving the same conversation.
+   */
+  const replacePane = useCallback(
+    async (oldTermId: number, opts: Parameters<typeof openAgent>[0]): Promise<void> => {
+      const old = tabs.find((t) => t.termId === oldTermId)
+      if (old) killPane(old)
+      const newTermId = await openAgent(opts)
+      setTabs((ts) => {
+        const index = ts.findIndex((t) => t.termId === oldTermId)
+        const created = ts.find((t) => t.termId === newTermId)
+        const rest = ts.filter((t) => t.termId !== oldTermId && t.termId !== newTermId)
+        if (index === -1 || !created) return rest.concat(created ?? [])
+        rest.splice(Math.min(index, rest.length), 0, created)
+        return rest
+      })
+    },
+    [tabs, killPane, openAgent]
+  )
+
+  /**
+   * The first message of an isolated session. The worktree is named after what
+   * the user just asked for — which is the whole reason this waits for a
+   * message instead of cutting it at spawn time.
+   *
+   * Returns true unconditionally once it has taken the message: both outcomes
+   * end in a replacement pane that receives the text as its `initialPrompt`,
+   * so there is no path where a typed message is silently dropped. A failure
+   * to cut the worktree lands the session back in the main checkout with the
+   * reason in a toast — the work still starts, just not in isolation.
+   */
+  const startSeparateBranch = useCallback(
+    (tab: TerminalTab, text: string): boolean => {
+      const project = projects.find((p) => p.id === tab.projectId)
+      if (!project) {
+        showToast('Isolated branches need a project — this session is in Home.')
+        return false
+      }
+      setCuttingBranch((s) => new Set(s).add(tab.termId))
+      void (async () => {
+        const fallback = (): Parameters<typeof openAgent>[0] => ({
+          source: tab.source === 'shell' ? 'claude' : tab.source,
+          cwd: project.path,
+          projectId: project.id,
+          label: tab.label,
+          initialPrompt: text,
+          forceTerminal: tab.mode === 'terminal'
+        })
+        try {
+          const taken = worktrees
+            .filter((w) => w.projectId === project.id)
+            .map((w) => w.taskName)
+          const taskName = branchNameFor(text, taken)
+          const cut = await cutWorktree(project, taskName)
+          if (!cut.ok) {
+            showToast(`Kept this session in ${project.name}: ${cut.error}`)
+            await replacePane(tab.termId, fallback())
+            return
+          }
+          await replacePane(tab.termId, {
+            source: tab.source === 'shell' ? 'claude' : tab.source,
+            cwd: cut.worktree.path,
+            projectId: project.id,
+            label: `⎇ ${taskName}`,
+            worktreeId: cut.worktree.id,
+            setupCommand: project.worktreeSetup || undefined,
+            initialPrompt: text,
+            forceTerminal: tab.mode === 'terminal'
+          })
+        } catch (err) {
+          showToast(`Kept this session in ${project.name}: ${String(err)}`)
+          await replacePane(tab.termId, fallback())
+        } finally {
+          setCuttingBranch((s) => {
+            const next = new Set(s)
+            next.delete(tab.termId)
+            return next
+          })
+        }
+      })()
+      return true
+    },
+    [projects, worktrees, cutWorktree, replacePane, showToast]
+  )
+
 
   /** git worktree remove + branch -d, then drop panes/tabs/records. Error string or null. */
   const removeWorktree = useCallback(
@@ -1230,12 +1340,142 @@ export function App(): React.JSX.Element {
       setProjects((ps) =>
         ps.map((p) => ({ ...p, terminals: p.terminals.filter((t) => t.worktreeId !== wt.id) }))
       )
-      setWtMerge(null)
+      setShipReview(null)
       if (!res.branchDeleted && res.note) showToast(res.note)
       return null
     },
     [projects, tabs, showToast]
   )
+
+  /**
+   * Cut the checkout and start the session in one go — the path for a session
+   * that already knows its task. Claude's equivalent waits for its first
+   * message (`startSeparateBranch`); Codex has no composer, so the task was
+   * typed in the New session menu and there is nothing left to wait for.
+   */
+  const startIsolatedNow = useCallback(
+    async (project: Project, source: Source, task: string): Promise<void> => {
+      const taken = worktrees.filter((w) => w.projectId === project.id).map((w) => w.taskName)
+      const taskName = branchNameFor(task, taken)
+      const cut = await cutWorktree(project, taskName)
+      if (!cut.ok) {
+        // Isolation failed, the work still starts — same bargain as the
+        // deferred path, and the prompt is never dropped
+        showToast(`Started in ${project.name} instead: ${cut.error}`)
+        void openAgent({
+          source,
+          cwd: project.path,
+          projectId: project.id,
+          initialPrompt: task
+        })
+        return
+      }
+      void openAgent({
+        source,
+        cwd: cut.worktree.path,
+        projectId: project.id,
+        label: `⎇ ${taskName}`,
+        worktreeId: cut.worktree.id,
+        setupCommand: project.worktreeSetup || undefined,
+        initialPrompt: task
+      })
+    },
+    [worktrees, cutWorktree, openAgent, showToast]
+  )
+
+  /**
+   * New agent session in the selected section — the tab bar and the sidebar's
+   * "New session" button both land here, so neither can drift from the other.
+   *
+   * Isolated by default when there is a project to isolate from. Ship stages
+   * the whole tree (`git add -A`), and several agents share these checkouts,
+   * so a session in the main checkout means one agent's click sweeps another's
+   * half-finished work into its PR. The worktree is what makes a no-prompt
+   * ship safe; the branch menu's toggle is the way out of it, not into it.
+   * Nothing is cut here — that waits for the first message, which is what the
+   * worktree gets named after.
+   */
+  const newAgent = useCallback(
+    (source: Source, opts?: { isolate: boolean; task?: string }) => {
+      const project = selectedProject
+      const isolate = Boolean(opts?.isolate && project)
+      // Codex arrives with its task already typed (a pty has no composer to
+      // take it from later), so its checkout can be cut right now
+      if (isolate && project && opts?.task) {
+        void startIsolatedNow(project, source, opts.task)
+        return
+      }
+      void openAgent({
+        source,
+        // Selected project → its path; no project → $HOME (main falls back)
+        cwd: project?.path ?? null,
+        projectId: project?.id ?? null,
+        branchMode: isolate ? 'separate' : 'current'
+      })
+    },
+    [openAgent, selectedProject, startIsolatedNow]
+  )
+
+  /**
+   * Remove worktrees whose PR has landed. Isolation being the default means a
+   * checkout per session, so without this they only ever accumulate — and the
+   * moment a PR merges is the one moment the branch is provably finished.
+   *
+   * Three things keep it from being a footgun. (1) It only ever calls the same
+   * unforced `removeWorktree` the button calls, so **git refuses** anything
+   * with uncommitted or unmerged work — the safety is git's, not a check here.
+   * (2) A worktree with a live pane is never touched: removal kills panes, and
+   * a checkout disappearing from under a running agent is far worse than an
+   * extra folder. (3) `gitMergedBranches` returns nothing when gh is
+   * unreachable, so a network failure reaps nothing rather than everything.
+   */
+  const reapSeq = useRef(0)
+  const reapedAt = useRef(0)
+  const reapMerged = useCallback(async () => {
+    // One network call per project per window focus would be a tax on focusing
+    // the window; the branches this watches move on the scale of hours
+    if (Date.now() - reapedAt.current < 5 * 60_000) return
+    const live = new Set(tabs.map((t) => t.worktreeId).filter(Boolean))
+    const byProject = new Map<string, Worktree[]>()
+    for (const w of worktrees) {
+      if (live.has(w.id) || !w.branch) continue
+      byProject.set(w.projectId, [...(byProject.get(w.projectId) ?? []), w])
+    }
+    // Stamped only once there is something to ask about: worktrees load a beat
+    // after the first render, and an empty first pass would otherwise spend the
+    // window and leave the real one waiting five minutes
+    if (byProject.size === 0) return
+    reapedAt.current = Date.now()
+    const seq = ++reapSeq.current
+
+    const reaped: string[] = []
+    for (const [projectId, candidates] of byProject) {
+      const project = projects.find((p) => p.id === projectId)
+      if (!project) continue
+      const merged = new Set(await window.api.gitMergedBranches(project.path))
+      if (seq !== reapSeq.current) return
+      for (const wt of candidates) {
+        if (!merged.has(wt.branch)) continue
+        // git's refusal is the guard; a kept worktree is not worth a toast
+        if ((await removeWorktree(wt)) === null) reaped.push(wt.taskName)
+        if (seq !== reapSeq.current) return
+      }
+    }
+    if (reaped.length)
+      showToast(
+        `Cleaned up ${reaped.length} merged ${reaped.length === 1 ? 'branch' : 'branches'}: ${reaped.join(', ')}`
+      )
+  }, [worktrees, projects, tabs, removeWorktree, showToast])
+
+  useEffect(() => {
+    void reapMerged()
+    const onFocus = (): void => void reapMerged()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      reapSeq.current++
+    }
+  }, [reapMerged])
 
   /** Sidebar's remove on a spent branch — git still refuses if work would be lost. */
   const confirmRemoveWorktree = useCallback(
@@ -1262,6 +1502,47 @@ export function App(): React.JSX.Element {
       )
     )
   }, [])
+
+  /**
+   * A shipped branch is finished work as far as the sidebar is concerned —
+   * the commits are on a PR, not sitting in a checkout waiting to be merged.
+   * Optimistic on purpose (the PR isn't merged yet); the row's Reopen undoes it.
+   */
+  const onShipped = useCallback(
+    (res: ShipSuccess, shipped?: Worktree) => {
+      if (shipped) setWorktreeDone(shipped, true)
+      const opened = res.created ? 'PR opened' : 'Pushed to the open PR'
+      const cut = res.branchedFrom ? `, cut from ${res.branchedFrom}` : ''
+      showToast(`${opened}: ${res.branch} → ${res.base}${cut}.`, {
+        label: 'Open PR',
+        onClick: () => void window.api.openExternal(res.url)
+      })
+    },
+    [setWorktreeDone, showToast]
+  )
+
+  /** Read the change, then open the review on it. Errors never open a dialog. */
+  const openShip = useCallback(
+    async (root: string) => {
+      setShipReading(root)
+      const res = await window.api.gitShipPreview({ root })
+      setShipReading(null)
+      if (!res.ok) {
+        showToast(res.error)
+        return
+      }
+      setShipReview({ root, preview: res })
+    },
+    [showToast]
+  )
+
+  /** Which checkout the open Ship review belongs to — a worktree, or the project */
+  const shipRoot = shipReview?.root ?? null
+  const shipWorktree = shipRoot ? worktrees.find((w) => w.path === shipRoot) : undefined
+  const shipProject = shipRoot
+    ? (projects.find((p) => p.id === shipWorktree?.projectId) ??
+      projects.find((p) => p.path === shipRoot))
+    : undefined
 
   const closeTerminal = useCallback(
     (termId: number) => {
@@ -1707,7 +1988,7 @@ export function App(): React.JSX.Element {
           new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
         }
         onOpenWorktree={openWorktree}
-        onMergeWorktree={setWtMerge}
+        onShipWorktree={(wt) => void openShip(wt.path)}
         onRemoveWorktree={confirmRemoveWorktree}
         onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
         onOpenSettings={(id) => setSettingsFor({ id })}
@@ -1730,8 +2011,6 @@ export function App(): React.JSX.Element {
             onSttStatusChange={refreshSttStatus}
             onSttRecover={recoverRecording}
             onSttDiscardRecording={discardRecording}
-            worktrees={wtSettings}
-            onWorktreesChange={setWtSettings}
             initialPane={settingsPane}
             onClose={() => setAppSettingsOpen(false)}
           />
@@ -1808,19 +2087,6 @@ export function App(): React.JSX.Element {
                   root={worktrees.find((w) => w.id === tab.worktreeId)?.path ?? null}
                 />
               )}
-              {tab.worktreeId && (
-                <IconButton
-                  label="Review & merge this worktree into the main checkout"
-                  dense
-                  className="terminal-tab-action"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setWtMerge(worktrees.find((w) => w.id === tab.worktreeId) ?? null)
-                  }}
-                >
-                  <GitMerge size={14} strokeWidth={1.75} />
-                </IconButton>
-              )}
               <IconButton
                 label="Close session"
                 dense
@@ -1845,19 +2111,6 @@ export function App(): React.JSX.Element {
               <Play className="terminal-tab-ghost-glyph" size={14} strokeWidth={1.75} />
               <Badge source={t.source} />
               <span className="terminal-tab-label">{t.label}</span>
-              {t.worktreeId && (
-                <IconButton
-                  label="Review & merge this worktree into the main checkout"
-                  dense
-                  className="terminal-tab-action"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setWtMerge(worktrees.find((w) => w.id === t.worktreeId) ?? null)
-                  }}
-                >
-                  <GitMerge size={14} strokeWidth={1.75} />
-                </IconButton>
-              )}
               <IconButton
                 label="Forget this session"
                 dense
@@ -1875,12 +2128,20 @@ export function App(): React.JSX.Element {
 
           {/* Pinned to the far right, outside the scrolling tab strip */}
           <div className="terminal-tab-actions">
+            {gitRoot && <BranchChip rootLabel={treeRootLabel} status={repoStatus} />}
             {gitRoot && (
-              <BranchMenu
+              <UpdateButton
                 root={gitRoot}
-                rootLabel={treeRootLabel}
                 status={repoStatus}
-                onToast={showToast}
+                onDone={showToast}
+                onError={showToast}
+              />
+            )}
+            {gitRoot && (
+              <ShipButton
+                status={repoStatus}
+                busy={shipReading === gitRoot}
+                onOpen={() => void openShip(gitRoot)}
               />
             )}
             <IconButton
@@ -2038,11 +2299,19 @@ export function App(): React.JSX.Element {
                   chatId={tab.termId}
                   active={paneActive}
                   source={tab.source === 'shell' ? 'claude' : tab.source}
-                  cwd={tabWorktree?.path ?? tabProject?.path ?? window.api.homeDir}
                   initialPrompt={tab.initialPrompt}
                   resumeFrom={resumeSourceFor(tab)}
+                  // Only a session that asked for isolation and hasn't got it
+                  // yet defers its first message
+                  beforeFirstSend={
+                    tab.branchMode === 'separate' && !tab.worktreeId
+                      ? (text) => startSeparateBranch(tab, text)
+                      : undefined
+                  }
+                  notice={
+                    cuttingBranch.has(tab.termId) ? 'Cutting a branch for this task…' : undefined
+                  }
                   onSessionBound={(sessionId) => bindChatSession(tab.termId, sessionId)}
-                  onOpenInTerminal={(sessionId) => openInTerminal(tab, sessionId)}
                 />
               )
             }
@@ -2083,7 +2352,20 @@ export function App(): React.JSX.Element {
 
         {toast && (
           <div className="toast" onClick={() => setToast(null)}>
-            {toast}
+            <span className="toast-text">{toast.text}</span>
+            {toast.action && (
+              <button
+                type="button"
+                className="toast-action"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toast.action?.onClick()
+                  setToast(null)
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         )}
 
@@ -2095,17 +2377,35 @@ export function App(): React.JSX.Element {
           />
         )}
 
-        {wtMerge && wtMergeProject && (
-          <WorktreeMergeModal
-            worktree={wtMerge}
-            project={wtMergeProject}
-            openTerminals={tabs.filter((t) => t.worktreeId === wtMerge.id).length}
-            onClose={() => setWtMerge(null)}
-            onRemove={() => removeWorktree(wtMerge)}
-            onMarkDone={() => setWorktreeDone(wtMerge, true)}
-            autoCleanup={wtSettings.autoCleanupOnMerge}
-            onAutoCleanupChange={(on) =>
-              setWtSettings((w) => ({ ...w, autoCleanupOnMerge: on }))
+        {shipReview && (
+          <ShipModal
+            root={shipReview.root}
+            preview={shipReview.preview}
+            onRefresh={() => {
+              setShipReview(null)
+              void openShip(shipReview.root)
+            }}
+            rootLabel={shipWorktree ? `⎇ ${shipWorktree.taskName}` : (shipProject?.name ?? 'Ship')}
+            onClose={() => setShipReview(null)}
+            onShipped={(res) => {
+              setShipReview(null)
+              onShipped(res, shipWorktree)
+            }}
+            onMarkDone={
+              shipWorktree
+                ? () => {
+                    setWorktreeDone(shipWorktree, true)
+                    setShipReview(null)
+                  }
+                : undefined
+            }
+            onRemoveWorktree={
+              shipWorktree
+                ? () => {
+                    setShipReview(null)
+                    confirmRemoveWorktree(shipWorktree)
+                  }
+                : undefined
             }
           />
         )}

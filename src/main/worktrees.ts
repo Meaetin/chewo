@@ -1,13 +1,19 @@
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { gitErrorOf as gitError, runGit as git } from './git'
+import { defaultRemoteRef } from './git-ops'
 
 /**
  * Git operations for isolated agent worktrees (SPEC §10). Everything runs
  * against the user's real repos, so the rules are strict: never --force,
- * never -D, never stash, always surface git's own message verbatim. A
- * conflicted merge is aborted so the main checkout is never left mid-merge.
+ * never -D, never stash, always surface git's own message verbatim.
+ *
+ * Nothing here lands work any more. Merging a branch into the local main
+ * checkout was removed once Ship existed: it bypassed review, it never pushed
+ * (so local main drifted from origin), and its cleanup was a second mechanism
+ * for the job the merged-PR reaper already does.
  */
 
 export const WORKTREES_ROOT = join(homedir(), '.chewo', 'worktrees')
@@ -216,9 +222,33 @@ export type CreateWorktreeResult =
   | { ok: false; error: string }
 
 /**
+ * `origin/main`, unless local `main` holds commits it doesn't — then local.
+ *
+ * Fetching and cutting from the remote is what makes a session start current
+ * without the main checkout being touched. But the merge modal lands a branch
+ * into local `main` and **never pushes**, so a repo where you merge locally
+ * has a `main` that origin has never seen; always cutting from origin would
+ * quietly hand every later session a checkout missing that work. Whichever ref
+ * is ahead wins, which is right in both directions and needs no setting.
+ */
+async function freshestBase(projectPath: string, remoteRef: string): Promise<string> {
+  const local = remoteRef.slice(remoteRef.indexOf('/') + 1)
+  const exists = await git(projectPath, ['show-ref', '--verify', '--quiet', `refs/heads/${local}`])
+  if (!exists.ok) return remoteRef
+  const ahead = await git(projectPath, ['rev-list', '--count', `${remoteRef}..${local}`])
+  return ahead.ok && Number(ahead.stdout.trim()) > 0 ? local : remoteRef
+}
+
+/**
  * `base` is the start point for the new branch — any branch in the repo,
- * including a remote-tracking one. Omitted means the main checkout's HEAD,
- * which is what the app did before the base was selectable.
+ * including a remote-tracking one.
+ *
+ * Omitting it means **`origin`'s default branch, freshly fetched**, not the
+ * main checkout's HEAD. Since a session is a worktree, this is the moment that
+ * decides whether it starts on current code, and doing it here rather than by
+ * pulling means the main checkout is never touched — no ref moves under the
+ * agents already working in it. The fetch is best effort: offline, or a repo
+ * with no remote, falls back to local HEAD exactly as this used to behave.
  */
 export async function createWorktree(
   projectPath: string,
@@ -237,10 +267,21 @@ export async function createWorktree(
   let baseBranch: string
   let baseCommit: string
   if (base === undefined) {
-    const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-    baseBranch = head.ok ? head.stdout.trim() : 'HEAD'
-    const rev = await git(projectPath, ['rev-parse', 'HEAD'])
-    baseCommit = rev.ok ? rev.stdout.trim() : ''
+    await git(projectPath, ['fetch', 'origin', '--prune'], 120_000)
+    const remote = await defaultRemoteRef(projectPath)
+    const start = remote ? await freshestBase(projectPath, remote) : null
+    const rev = start
+      ? await git(projectPath, ['rev-parse', '--verify', '--quiet', `${start}^{commit}`])
+      : { ok: false, stdout: '', stderr: '' }
+    if (start && rev.ok) {
+      baseBranch = start
+      baseCommit = rev.stdout.trim()
+    } else {
+      const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+      baseBranch = head.ok ? head.stdout.trim() : 'HEAD'
+      const local = await git(projectPath, ['rev-parse', 'HEAD'])
+      baseCommit = local.ok ? local.stdout.trim() : ''
+    }
   } else {
     const badBase = validateBaseRef(base)
     if (badBase) return { ok: false, error: badBase }
@@ -260,110 +301,38 @@ export async function createWorktree(
 }
 
 /**
- * Local branch a base ref is meant to land on. A worktree based on
- * `origin/main` lands on `main` — comparing the stored base to the checkout's
- * HEAD by name alone would flag every remote-based worktree as drifted, and a
- * warning that fires on every merge is a warning nobody reads.
- */
-export function landingBranchFor(base: string, remotes: string[]): string {
-  const slash = base.indexOf('/')
-  if (slash === -1) return base
-  return remotes.includes(base.slice(0, slash)) ? base.slice(slash + 1) : base
-}
-
-export type WorktreeStatusResult =
-  | {
-      ok: true
-      /** Uncommitted changes in the worktree — merge is blocked until the agent commits */
-      dirty: boolean
-      /** Branch the main checkout is currently on — the merge target */
-      targetBranch: string
-      /** The main checkout is on no branch at all; a merge there would be stranded */
-      detached: boolean
-      /** Branch this worktree was meant to land on (`origin/main` → `main`) */
-      landingBranch: string
-      /** False when someone moved the main checkout off the landing branch */
-      targetIsLanding: boolean
-      /** `git log --oneline target..branch` */
-      commits: string[]
-      /** `git diff --stat target...branch` */
-      diffStat: string
-    }
-  | { ok: false; error: string }
-
-export async function worktreeStatus(
-  projectPath: string,
-  worktreePath: string,
-  branch: string,
-  baseBranch: string
-): Promise<WorktreeStatusResult> {
-  const status = await git(worktreePath, ['status', '--porcelain'])
-  if (!status.ok) return { ok: false, error: gitError(status) }
-
-  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-  if (!head.ok) return { ok: false, error: gitError(head) }
-  const targetBranch = head.stdout.trim()
-  const detached = targetBranch === 'HEAD'
-
-  const remotes = await git(projectPath, ['remote'])
-  const landingBranch = landingBranchFor(
-    baseBranch,
-    remotes.ok ? remotes.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : []
-  )
-
-  const log = await git(projectPath, ['log', '--oneline', `${targetBranch}..${branch}`])
-  const diff = await git(projectPath, ['diff', '--stat', `${targetBranch}...${branch}`])
-  return {
-    ok: true,
-    dirty: status.stdout.trim().length > 0,
-    targetBranch,
-    detached,
-    landingBranch,
-    targetIsLanding: !detached && targetBranch === landingBranch,
-    commits: log.ok ? log.stdout.split('\n').filter(Boolean) : [],
-    diffStat: diff.ok ? diff.stdout.trimEnd() : ''
-  }
-}
-
-export type MergeWorktreeResult = { ok: true } | { ok: false; error: string; aborted: boolean }
-
-/**
- * Merge the task branch into the MAIN checkout. Conflicts abort.
+ * A worktree checks out tracked files only, so a fresh one has no
+ * `node_modules` and nothing in it runs — the agent can read and edit
+ * immediately, but its first `npm test` fails for a reason that has nothing to
+ * do with the code.
  *
- * `expectedTarget` is the branch the user was shown when they opened the merge
- * modal. Several agents share that one checkout, so any of them can `git
- * checkout -b` between the modal opening and the button click — without this
- * check the merge would silently land on whatever branch they moved it to.
- * HEAD is re-read here rather than trusted from the renderer.
+ * `cp -c` is an APFS clone: copy-on-write, so a 667 MB `node_modules` costs
+ * **0 MB** of real disk and ~8 s of wall clock (it is syscall-bound on ~30k
+ * files, not bytes — measured on this repo). That is why this is fire and
+ * forget: the caller returns as soon as the checkout exists, and the copy
+ * lands while the user is still typing.
+ *
+ * `-p` is load-bearing beyond timestamps: it preserves the **exec bit**, which
+ * is what npm strips from node-pty's `spawn-helper` and what the root
+ * `postinstall` exists to repair. Cloning sidesteps that entirely.
+ *
+ * Non-fatal by definition. A project with no `node_modules`, a non-APFS
+ * volume, or a destination that somehow exists all just mean the agent runs
+ * `npm install` like it would have anyway.
  */
-export async function mergeWorktree(
+export function cloneNodeModules(
   projectPath: string,
-  branch: string,
-  expectedTarget: string
-): Promise<MergeWorktreeResult> {
-  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-  if (!head.ok) return { ok: false, error: gitError(head), aborted: false }
-  const target = head.stdout.trim()
-  if (target === 'HEAD')
-    return {
-      ok: false,
-      error: 'The main checkout is on no branch (detached HEAD) — a merge there would be lost.',
-      aborted: false
-    }
-  if (target !== expectedTarget)
-    return {
-      ok: false,
-      error: `The main checkout moved to ${target} since you opened this (it was ${expectedTarget}). Nothing was merged — refresh and check the target.`,
-      aborted: false
-    }
-
-  const res = await git(projectPath, ['merge', '--no-ff', '--no-edit', branch], 120_000)
-  if (res.ok) return { ok: true }
-
-  // Conflict leaves MERGE_HEAD behind — abort so main is never left mid-merge
-  const midMerge = await git(projectPath, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
-  if (midMerge.ok) await git(projectPath, ['merge', '--abort'])
-  return { ok: false, error: gitError(res), aborted: midMerge.ok }
+  worktreePath: string
+): Promise<string | null> {
+  const source = join(projectPath, 'node_modules')
+  const dest = join(worktreePath, 'node_modules')
+  if (!existsSync(source) || existsSync(dest)) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    execFile('/bin/cp', ['-cRp', source, dest], { timeout: 300_000 }, (err, _out, stderr) => {
+      if (!err) return resolve(null)
+      resolve(String(stderr).trim().split('\n')[0] || err.message)
+    })
+  })
 }
 
 export type RemoveWorktreeResult =
