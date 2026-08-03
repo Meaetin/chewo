@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { filterOptions } from '../selectFilter'
+import { placeMenu } from '../selectPlacement'
 
 export interface SelectOption<T extends string> {
   value: T
@@ -32,13 +33,11 @@ interface SelectProps<T extends string> {
   menuMinWidth?: number
 }
 
-const MENU_GAP = 4
-const MENU_MAX_HEIGHT = 260
-
 /**
  * Custom select. A native <select> on macOS pops its menu *over* the field,
  * aligned to the selected item, and its arrow position is UA-controlled —
- * neither is reachable from CSS. This opens below the field instead.
+ * neither is reachable from CSS. This opens below the field, or above it when
+ * there is no room below (see `selectPlacement.ts`).
  *
  * The menu is portalled to <body> because the modal body scrolls
  * (overflow-y: auto), which would clip an absolutely-positioned child.
@@ -148,6 +147,12 @@ export function Select<T extends string>({
     }
   }
 
+  // Safe to read the viewport during render: the rect is captured on open and
+  // a resize closes the menu, so neither can go stale while it is up.
+  const position = rect
+    ? placeMenu(rect, menuMinWidth ?? 0, { width: window.innerWidth, height: window.innerHeight })
+    : null
+
   return (
     <>
       <button
@@ -165,17 +170,18 @@ export function Select<T extends string>({
       </button>
 
       {open &&
-        rect &&
+        position &&
         createPortal(
           <div
             ref={menuRef}
             className="wt-select-menu"
             role="listbox"
             style={{
-              top: rect.bottom + MENU_GAP,
-              left: rect.left,
-              width: Math.max(rect.width, menuMinWidth ?? 0),
-              maxHeight: Math.min(MENU_MAX_HEIGHT, window.innerHeight - rect.bottom - 16)
+              top: position.top,
+              bottom: position.bottom,
+              left: position.left,
+              width: position.width,
+              maxHeight: position.maxHeight
             }}
           >
             {searchable && (
