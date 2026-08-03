@@ -103,6 +103,53 @@ export function agentDef(id: AgentId): AgentDef {
   return AGENTS[id] ?? AGENTS.claude
 }
 
+/**
+ * What an interactive session starts on before the user picks anything.
+ *
+ * Deliberately *not* `defaultModel` above, which is the headless features'
+ * "let the CLI decide". A session you sit in front of should open on the best
+ * model, and reasoning high is the point of using it.
+ *
+ * Neither side names a dated model id. Claude's are tier aliases that always
+ * resolve to the latest of that tier. Codex has no aliases, so its slot is
+ * left empty and filled from the **head of its own discovered catalog** —
+ * `codex debug models` is priority-ordered, so entry 0 is the CLI's own
+ * "latest frontier" pick (`gpt-5.6-sol` today). Both stay right across a CLI
+ * update without anything here changing.
+ */
+export const NEW_SESSION_DEFAULTS: Record<AgentId, { model?: string; effort: EffortLevel }> = {
+  claude: { model: 'opus', effort: 'high' },
+  codex: { effort: 'high' }
+}
+
+/**
+ * The model a session will actually run, given the user's pick (if any) and
+ * the agent's catalog. One resolver so the picker and the spawn cannot
+ * disagree about what "default" means.
+ */
+export function sessionModel(
+  agent: AgentId,
+  chosen: string | undefined,
+  catalog: AgentModel[]
+): string {
+  if (chosen) return chosen
+  return NEW_SESSION_DEFAULTS[agent]?.model ?? catalog[0]?.id ?? agentDef(agent).defaultModel
+}
+
+/** Effort for a session, clamped to what the resolved model actually accepts. */
+export function sessionEffort(
+  agent: AgentId,
+  chosen: EffortLevel | undefined,
+  model: AgentModel | undefined
+): EffortLevel {
+  const wanted = chosen ?? NEW_SESSION_DEFAULTS[agent]?.effort ?? 'medium'
+  const allowed = model?.efforts ?? EFFORT_LEVELS
+  if (allowed.includes(wanted)) return wanted
+  // A model that doesn't take our default gets its own middle ground rather
+  // than a flag it will reject at spawn time
+  return allowed[Math.floor(allowed.length / 2)] ?? allowed[0] ?? wanted
+}
+
 // ---------- per-feature assignment ----------
 
 /** The headless features a user can point at an agent. */

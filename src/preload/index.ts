@@ -107,10 +107,14 @@ const api = {
     runCommand?: string
     permissionMode?: string
     approvalPolicy?: string
+    model?: string
+    effort?: string
     initialPrompt?: string
     extraDirs?: string[]
     attachImages?: string[]
   }) => ipcRenderer.invoke('terminal:create', opts) as Promise<number>,
+  /** A pane id with no process behind it — for a session not started yet */
+  reservePaneId: () => ipcRenderer.invoke('pane:reserve') as Promise<number>,
   termInput: (id: number, data: string) => ipcRenderer.send('terminal:input', { id, data }),
   termResize: (id: number, cols: number, rows: number) =>
     ipcRenderer.send('terminal:resize', { id, cols, rows }),
@@ -189,6 +193,11 @@ const api = {
     ipcRenderer.invoke('git:untracked-files', args) as Promise<UntrackedFilesResult>,
   /** Fetch, then fast-forward the base branch or merge it into a task branch */
   gitUpdate: (root: string) => ipcRenderer.invoke('git:update', root) as Promise<GitOpResult>,
+  /** Refresh remote-tracking refs only — nothing any checkout stands on moves */
+  gitFetch: (root: string) => ipcRenderer.invoke('git:fetch', root) as Promise<GitOpResult>,
+  /** `origin/main` — the base a new isolated session will be cut from */
+  gitDefaultBase: (root: string) =>
+    ipcRenderer.invoke('git:default-base', root) as Promise<string | null>,
   gitShip: (args: ShipArgs) => ipcRenderer.invoke('git:ship', args) as Promise<ShipResult>,
   gitShipPreview: (args: { root: string }) =>
     ipcRenderer.invoke('git:ship-preview', args) as Promise<ShipPreviewResult>,

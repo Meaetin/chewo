@@ -66,6 +66,28 @@ export async function gitFetch(cwd: string): Promise<GitOpResult> {
 }
 
 /**
+ * Refresh the remote-tracking refs for a project, and nothing else.
+ *
+ * Called when a project is selected, because a session *is* a worktree cut
+ * from `origin/<default>` — so "start on current main" is exactly a fresh
+ * fetch, and nothing more invasive is either needed or safe. No ref any
+ * checkout is standing on moves, so this cannot break under a running agent,
+ * a dev server, or the play button. The renderer throttles the calls and
+ * ignores the result; cutting a branch stops paying for the fetch itself.
+ */
+export async function gitFetchRemote(root: string): Promise<GitOpResult> {
+  const cwd = resolveInsideRoots(root)
+  if (!cwd) return { ok: false, error: `not readable: ${basename(root)}` }
+  return gitFetch(cwd)
+}
+
+/** `origin/main` for the UI to name the base a new session will be cut from. */
+export async function gitDefaultBase(root: string): Promise<string | null> {
+  const cwd = resolveInsideRoots(root)
+  return cwd ? defaultRemoteRef(cwd) : null
+}
+
+/**
  * Bring the default branch's new commits into this checkout, whichever kind it
  * is. One button, two honest meanings:
  *

@@ -34,7 +34,7 @@ interface SidebarProps {
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
-  onNewTerminal: (source: 'claude' | 'codex', opts: { isolate: boolean; task?: string }) => void
+  onNewTerminal: () => void
   /** undefined = no project selected → button disabled */
   onNewIsolated?: () => void
   /** Worktrees with a live pane open — their row shows the live dot */
@@ -69,157 +69,24 @@ function relativeTime(iso: string): string {
 }
 
 /**
- * The quiet unified create control — caret opens the agent menu (design/06).
+ * The quiet unified create control — one button, no menu (design/06).
  *
- * Also where a session's checkout is decided, because this is the moment you
- * know whether you need one. A project session gets **its own worktree** by
- * default: Ship stages the whole tree, so a session sharing the main checkout
- * with other live agents would sweep their work into its PR. The escape hatch
- * matters for one real case — a fresh worktree is cut from `origin`, so it
- * cannot see uncommitted work sitting in your main checkout, and "look at what
- * I have open" needs a session that shares it.
- *
- * Codex asks for the task up front where Claude does not: a worktree is named
- * after the task, a chat pane can hand over its first message before sending
- * it, and a pty has no composer to intercept.
+ * It used to open a menu that asked for the agent and the checkout up front.
+ * Both questions moved into the pane itself: they are only answerable once you
+ * know the task, and the pane is where the task gets typed. Clicking a project
+ * in the sidebar opens the same unstarted pane, so there is one launcher
+ * rather than two to keep in sync.
  */
-function NewSessionButton({
-  onNewTerminal,
-  canIsolate
-}: {
-  onNewTerminal: (source: 'claude' | 'codex', opts: { isolate: boolean; task?: string }) => void
-  /** False in Home — there is no repo to cut a worktree from */
-  canIsolate: boolean
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [isolate, setIsolate] = useState(true)
-  const [askingTask, setAskingTask] = useState(false)
-  const [task, setTask] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const taskRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const close = (): void => {
-    setOpen(false)
-    setAskingTask(false)
-    setTask('')
-  }
-
-  const isolating = canIsolate && isolate
-
-  const pick = (source: 'claude' | 'codex'): void => {
-    // A pty has no composer, so its worktree has nothing to be named after
-    // until the task is typed somewhere — here is the only somewhere left
-    if (source === 'codex' && isolating) {
-      setAskingTask(true)
-      requestAnimationFrame(() => taskRef.current?.focus())
-      return
-    }
-    onNewTerminal(source, { isolate: isolating })
-    close()
-  }
-
-  const startCodex = (): void => {
-    if (!task.trim()) return
-    onNewTerminal('codex', { isolate: true, task: task.trim() })
-    close()
-  }
-
+function NewSessionButton({ onNewTerminal }: { onNewTerminal: () => void }): React.JSX.Element {
   return (
-    <div className="new-session" ref={ref}>
-      <Button
-        intent="secondary"
-        className="new-session__trigger"
-        leadingIcon={<Plus size={16} strokeWidth={1.75} />}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
-      >
-        New session
-        <ChevronDown className="new-session__caret" size={14} strokeWidth={1.75} />
-      </Button>
-      {open && (
-        <div className="new-session__menu" role="menu">
-          {askingTask ? (
-            <div className="new-session__task">
-              <label className="new-session__task-label" htmlFor="new-session-task">
-                What is this session about?
-              </label>
-              <input
-                ref={taskRef}
-                id="new-session-task"
-                type="text"
-                className="new-session__task-input"
-                placeholder="fix the drag regression"
-                autoComplete="off"
-                value={task}
-                onChange={(e) => setTask(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    startCodex()
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setAskingTask(false)
-                  }
-                }}
-              />
-              <div className="new-session__hint">
-                Names its checkout, and starts the session off.
-              </div>
-            </div>
-          ) : (
-            <>
-              <button className="new-session__item" role="menuitem" onClick={() => pick('claude')}>
-                <Badge source="claude" />
-                Claude
-              </button>
-              <button className="new-session__item" role="menuitem" onClick={() => pick('codex')}>
-                <Badge source="codex" />
-                Codex
-              </button>
-              {canIsolate && (
-                <>
-                  <div className="new-session__sep" />
-                  <button
-                    className="new-session__toggle"
-                    role="menuitemcheckbox"
-                    aria-checked={isolate}
-                    onClick={() => setIsolate((v) => !v)}
-                  >
-                    <GitBranch size={13} strokeWidth={1.75} aria-hidden="true" />
-                    <span className="new-session__toggle-text">
-                      {isolate ? 'Its own checkout' : 'Shares the main checkout'}
-                    </span>
-                    <span className="new-session__toggle-switch" data-on={isolate} />
-                  </button>
-                  <div className="new-session__hint">
-                    {isolate
-                      ? 'Cut from origin, so it starts current — and Ship only ever sees this session’s work.'
-                      : 'Sees your uncommitted changes, but Ship here stages every agent’s work at once.'}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
+    <Button
+      intent="secondary"
+      className="new-session__trigger"
+      leadingIcon={<Plus size={16} strokeWidth={1.75} />}
+      onClick={onNewTerminal}
+    >
+      New session
+    </Button>
   )
 }
 
@@ -682,7 +549,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-create-row">
-        <NewSessionButton onNewTerminal={onNewTerminal} canIsolate={selectedProjectId !== null} />
+        <NewSessionButton onNewTerminal={onNewTerminal} />
         <IconButton
           label={
             onNewIsolated
