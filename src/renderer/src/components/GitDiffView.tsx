@@ -1,77 +1,9 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import type { ChangedFile, CommitDetailResult, GitDiffSpec } from '../../../main/git'
+import { DiffBody } from './DiffBody'
 import { FileStat, StatusLetter, timeAgo, type GitSelection } from './GitPanel'
 import { IconButton } from './ui'
-
-interface DiffLine {
-  type: 'add' | 'del' | 'ctx' | 'hunk' | 'note'
-  /** Display line number — new side, old side for deletions */
-  no: number | null
-  text: string
-}
-
-const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
-/** Beyond this the DOM cost hurts — the tail is cut with a notice */
-const MAX_RENDER_LINES = 5000
-
-export function parseDiff(text: string): { lines: DiffLine[]; binary: boolean } {
-  const lines: DiffLine[] = []
-  let oldNo = 0
-  let newNo = 0
-  let binary = false
-  for (const raw of text.split('\n')) {
-    const hunk = HUNK_RE.exec(raw)
-    if (hunk) {
-      oldNo = Number(hunk[1])
-      newNo = Number(hunk[2])
-      lines.push({ type: 'hunk', no: null, text: raw })
-    } else if (raw.startsWith('+') && !raw.startsWith('+++')) {
-      lines.push({ type: 'add', no: newNo++, text: raw.slice(1) })
-    } else if (raw.startsWith('-') && !raw.startsWith('---')) {
-      lines.push({ type: 'del', no: oldNo++, text: raw.slice(1) })
-    } else if (raw.startsWith(' ')) {
-      oldNo++
-      lines.push({ type: 'ctx', no: newNo++, text: raw.slice(1) })
-    } else if (raw.startsWith('\\')) {
-      lines.push({ type: 'note', no: null, text: raw.slice(2) })
-    } else if (raw.startsWith('Binary files ')) {
-      binary = true
-    }
-    if (lines.length > MAX_RENDER_LINES) {
-      lines.push({ type: 'note', no: null, text: '… diff truncated for display' })
-      break
-    }
-  }
-  return { lines, binary }
-}
-
-function DiffBody({ text, truncated }: { text: string; truncated: boolean }): React.JSX.Element {
-  const { lines, binary } = parseDiff(text)
-  if (binary) return <div className="git-diff-notice">Binary file — no text diff</div>
-  if (lines.length === 0) return <div className="git-diff-notice">No changes</div>
-  return (
-    <>
-      {lines.map((l, i) =>
-        l.type === 'hunk' ? (
-          <div key={i} className="git-diff-hunk">
-            {l.text}
-          </div>
-        ) : l.type === 'note' ? (
-          <div key={i} className="git-diff-note">
-            {l.text}
-          </div>
-        ) : (
-          <div key={i} className={`git-diff-line git-diff-line-${l.type}`}>
-            <span className="git-diff-ln">{l.no}</span>
-            <span className="git-diff-code">{l.text || ' '}</span>
-          </div>
-        )
-      )}
-      {truncated && <div className="git-diff-note">… diff truncated (too large)</div>}
-    </>
-  )
-}
 
 const LIST_LINE_RE = /^\s*([-*+•]|\d+[.)])\s/
 const TRAILER_LINE_RE = /^[A-Za-z][A-Za-z-]*: \S/
@@ -267,7 +199,7 @@ export function GitDiffView({
       )}
 
       <div className="git-diff-body">
-        {diff?.error && <div className="git-diff-notice">{diff.error}</div>}
+        {diff?.error && <div className="diff-notice">{diff.error}</div>}
         {diff && !diff.error && <DiffBody text={diff.text} truncated={diff.truncated} />}
       </div>
     </div>

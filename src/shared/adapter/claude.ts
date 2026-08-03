@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
+import { parseToolPatch, type ToolPatch } from '../diff'
 import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
 
@@ -32,6 +33,16 @@ interface ClaudeRecord {
   agentName?: string
   summary?: string
   message?: { role?: string; content?: unknown }
+  /** The tool's own structured payload, which is where an Edit's real diff
+   *  lives — the `tool_result` block beside it only carries prose */
+  toolUseResult?: unknown
+}
+
+/** What a `tool_use_id` came back with: prose for every tool, plus the patch
+ *  for the ones that edited a file. */
+interface ToolOutcome {
+  text: string
+  patch?: ToolPatch
 }
 
 interface ContentBlock {
@@ -101,7 +112,7 @@ function summarizeToolInput(input: Record<string, unknown> | undefined): string 
   }
 }
 
-function recordToMessages(rec: ClaudeRecord, results: Map<string, string>): NormalizedMessage[] {
+function recordToMessages(rec: ClaudeRecord, results: Map<string, ToolOutcome>): NormalizedMessage[] {
   const msg = rec.message
   if (!msg) return []
   const role = rec.type === 'assistant' ? 'assistant' : 'user'
@@ -133,12 +144,14 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, string>): Norm
     if (block.type === 'text' && block.text?.trim()) {
       pushText(block.text)
     } else if (block.type === 'tool_use') {
+      const outcome = block.id ? results.get(block.id) : undefined
       out.push({
         role: 'tool',
         toolName: block.name ?? 'unknown',
         text: summarizeToolInput(block.input),
         filesTouched: extractFiles(block.input),
-        toolResult: block.id ? results.get(block.id) : undefined,
+        toolResult: outcome?.text || undefined,
+        toolPatch: outcome?.patch,
         ...base
       })
     }
@@ -147,16 +160,25 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, string>): Norm
   return out
 }
 
-/** Map tool_use_id → result text across the whole file. */
-function collectToolResults(records: ClaudeRecord[]): Map<string, string> {
-  const results = new Map<string, string>()
+/**
+ * Map tool_use_id → what the call produced, across the whole file.
+ *
+ * `toolUseResult` sits on the *record*, not inside the content array, so a
+ * record carrying more than one tool_result cannot say which patch belongs to
+ * which — the CLI writes one per record in practice, and claiming otherwise
+ * would attach a diff to the wrong file.
+ */
+function collectToolResults(records: ClaudeRecord[]): Map<string, ToolOutcome> {
+  const results = new Map<string, ToolOutcome>()
   for (const rec of records) {
     if (rec.type !== 'user' || !Array.isArray(rec.message?.content)) continue
-    for (const block of rec.message.content as ContentBlock[]) {
-      if (block.type === 'tool_result' && block.tool_use_id) {
-        const text = resultText(block.content)
-        if (text) results.set(block.tool_use_id, text)
-      }
+    const blocks = (rec.message.content as ContentBlock[]).filter(
+      (b) => b.type === 'tool_result' && b.tool_use_id
+    )
+    const patch = blocks.length === 1 ? parseToolPatch(rec.toolUseResult) : undefined
+    for (const block of blocks) {
+      const text = resultText(block.content)
+      if (text || patch) results.set(block.tool_use_id as string, { text, patch })
     }
   }
   return results

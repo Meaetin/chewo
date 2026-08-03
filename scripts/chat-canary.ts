@@ -11,6 +11,11 @@
  *   can_use_tool / control_response  request and response shapes
  *   updatedPermissions               what makes "always allow" stick
  *   stream_event deltas              text and thinking arriving incrementally
+ *   requires_user_interaction        the flag that turns an approval card into
+ *                                    AskUserQuestion's own UI, plus the
+ *                                    `updatedInput.answers` shape that carries
+ *                                    the answers back (question text → string)
+ *   tool_use_result.structuredPatch  the diff behind every edit chip
  *
  * Any of those can change without breaking a build or a unit test, because the
  * fixtures are recordings. This drives the real binary and fails loudly.
@@ -24,6 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createClaudeNormalizer, claudeChatArgs } from '../src/main/claude-chat'
 import { emptyChatState, reduceChat, type ChatState } from '../src/shared/agent-chat'
+import { composeAnswers, parseAskQuestions } from '../src/shared/ask-user-question'
 
 const TIMEOUT_MS = 120_000
 
@@ -35,6 +41,9 @@ interface Findings {
   sawApproval: boolean
   approvalHadSuggestion: boolean
   sawTurnEnd: boolean
+  sawInteractiveAsk: boolean
+  answersReachedModel: boolean
+  sawPatch: boolean
   controlErrors: string[]
 }
 
@@ -48,6 +57,9 @@ async function probe(): Promise<Findings> {
     sawApproval: false,
     approvalHadSuggestion: false,
     sawTurnEnd: false,
+    sawInteractiveAsk: false,
+    answersReachedModel: false,
+    sawPatch: false,
     controlErrors: []
   }
 
@@ -147,6 +159,111 @@ async function probe(): Promise<Findings> {
   return found
 }
 
+/**
+ * The second turn, for the two facts the first cannot reach: it denies its tool,
+ * so it never sees a patch, and it never triggers an interactive ask.
+ *
+ * Answering `AskUserQuestion` is not a permission decision — the CLI hands us
+ * the questions on the `can_use_tool` request and reads the answers back out of
+ * `updatedInput`. Getting the shape wrong is silent: the tool runs and the model
+ * is told "The user did not answer the questions", which is exactly what this
+ * asserts against.
+ */
+async function probeInteractive(found: Findings): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'chewo-chat-canary-ask-'))
+  const args = claudeChatArgs({ model: 'haiku' })
+  const proc = spawn('/bin/zsh', ['-ilc', 'claude "$@"', 'chewo', ...args], { cwd: dir })
+
+  const normalize = createClaudeNormalizer()
+  let buffer = ''
+
+  await new Promise<void>((resolve) => {
+    const finish = (): void => {
+      proc.kill()
+      resolve()
+    }
+    const timer = setTimeout(finish, TIMEOUT_MS)
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString()
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        if (!line.trim()) continue
+
+        let raw: Record<string, unknown>
+        try {
+          raw = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        for (const event of normalize(raw)) {
+          if (event.type === 'tool_approval') {
+            const questions = event.requiresUserInteraction
+              ? parseAskQuestions(event.input)
+              : null
+            const response = questions
+              ? {
+                  behavior: 'allow',
+                  updatedInput: {
+                    ...(event.input as Record<string, unknown>),
+                    answers: composeAnswers(
+                      questions,
+                      questions.map((q) => [q.options[0]?.label ?? 'yes'])
+                    )
+                  }
+                }
+              : { behavior: 'allow', updatedInput: event.input ?? {} }
+            if (questions) found.sawInteractiveAsk = true
+            proc.stdin.write(
+              JSON.stringify({
+                type: 'control_response',
+                response: { subtype: 'success', request_id: event.requestId, response }
+              }) + '\n'
+            )
+          }
+
+          if (event.type === 'tool_result') {
+            if (event.result.includes('have been answered')) found.answersReachedModel = true
+            if (event.patch?.hunks.length) found.sawPatch = true
+          }
+
+          if (event.type === 'turn_end') {
+            clearTimeout(timer)
+            finish()
+          }
+        }
+      }
+    })
+
+    proc.on('error', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    proc.on('close', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+
+    proc.stdin.write(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content:
+            'Do two things and nothing else. First, use the AskUserQuestion tool to ask me ' +
+            'whether the file should say ping or pong. Then use the Write tool to create ' +
+            'canary.txt containing the word I chose.'
+        }
+      }) + '\n'
+    )
+  })
+
+  rmSync(dir, { recursive: true, force: true })
+}
+
 const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
   { key: 'sawSession', label: 'system/init → session id + slash commands', fatal: true },
   { key: 'sawToolStart', label: 'tool_use blocks → tool chips', fatal: true },
@@ -154,10 +271,26 @@ const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
   { key: 'sawTurnEnd', label: 'result → turn end', fatal: true },
   { key: 'sawStreamingText', label: '--include-partial-messages → incremental deltas', fatal: false },
   { key: 'sawThinking', label: 'thinking blocks captured', fatal: false },
-  { key: 'approvalHadSuggestion', label: 'permission_suggestions → "always allow" button', fatal: false }
+  { key: 'approvalHadSuggestion', label: 'permission_suggestions → "always allow" button', fatal: false },
+  {
+    key: 'sawInteractiveAsk',
+    label: 'requires_user_interaction → AskUserQuestion answers on its own card',
+    fatal: true
+  },
+  {
+    key: 'answersReachedModel',
+    label: 'updatedInput.answers (question text → string) reaches the model',
+    fatal: true
+  },
+  {
+    key: 'sawPatch',
+    label: 'tool_use_result.structuredPatch → the diff under an edit chip',
+    fatal: false
+  }
 ]
 
 const found = await probe()
+await probeInteractive(found)
 
 let failed = false
 for (const { key, label, fatal } of CHECKS) {

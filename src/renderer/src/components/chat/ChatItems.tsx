@@ -10,9 +10,17 @@ import {
   ChevronRight,
   CircleSlash,
   FileText,
-  Loader
+  Loader,
+  MessageCircleQuestion
 } from 'lucide-react'
 import type { ApprovalDecision, ChatItem, ToolCall } from '../../../../shared/agent-chat'
+import {
+  composeAnswers,
+  parseAskQuestions,
+  type AskQuestion
+} from '../../../../shared/ask-user-question'
+import { patchStats, patchToUnified, type ToolPatch } from '../../../../shared/diff'
+import { DiffBody } from '../DiffBody'
 import { Button, WorkingText } from '../ui'
 import { useSmoothText } from './useSmoothText'
 
@@ -56,17 +64,57 @@ const STATUS_TITLE: Partial<Record<ToolCall['status'], string>> = {
   error: 'This tool reported an error'
 }
 
+/** Rows shown before the diff folds. Long enough for an ordinary edit to arrive
+ *  whole, short enough that a rewritten file does not bury the conversation. */
+const DIFF_PREVIEW_ROWS = 24
+
+/**
+ * The change itself, rendered by the same `DiffBody` the git panel uses — so a
+ * change an agent just made and the same change read back from `git diff` look
+ * alike, down to the gutter.
+ */
+function DiffView({ patch }: { patch: ToolPatch }): React.JSX.Element {
+  const [showAll, setShowAll] = useState(false)
+  const { text, hidden } = patchToUnified(patch, showAll ? undefined : DIFF_PREVIEW_ROWS)
+  // Rows the *parser* dropped are gone for good; only the rest can be unfolded,
+  // so a diff cut by the cap never offers a button that would reveal nothing.
+  const unfoldable = hidden - (patch.omitted ?? 0)
+
+  return (
+    <div className="chat-diff">
+      <DiffBody text={text} truncated={false} />
+      {/* Never fold silently — a diff that quietly stops reads as the whole
+          change, which is worse than showing no diff at all. */}
+      {unfoldable > 0 ? (
+        <button className="chat-diff-more" onClick={() => setShowAll(true)}>
+          Show {hidden} more {hidden === 1 ? 'line' : 'lines'}
+        </button>
+      ) : hidden > 0 ? (
+        <div className="chat-diff-more chat-diff-more--capped">
+          {hidden} more {hidden === 1 ? 'line' : 'lines'} — too large to capture
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+  // `null` means "not decided yet", so a diff can open by default while a
+  // click still wins — the patch arrives after the chip mounts, so an
+  // initial-state default would always be computed before there is one.
+  const [toggled, setToggled] = useState<boolean | null>(null)
   const summary = toolSummary(call)
-  const expandable = Boolean(call.result)
+  const patch = call.patch
+  const expandable = Boolean(call.result || patch)
+  const open = toggled ?? Boolean(patch)
+  const stats = patch ? patchStats(patch) : null
 
   return (
     <div className={`chat-tool chat-tool--${call.status}`}>
       <div
         className={`chat-tool-head${expandable ? ' chat-tool-head--expandable' : ''}`}
-        onClick={expandable ? () => setOpen((o) => !o) : undefined}
-        title={expandable ? 'Show tool output' : undefined}
+        onClick={expandable ? () => setToggled(!open) : undefined}
+        title={expandable ? (patch ? patch.filePath : 'Show tool output') : undefined}
       >
         {expandable && (
           <span className="chat-tool-chevron">
@@ -82,8 +130,135 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
         </span>
         <span className="chat-tool-name">{call.displayName ?? call.name}</span>
         {summary && <code className="chat-tool-summary">{shorten(summary, home)}</code>}
+        {stats && (
+          <span className="chat-diff-stat">
+            {stats.added > 0 && <span className="chat-diff-stat-add">+{stats.added}</span>}
+            {stats.removed > 0 && <span className="chat-diff-stat-del">−{stats.removed}</span>}
+          </span>
+        )}
       </div>
-      {open && call.result && <pre className="chat-tool-output">{call.result}</pre>}
+      {/* The diff supersedes the prose it describes: "the file has been updated
+          successfully" says nothing the chip's own tick does not. */}
+      {open && (patch ? <DiffView patch={patch} /> : <pre className="chat-tool-output">{call.result}</pre>)}
+    </div>
+  )
+}
+
+/**
+ * The card for a tool whose approval prompt *is* its UI — today that means
+ * `AskUserQuestion`. There is no Allow/Deny here on purpose: allowing was never
+ * the question, and answering *is* the permission (see `ask-user-question.ts`
+ * for the wire contract this depends on).
+ */
+function QuestionCard({
+  call,
+  questions,
+  onDecide
+}: {
+  call: ToolCall
+  questions: AskQuestion[]
+  onDecide: (requestId: string, decision: ApprovalDecision) => void
+}): React.JSX.Element {
+  /** Chosen option labels per question — free text lands here as its own entry */
+  const [picks, setPicks] = useState<string[][]>(() => questions.map(() => []))
+  /** Which questions have the free-text field open, and what is in it */
+  const [other, setOther] = useState<Record<number, string>>({})
+  const requestId = call.requestId ?? ''
+
+  const toggle = (index: number, label: string): void => {
+    setPicks((prev) =>
+      prev.map((chosen, i) => {
+        if (i !== index) return chosen
+        if (!questions[i].multiSelect) return chosen[0] === label ? [] : [label]
+        return chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]
+      })
+    )
+  }
+
+  // The tool's own description tells the model not to offer an "Other" option
+  // because the client provides one; without it a question with no fitting
+  // answer can only be abandoned.
+  const answersFor = (): string[][] =>
+    picks.map((chosen, i) => {
+      const typed = (other[i] ?? '').trim()
+      return typed ? [...chosen, typed] : chosen
+    })
+
+  const answered = answersFor().every((a) => a.length > 0)
+
+  const send = (): void =>
+    onDecide(requestId, {
+      behavior: 'allow',
+      // Merged into the request's own input: the tool reads its questions back
+      // out of it, so replacing rather than extending loses them
+      updatedInput: {
+        ...(call.input as Record<string, unknown>),
+        answers: composeAnswers(questions, answersFor())
+      }
+    })
+
+  return (
+    <div className="chat-question">
+      <div className="chat-question-head">
+        <MessageCircleQuestion size={14} strokeWidth={1.75} />
+        <span>{questions.length > 1 ? 'A few questions for you' : 'A question for you'}</span>
+      </div>
+
+      {questions.map((q, i) => (
+        <div key={q.question} className="chat-question-block">
+          <div className="chat-question-text">
+            {q.header && <span className="chat-question-chip">{q.header}</span>}
+            {q.question}
+          </div>
+          <div className="chat-question-options">
+            {q.options.map((opt) => {
+              const on = picks[i].includes(opt.label)
+              return (
+                <button
+                  key={opt.label}
+                  className={`chat-question-option${on ? ' chat-question-option--on' : ''}`}
+                  onClick={() => toggle(i, opt.label)}
+                  title={opt.preview}
+                >
+                  <span className="chat-question-option-label">{opt.label}</span>
+                  {opt.description && (
+                    <span className="chat-question-option-desc">{opt.description}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <input
+            className="chat-question-other"
+            placeholder="Something else…"
+            value={other[i] ?? ''}
+            onChange={(e) => setOther((prev) => ({ ...prev, [i]: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && answered) send()
+            }}
+          />
+          {q.multiSelect && <div className="chat-question-hint">Pick as many as apply</div>}
+        </div>
+      ))}
+
+      <div className="chat-question-actions">
+        <Button intent="primary" size="compact" disabled={!answered} onClick={send}>
+          {questions.length > 1 ? 'Send answers' : 'Send answer'}
+        </Button>
+        {/* Walking away has to reach the model as *something*, or the turn sits
+            here forever waiting on a card the user is done with. */}
+        <Button
+          size="compact"
+          onClick={() =>
+            onDecide(requestId, {
+              behavior: 'deny',
+              message: 'The user skipped the question. Continue without an answer.'
+            })
+          }
+        >
+          Skip
+        </Button>
+      </div>
     </div>
   )
 }
@@ -266,12 +441,20 @@ export function ChatItemView({
     case 'thinking':
       return <ThinkingBlock text={item.text} done={item.done} />
 
-    case 'tool':
-      return item.call.status === 'awaiting' ? (
-        <ApprovalCard call={item.call} home={home} onDecide={onDecide} />
+    case 'tool': {
+      if (item.call.status !== 'awaiting') return <ToolChip call={item.call} home={home} />
+      // A tool that answers on its own card gets that card — but only when its
+      // arguments really are a question set, so an unrecognised interactive
+      // tool still gets a prompt rather than an empty dialog.
+      const questions = item.call.requiresUserInteraction
+        ? parseAskQuestions(item.call.input)
+        : null
+      return questions ? (
+        <QuestionCard call={item.call} questions={questions} onDecide={onDecide} />
       ) : (
-        <ToolChip call={item.call} home={home} />
+        <ApprovalCard call={item.call} home={home} onDecide={onDecide} />
       )
+    }
 
     case 'notice':
       return <div className={`chat-notice chat-notice--${item.tone}`}>{item.text}</div>
