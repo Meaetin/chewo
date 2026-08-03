@@ -294,8 +294,17 @@ export async function createWorktree(
 
   const branch = branchFor(taskName)
 
-  // Full checkout of the tree — can take a few seconds on large repos
-  const res = await git(projectPath, ['worktree', 'add', '-b', branch, dir, baseBranch], 300_000)
+  // Full checkout of the tree — can take a few seconds on large repos.
+  // `--no-track` because basing on `origin/<default>` otherwise has git point
+  // the task branch's upstream at `refs/heads/main`: `git status` then reports
+  // it against a branch it is not, and Ship's `git push` refuses outright
+  // ("the upstream branch … does not match the name of your current branch").
+  // Ship sets the real upstream when it first pushes.
+  const res = await git(
+    projectPath,
+    ['worktree', 'add', '--no-track', '-b', branch, dir, baseBranch],
+    300_000
+  )
   if (!res.ok) return { ok: false, error: gitError(res) }
   return { ok: true, path: dir, branch, baseBranch, baseCommit }
 }

@@ -73,9 +73,8 @@ function relativeTime(iso: string): string {
  *
  * It used to open a menu that asked for the agent and the checkout up front.
  * Both questions moved into the pane itself: they are only answerable once you
- * know the task, and the pane is where the task gets typed. Clicking a project
- * in the sidebar opens the same unstarted pane, so there is one launcher
- * rather than two to keep in sync.
+ * know the task, and the pane is where the task gets typed. This is the only
+ * way a session is created — selecting a project just navigates to it.
  */
 function NewSessionButton({ onNewTerminal }: { onNewTerminal: () => void }): React.JSX.Element {
   return (

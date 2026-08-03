@@ -1497,8 +1497,8 @@ export function App(): React.JSX.Element {
 
   /**
    * Open an **unstarted** agent session in a section: a pane with a composer
-   * and nothing behind it yet. Both launchers land here — the sidebar's "New
-   * session" button and clicking a project — so neither can drift.
+   * and nothing behind it yet. The sidebar's "New session" button is the only
+   * way in — selecting a project navigates, it does not create.
    *
    * Nothing is decided at this point except the section. The agent and the
    * checkout are chosen in the pane's own setup row and read back off the tab
@@ -1568,10 +1568,10 @@ export function App(): React.JSX.Element {
   /**
    * Select a project (or Home) in the sidebar.
    *
-   * A project with no panes open lands on a ready-to-type session rather than
-   * an empty state: clicking a project is the start of doing work in it, and a
-   * pane you have to go and ask for is a step between the two. Only when the
-   * section is empty — an existing pane is what you meant to come back to.
+   * Selecting is only ever navigation: it focuses the section's last pane, or
+   * lands on the empty state when there is none. Creating a session is "New
+   * session" and nothing else — clicking through projects to read a file tree
+   * or a diff should not leave a trail of panes behind it.
    */
   const selectSection = useCallback(
     (id: string | null) => {
@@ -1582,15 +1582,14 @@ export function App(): React.JSX.Element {
       if (project) prefetchProject(project)
       const sectionTabs = tabs.filter((t) => t.projectId === id)
       if (sectionTabs.length === 0) {
-        if (project) newAgent(project)
-        else setView({ kind: 'empty' })
+        setView({ kind: 'empty' })
         return
       }
       const remembered = lastViewedTerm.current.get(id)
       const target = sectionTabs.find((t) => t.termId === remembered) ?? sectionTabs[sectionTabs.length - 1]
       setView({ kind: 'terminal', termId: target.termId })
     },
-    [tabs, projects, newAgent, prefetchProject]
+    [tabs, projects, prefetchProject]
   )
 
   /**
@@ -2484,7 +2483,7 @@ export function App(): React.JSX.Element {
               </h2>
               <p>
                 {selectedProject
-                  ? `Sessions and terminals scoped to ${selectedProject.path}`
+                  ? `Start one with “New session”, or pick up a past one from the sidebar. Scoped to ${selectedProject.path}`
                   : 'Open a project, search past sessions, or start a terminal (runs in your home folder).'}
               </p>
             </div>
