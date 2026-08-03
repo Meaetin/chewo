@@ -58,6 +58,19 @@ describe('claude adapter', () => {
     expect(included.messages.some((m) => m.isSidechain)).toBe(true)
   })
 
+  test('a transcript reports the context it stopped at', () => {
+    // A resumed pane shows nothing until it has spoken otherwise: `--resume`
+    // replays no history, so the first live reading is a whole turn away.
+    const { contextTokens } = parseClaudeSession(fixture('claude/v2.1-usage.jsonl'))
+    // The newest *main-branch* record: 8 + 118 + 32,467. The sidechain record
+    // between them reports a subagent's 904, which is not this conversation's.
+    expect(contextTokens).toBe(32593)
+  })
+
+  test('a transcript with no usage recorded simply has none', () => {
+    expect(parseClaudeSession(fixture('claude/v2.1-basic.jsonl')).contextTokens).toBeUndefined()
+  })
+
   test('unknown record types are counted, never fatal', () => {
     const { stats, messages } = parseClaudeSession(fixture('claude/v2.1-basic.jsonl'))
     expect(stats.unknownTypes['some-future-record']).toBe(1)

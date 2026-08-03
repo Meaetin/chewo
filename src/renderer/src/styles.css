@@ -5760,6 +5760,56 @@ body {
   box-shadow: var(--focus-ring);
 }
 
+/* ---- usage readout ----
+   One dim line under the pill: how full the context window is, and when the
+   rate-limit window rolls over. Right-aligned and quiet — it is reference
+   material you glance at, not a control, and it must not compete with the
+   input it sits beneath. Absent entirely until the first turn reports
+   something, so a fresh pane is not a row of blanks. */
+.chat-usage {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-12);
+  margin-top: var(--space-6);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-tertiary);
+  /* Numbers that change every few tokens must not shift the text beside them */
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-usage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  cursor: default;
+}
+
+.chat-usage-chip--warning {
+  color: var(--warning);
+}
+
+.chat-usage-chip--danger {
+  color: var(--danger);
+}
+
+.chat-usage-meter {
+  display: block;
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c-line-2);
+  overflow: hidden;
+}
+
+.chat-usage-meter-fill {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  transition: width var(--dur-fast) var(--ease-out);
+}
+
 /* ---- pasted attachments ----
    A strip along the top of the same pill, mirroring the setup row along the
    bottom: what is attached to the message being written belongs inside its

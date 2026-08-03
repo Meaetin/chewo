@@ -25,11 +25,13 @@
  * `assistant` event only for the ones that did not.
  */
 
-import type {
-  AgentChatEvent,
-  ChatSessionInfo,
-  PermissionSuggestion,
-  ToolCall
+import {
+  promptTokens,
+  type AgentChatEvent,
+  type ChatSessionInfo,
+  type ChatUsage,
+  type PermissionSuggestion,
+  type ToolCall
 } from '../shared/agent-chat'
 import { parseToolPatch } from '../shared/diff'
 
@@ -96,6 +98,32 @@ function resultText(content: unknown): string {
   return ''
 }
 
+interface WireModelUsage {
+  contextWindow?: number
+  canonicalModel?: string
+  inputTokens?: number
+  cacheReadInputTokens?: number
+}
+
+const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
+
+/**
+ * The window belonging to *this* pane's model. A turn that ran subagents lists
+ * their models here too, so the key is matched against the session's model
+ * first; failing that, the entry that read the most tokens is the main thread,
+ * since it is the one carrying the conversation.
+ */
+function contextWindowFor(raw: unknown, model: string): number | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entries = Object.entries(raw as Record<string, WireModelUsage>)
+  if (entries.length === 0) return undefined
+  const own = entries.find(([id, u]) => id === model || u.canonicalModel === model)?.[1]
+  const read = (u: WireModelUsage): number => num(u.inputTokens) + num(u.cacheReadInputTokens)
+  const busiest = entries.map(([, u]) => u).sort((a, b) => read(b) - read(a))[0]
+  const window = (own ?? busiest).contextWindow
+  return typeof window === 'number' && window > 0 ? window : undefined
+}
+
 /**
  * Stateful because block identity is per-message: the wire numbers blocks
  * `0,1,2…` inside each message, so an index alone is not unique across a turn.
@@ -107,6 +135,8 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
   let openBlocks = new Map<number, { blockId: string; kind: 'text' | 'thinking' | 'tool' }>()
   /** Message ids that streamed, so the trailing `assistant` echo is not re-rendered */
   const streamedMessages = new Set<string>()
+  /** From `system/init` — the model whose context window the pane is filling */
+  let sessionModel = ''
 
   const blockId = (index: number): string => `${currentMessageId || `m${messageSeq}`}:${index}`
 
@@ -126,7 +156,26 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
           ? (ev.mcp_servers as Array<{ name: string; status: string }>)
           : []
       }
+      sessionModel = info.model
       return [{ type: 'session', info }]
+    }
+
+    // ---- rate-limit window ----
+    // Status and a reset time, and that is the whole payload — there is no
+    // utilization percentage on this event (verified against 2.1.220 and
+    // against stored session logs). `/usage`'s numbers come from an
+    // authenticated call we do not make; see AGENTS.md.
+    if (ev.type === 'rate_limit_event') {
+      const info = ev.rate_limit_info as
+        | { status?: string; resetsAt?: number; rateLimitType?: string }
+        | undefined
+      if (!info?.rateLimitType) return []
+      const usage: ChatUsage = {
+        limitType: info.rateLimitType,
+        limitStatus: info.status,
+        limitResetsAt: typeof info.resetsAt === 'number' ? info.resetsAt : undefined
+      }
+      return [{ type: 'usage', usage }]
     }
 
     // ---- token streaming ----
@@ -185,9 +234,21 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
 
     // ---- completed assistant message ----
     if (ev.type === 'assistant') {
-      const message = ev.message as { id?: string; content?: ContentBlock[] } | undefined
+      const message = ev.message as
+        | { id?: string; content?: ContentBlock[]; usage?: unknown }
+        | undefined
       const id = message?.id ?? ''
       const alreadyStreamed = streamedMessages.has(id)
+
+      // Every assistant message states the prompt it was answering, so the
+      // reading tracks a turn as its tool calls grow the conversation rather
+      // than jumping once at the end. A subagent's messages are skipped: they
+      // report *its* context, which is not the one this pane is filling.
+      if (!ev.parent_tool_use_id) {
+        const contextTokens = promptTokens(message?.usage)
+        if (contextTokens) out.push({ type: 'usage', usage: { contextTokens } })
+      }
+
       let index = 0
       for (const block of message?.content ?? []) {
         if (block.type === 'tool_use' && block.id) {
@@ -276,7 +337,12 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
 
     // ---- turn boundary ----
     if (ev.type === 'result') {
-      return [
+      // The only place the *size* of the window is stated, so a pane knows the
+      // denominator one turn after it knows the numerator — until then the
+      // reading is a token count rather than a percentage.
+      const contextWindow = contextWindowFor(ev.modelUsage, sessionModel)
+      if (contextWindow) out.push({ type: 'usage', usage: { contextWindow } })
+      out.push(
         {
           type: 'turn_end',
           stats: {
@@ -285,7 +351,8 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
             isError: Boolean(ev.is_error)
           }
         }
-      ]
+      )
+      return out
     }
 
     if (ev.type === 'error' && typeof ev.message === 'string')
