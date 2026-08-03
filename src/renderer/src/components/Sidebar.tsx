@@ -48,12 +48,15 @@ interface SidebarProps {
   /** null = Home's settings */
   onOpenSettings: (id: string | null) => void
   /**
-   * Run a project's start command — dev servers, in its main checkout. Offered
-   * per project rather than for whatever section happens to be open, which is
-   * what it was when it lived in the tab bar: that bar belongs to the focused
-   * *session*, and a session is an isolated checkout these shells never run in.
+   * Run a project's start command — dev servers, in the focused session's
+   * checkout when one is open on this project, otherwise its main checkout.
+   * Offered per project rather than for whatever section happens to be open:
+   * the scope is a project's start command, and the tab bar (where it used to
+   * live) can be showing a pane from a section you are not looking at.
    */
   onRunStart: (projectId: string) => void
+  /** The isolated checkout ▷ would use, so the button can say where it runs */
+  runTarget: { projectId: string | null; taskName: string } | null
   onOpenCapabilities: () => void
 }
 
@@ -504,6 +507,7 @@ export function Sidebar({
   onReopenWorktree,
   onOpenSettings,
   onRunStart,
+  runTarget,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -655,7 +659,11 @@ export function Sidebar({
                   sessionCount={projectSessions.length}
                   onToggle={() => toggleProject(p.id)}
                   onRunStart={() => onRunStart(p.id)}
-                  runTitle={`Run ${p.name}’s start command in its main checkout`}
+                  runTitle={
+                    runTarget?.projectId === p.id
+                      ? `Run ${p.name}’s start command in ⎇ ${runTarget.taskName} — the focused session’s checkout`
+                      : `Run ${p.name}’s start command in its main checkout`
+                  }
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
                 />
