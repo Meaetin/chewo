@@ -72,7 +72,18 @@ export type RepoStatus =
       detached: boolean
       upstream: string | null
       ahead: number
+      /**
+       * Commits the checkout is missing. Measured against `upstream` when the
+       * branch has one, and against `baseRef` when it does not — which is
+       * every session's branch, since a worktree is cut `--no-track`.
+       */
       behind: number
+      /**
+       * What `behind` was measured against when there is no upstream: the
+       * `origin/<default>` ref Update would merge. Null when the branch tracks
+       * something of its own, or when the repo can't name a default.
+       */
+      baseRef: string | null
       /** HEAD commit id — null before the first commit. History refetches when it moves. */
       headOid: string | null
       files: ChangedFile[]
@@ -115,6 +126,27 @@ function parseNumstat(stdout: string): Map<string, { additions: number | null; d
   return map
 }
 
+/**
+ * The remote's default branch as a remote-tracking ref (`origin/main`), read
+ * from the local symref that `git clone` writes — **no network**, which is
+ * what makes it usable on the path that cuts every new worktree, and safe to
+ * run on every status poll.
+ *
+ * `origin/HEAD` is missing on repos created with `git init` and a hand-added
+ * remote, so the common names are tried after it. Null means "this repo can't
+ * tell us", and every caller treats that as a reason to fall back rather than
+ * to fail.
+ */
+export async function defaultRemoteRef(cwd: string): Promise<string | null> {
+  const symref = await runGit(cwd, ['symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'])
+  if (symref.ok && symref.stdout.trim()) return symref.stdout.trim()
+  for (const name of ['main', 'master', 'trunk', 'develop']) {
+    const exists = await runGit(cwd, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${name}`])
+    if (exists.ok) return `origin/${name}`
+  }
+  return null
+}
+
 export async function gitStatus(root: string): Promise<RepoStatus> {
   const real = resolveInsideRoots(root)
   if (!real) return { ok: false, error: `not readable: ${basename(root)}` }
@@ -130,6 +162,7 @@ export async function gitStatus(root: string): Promise<RepoStatus> {
   let upstream: string | null = null
   let ahead = 0
   let behind = 0
+  let baseRef: string | null = null
   let headOid: string | null = null
   const files: ChangedFile[] = []
 
@@ -201,6 +234,25 @@ export async function gitStatus(root: string): Promise<RepoStatus> {
 
   if (detached && headOid) branch = headOid.slice(0, 7)
 
+  /**
+   * A task branch is cut `--no-track`, so git emits no `# branch.ab` for it and
+   * `behind` would read 0 forever — on precisely the branches whose base moves
+   * under them while an agent works. Count against the ref Update actually
+   * merges instead. Local-only (the remote-tracking ref is whatever the last
+   * fetch left), which is what keeps this safe to run on every status poll.
+   */
+  if (!upstream && headOid && !detached) {
+    const base = await defaultRemoteRef(real)
+    if (base) {
+      const count = await runGit(real, ['rev-list', '--count', `HEAD..${base}`])
+      // A failure here is a repo that can't answer (no such ref yet), not a
+      // level checkout — leaving `behind` at 0 hides Update, which is the safe
+      // direction: it never claims work is waiting that isn't.
+      if (count.ok) behind = Number(count.stdout.trim()) || 0
+      baseRef = base
+    }
+  }
+
   // Line stats vs HEAD (staged + unstaged in one pass); untracked files have none
   if (headOid && files.some((f) => f.status !== '?')) {
     const numstat = await runGit(real, ['diff', '--numstat', '-z', '--find-renames', 'HEAD'])
@@ -216,7 +268,7 @@ export async function gitStatus(root: string): Promise<RepoStatus> {
     }
   }
 
-  return { ok: true, isRepo: true, branch, detached, upstream, ahead, behind, headOid, files }
+  return { ok: true, isRepo: true, branch, detached, upstream, ahead, behind, baseRef, headOid, files }
 }
 
 // ---------- untracked directories ----------

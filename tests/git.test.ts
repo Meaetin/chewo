@@ -316,3 +316,88 @@ describe('gitWatchIgnored', () => {
     expect(gitWatchIgnored(`${R}/src/.gitkeep`)).toBe(false)
   })
 })
+
+/**
+ * How far behind a session's checkout is.
+ *
+ * The trap: git prints `# branch.ab` only for a branch that has an upstream,
+ * and every session's branch is cut `--no-track` (see `createWorktree`) — so
+ * `behind` read 0 forever on precisely the branches whose base moves under
+ * them while an agent works, which is what the Update button keys off.
+ */
+describe('gitStatus behind-the-base', () => {
+  let remote: string
+  let author: string
+  let clone: string
+
+  const run = (cwd: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', cwd, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    remote = mkdtempSync(join(homedir(), '.chewo-behind-remote-'))
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote])
+
+    author = mkdtempSync(join(homedir(), '.chewo-behind-author-'))
+    execFileSync('git', ['init', '-b', 'main', author])
+    run(author, 'remote', 'add', 'origin', remote)
+    writeFileSync(join(author, 'a.txt'), 'one\n')
+    run(author, 'add', '-A')
+    run(author, 'commit', '-m', 'initial')
+    run(author, 'push', '--set-upstream', 'origin', 'main')
+
+    clone = mkdtempSync(join(homedir(), '.chewo-behind-clone-'))
+    execFileSync('git', ['clone', remote, clone])
+  })
+
+  afterAll(() => {
+    for (const d of [clone, author, remote]) rmSync(d, { recursive: true, force: true })
+  })
+
+  test('a --no-track branch is level with its base until the base moves', async () => {
+    run(clone, 'switch', '-c', 'agent/task', '--no-track', 'origin/main')
+    const before = await gitStatus(clone)
+    expect(before.ok && before.isRepo).toBe(true)
+    if (!before.ok || !before.isRepo) throw new Error('not a repo')
+    // The premise: git itself reports nothing, because there is no upstream
+    expect(before.upstream).toBeNull()
+    expect(before.behind).toBe(0)
+    expect(before.baseRef).toBe('origin/main')
+
+    // Someone lands two commits on main and this checkout fetches them
+    for (const n of ['two', 'three']) {
+      writeFileSync(join(author, `${n}.txt`), `${n}\n`)
+      run(author, 'add', '-A')
+      run(author, 'commit', '-m', n)
+    }
+    run(author, 'push')
+    run(clone, 'fetch', 'origin')
+
+    const after = await gitStatus(clone)
+    if (!after.ok || !after.isRepo) throw new Error('not a repo')
+    expect(after.upstream).toBeNull()
+    expect(after.behind).toBe(2)
+    expect(after.baseRef).toBe('origin/main')
+  })
+
+  test('own commits are ahead, not behind — they do not cancel the base’s', async () => {
+    writeFileSync(join(clone, 'mine.txt'), 'mine\n')
+    run(clone, 'add', '-A')
+    run(clone, 'commit', '-m', 'my work')
+    const s = await gitStatus(clone)
+    if (!s.ok || !s.isRepo) throw new Error('not a repo')
+    expect(s.behind).toBe(2)
+  })
+
+  test('a branch with a real upstream keeps git’s own count and names no base', async () => {
+    run(clone, 'switch', 'main')
+    const s = await gitStatus(clone)
+    if (!s.ok || !s.isRepo) throw new Error('not a repo')
+    expect(s.upstream).toBe('origin/main')
+    expect(s.behind).toBe(2)
+    expect(s.baseRef).toBeNull()
+  })
+})

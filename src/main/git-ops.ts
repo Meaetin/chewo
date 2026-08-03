@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 import { resolveInsideRoots } from './file-explorer'
-import { gitErrorOf, runGit } from './git'
+import { defaultRemoteRef, gitErrorOf, runGit } from './git'
 
 /**
  * The one mutation that isn't shipping: bringing the base branch's new commits
@@ -21,6 +21,14 @@ import { gitErrorOf, runGit } from './git'
  * aborted, so a checkout an agent is working in is never left mid-merge.
  */
 
+/**
+ * `defaultRemoteRef` moved to `git.ts` — it is a pure read, and status now
+ * needs it to say how far behind a task branch is (git reports no ahead/behind
+ * for a branch with no upstream, which is every session's). Re-exported here
+ * because this is where its callers already look for it.
+ */
+export { defaultRemoteRef }
+
 export type GitOpResult = { ok: true; message: string } | { ok: false; error: string }
 
 /** Network calls are slow but must not hang forever */
@@ -35,26 +43,6 @@ const okWith = (r: { stdout: string; stderr: string }, fallback: string): GitOpR
   // git puts progress and ref updates on stderr, results on stdout
   const lines = `${r.stdout}\n${r.stderr}`.split('\n').map((l) => l.trim()).filter(Boolean)
   return { ok: true, message: lines.at(-1) ?? fallback }
-}
-
-/**
- * The remote's default branch as a remote-tracking ref (`origin/main`), read
- * from the local symref that `git clone` writes — **no network**, which is
- * what makes it usable on the path that cuts every new worktree.
- *
- * `origin/HEAD` is missing on repos created with `git init` and a hand-added
- * remote, so the common names are tried after it. Null means "this repo can't
- * tell us", and every caller treats that as a reason to fall back rather than
- * to fail.
- */
-export async function defaultRemoteRef(cwd: string): Promise<string | null> {
-  const symref = await runGit(cwd, ['symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'])
-  if (symref.ok && symref.stdout.trim()) return symref.stdout.trim()
-  for (const name of ['main', 'master', 'trunk', 'develop']) {
-    const exists = await runGit(cwd, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${name}`])
-    if (exists.ok) return `origin/${name}`
-  }
-  return null
 }
 
 /** `git fetch origin --prune`. Read-only against the working tree. */
