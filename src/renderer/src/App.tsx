@@ -67,7 +67,9 @@ import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
-import { BranchChip, UpdateButton } from './components/BranchChip'
+import { UpdateButton } from './components/UpdateButton'
+import { TabOverflowButton, type TabMenuItem } from './components/TabOverflowMenu'
+import { stripEdges } from './tabStrip'
 import { ShipButton } from './components/ShipButton'
 import { ShipModal } from './components/ShipModal'
 import { branchNameFor } from '../../shared/branch-names'
@@ -914,6 +916,66 @@ export function App(): React.JSX.Element {
     (t) => !liveSessionIds.has(t.sessionId)
   )
 
+  /**
+   * How much of the tab strip is off-screen. Tabs shrink to a floor and only
+   * then scroll, and the scrollbar is hidden, so this is the only thing that
+   * can say a session exists past the edge — it drives the edge fades and the
+   * ⌄ overflow menu.
+   */
+  const tabStripRef = useRef<HTMLDivElement>(null)
+  const [strip, setStrip] = useState({ left: false, right: false, overflowing: false, hidden: 0 })
+
+  const measureStrip = useCallback(() => {
+    const el = tabStripRef.current
+    if (!el) return
+    const edges = stripEdges({
+      scrollLeft: el.scrollLeft,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth
+    })
+    // Rects, not offsetLeft: a tab's offsetParent is a positioned ancestor of
+    // the scrollport, so its offset is not in the same space as scrollLeft.
+    let hidden = 0
+    if (edges.overflowing) {
+      const box = el.getBoundingClientRect()
+      for (const child of Array.from(el.children)) {
+        const r = child.getBoundingClientRect()
+        if (r.left < box.left - 1 || r.right > box.right + 1) hidden++
+      }
+    }
+    setStrip((prev) =>
+      prev.left === edges.left &&
+      prev.right === edges.right &&
+      prev.overflowing === edges.overflowing &&
+      prev.hidden === hidden
+        ? prev
+        : { ...edges, hidden }
+    )
+  }, [])
+
+  // Remeasure whenever the strip resizes (window, sidebar, panels) or its
+  // contents change. A ResizeObserver on the scrollport catches the first two;
+  // the tab counts in the deps catch the third.
+  useEffect(() => {
+    const el = tabStripRef.current
+    if (!el) return
+    measureStrip()
+    const ro = new ResizeObserver(measureStrip)
+    ro.observe(el)
+    for (const child of Array.from(el.children)) ro.observe(child)
+    return () => ro.disconnect()
+  }, [measureStrip, workflow, visibleTabs.length, dormantTerminals.length])
+
+  // Focusing a session that is scrolled out of the strip has to bring its tab
+  // back, or the focused pane has no tab — the exact state the overflow menu
+  // exists to rescue, reached by accident.
+  useEffect(() => {
+    if (view.kind !== 'terminal') return
+    tabStripRef.current
+      ?.querySelector(`[data-term-id="${view.termId}"]`)
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [view])
+
   const openTerminal = useCallback(
     async (opts: {
       source: PaneSource
@@ -1123,22 +1185,37 @@ export function App(): React.JSX.Element {
     else window.api.termKill(tab.termId)
   }, [])
 
-  /** Play button: one shell per non-empty line of the section's start command. */
-  const runStartCommands = useCallback(() => {
-    const lines = (selectedProject?.runCommand?.trim() || 'npm run dev')
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-    for (const line of lines) {
-      void openTerminal({
-        source: 'shell',
-        cwd: selectedProject?.path ?? null,
-        projectId: selectedProject?.id ?? null,
-        label: line.length > 24 ? `${line.slice(0, 24)}…` : line,
-        runCommand: line
-      })
-    }
-  }, [openTerminal, selectedProject])
+  /**
+   * Play button: one shell per non-empty line of the project's start command.
+   *
+   * Takes the project rather than reading the selected one, because it lives
+   * on the sidebar's project row now — where it can be pressed for a project
+   * that isn't open. Its shells always run in the project's *main* checkout
+   * (dev servers are not agent sessions), so the pane it opens belongs to that
+   * section and the section has to come with it, or the new tab lands in a
+   * strip nobody is looking at.
+   */
+  const runStartCommands = useCallback(
+    (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId)
+      if (!project) return
+      setSelectedProjectId(projectId)
+      const lines = (project.runCommand?.trim() || 'npm run dev')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+      for (const line of lines) {
+        void openTerminal({
+          source: 'shell',
+          cwd: project.path,
+          projectId: project.id,
+          label: line.length > 24 ? `${line.slice(0, 24)}…` : line,
+          runCommand: line
+        })
+      }
+    },
+    [openTerminal, projects]
+  )
 
   const resumeSession = useCallback(
     (s: SessionMeta) => {
@@ -2146,6 +2223,76 @@ export function App(): React.JSX.Element {
     [tabs, selectedProjectId]
   )
 
+  /** Show a session's pane — and dismiss the editor and diff layers over it. */
+  const focusTab = (termId: number): void => {
+    activateFile(null)
+    setGitSel(null)
+    setView({ kind: 'terminal', termId })
+  }
+
+  /**
+   * The tab's own hover detail — full label, then which checkout it is in.
+   *
+   * This is where the tab bar's branch chip went. The chip stated the focused
+   * session's branch beside a tab already labelled with the task that branch is
+   * named after, and it did so in the widest control on a rail the tabs were
+   * being squeezed off. Same facts, no width, and every tab gets them rather
+   * than only the focused one.
+   */
+  const tabTitle = (tab: TerminalTab): string => {
+    const lines = [tab.label]
+    const wt = tab.worktreeId ? worktrees.find((w) => w.id === tab.worktreeId) : undefined
+    if (wt) lines.push(`${wt.branch} · cut from ${wt.baseBranch}`, wt.path)
+    const focused = view.kind === 'terminal' && view.termId === tab.termId
+    // A pending isolated pane is only borrowing the shared checkout until its
+    // first message, so reporting that checkout's state as the session's is
+    // the same lie the chip's dashed variant existed to avoid.
+    if (focused && pendingBase) lines.push(`New branch, cut from ${pendingBase} on the first message`)
+    else if (focused && !wt && repoStatus?.ok && repoStatus.isRepo)
+      lines.push(`${repoStatus.branch} · ${repoStatus.upstream ?? 'no upstream'}`)
+    if (focused && !pendingBase && repoStatus?.ok && repoStatus.isRepo) {
+      const { ahead, behind, files } = repoStatus
+      lines.push(
+        [
+          ahead > 0 || behind > 0 ? `↑${ahead} ↓${behind}` : null,
+          files.length > 0
+            ? `${files.length} uncommitted change${files.length === 1 ? '' : 's'}`
+            : 'clean'
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      )
+    }
+    return lines.join('\n')
+  }
+
+  /**
+   * Every session of this section for the ⌄ menu, in strip order and with the
+   * dormant ones after them — the same two lists the strip renders, so the
+   * menu can never disagree with it about what is open.
+   */
+  const tabMenuItems: TabMenuItem[] = [
+    ...visibleTabs.map((tab) => ({
+      id: `t${tab.termId}`,
+      label: tab.label,
+      source: tab.source,
+      live: !tab.exited,
+      dormant: false,
+      active: view.kind === 'terminal' && view.termId === tab.termId,
+      root: tab.worktreeId ? (worktrees.find((w) => w.id === tab.worktreeId)?.path ?? null) : null,
+      onSelect: () => focusTab(tab.termId)
+    })),
+    ...dormantTerminals.map((t) => ({
+      id: `d${t.sessionId}`,
+      label: t.label,
+      source: t.source,
+      live: false,
+      dormant: true,
+      active: false,
+      onSelect: () => wakeDormant(t)
+    }))
+  ]
+
   return (
     <div className="app-layout">
       <div className="sidebar-column">
@@ -2201,10 +2348,10 @@ export function App(): React.JSX.Element {
           new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
         }
         onOpenWorktree={openWorktree}
-        onShipWorktree={(wt) => void openShip(wt.path)}
         onRemoveWorktree={confirmRemoveWorktree}
         onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
         onOpenSettings={(id) => setSettingsFor({ id })}
+        onRunStart={runStartCommands}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
         )}
@@ -2255,10 +2402,15 @@ export function App(): React.JSX.Element {
               <span className="git-toggle-count">{dirtyCount > 99 ? '99+' : dirtyCount}</span>
             )}
           </IconButton>
-          <div className="terminal-tabs">
+          <div
+            className={`terminal-tabs-wrap ${strip.left ? 'terminal-tabs-fade-left' : ''} ${strip.right ? 'terminal-tabs-fade-right' : ''}`}
+          >
+          <div className="terminal-tabs" ref={tabStripRef} onScroll={measureStrip}>
           {visibleTabs.map((tab) => (
             <div
               key={tab.termId}
+              data-term-id={tab.termId}
+              title={tabTitle(tab)}
               className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''} ${draggedTermId === tab.termId ? 'terminal-tab-dragging' : ''}`}
               draggable
               onDragStart={(e) => {
@@ -2285,12 +2437,7 @@ export function App(): React.JSX.Element {
               }}
               onDrop={(e) => e.preventDefault()}
               onDragEnd={() => setDraggedTermId(null)}
-              onClick={() => {
-                // Clicking the session tab also dismisses the editor + diff layers
-                activateFile(null)
-                setGitSel(null)
-                setView({ kind: 'terminal', termId: tab.termId })
-              }}
+              onClick={() => focusTab(tab.termId)}
             >
               {!tab.exited && <Dot tone="live" className="terminal-tab-dot" />}
               <Badge source={tab.source} />
@@ -2338,12 +2485,16 @@ export function App(): React.JSX.Element {
             </div>
           ))}
           </div>
+          </div>
+
+          {/* Only once the strip is genuinely hiding something: a control that
+              is always there costs the tabs the width it exists to give back */}
+          {strip.overflowing && (
+            <TabOverflowButton items={tabMenuItems} hidden={strip.hidden} />
+          )}
 
           {/* Pinned to the far right, outside the scrolling tab strip */}
           <div className="terminal-tab-actions">
-            {gitRoot && (
-              <BranchChip rootLabel={treeRootLabel} status={repoStatus} pendingBase={pendingBase} />
-            )}
             {/* Nothing to update and nothing to ship until the branch exists —
                 both would act on the shared checkout this pane is only
                 borrowing, which is the whole thing the worktree avoids */}
@@ -2362,13 +2513,9 @@ export function App(): React.JSX.Element {
                 onOpen={() => void openShip(gitRoot)}
               />
             )}
-            <IconButton
-              label={`Run start command in ${selectedProject?.name ?? 'Home'}`}
-              className="run-start-button"
-              onClick={runStartCommands}
-            >
-              <Play size={16} strokeWidth={1.75} />
-            </IconButton>
+            {/* ▷ lives on the sidebar's project row now — it runs dev servers
+                in the project's *main* checkout, so it never belonged to the
+                focused session's strip in the first place */}
             <IconButton
               label={`New shell in ${selectedProject?.name ?? 'Home'}`}
               className="new-shell-button"

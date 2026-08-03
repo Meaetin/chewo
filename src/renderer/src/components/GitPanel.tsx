@@ -198,13 +198,28 @@ export function GitPanel({
     <div className="git-panel" style={{ display: visible ? 'flex' : 'none' }}>
       <div className="git-panel-header">
         <GitBranch className="git-branch-icon" size={13} strokeWidth={1.75} />
-        <span className="git-branch-name" title={`${rootLabel} — ${root}`}>
+        {/* The panel is where the tab bar's branch chip's detail went, so this
+            carries the whole of it: which checkout, tracking what, how dirty */}
+        <span
+          className="git-branch-name"
+          title={[
+            `${rootLabel} — ${root}`,
+            repo ? (repo.upstream ?? 'no upstream') : null,
+            repo
+              ? repo.files.length > 0
+                ? `${repo.files.length} uncommitted change${repo.files.length === 1 ? '' : 's'}`
+                : 'clean'
+              : null
+          ]
+            .filter(Boolean)
+            .join('\n')}
+        >
           {repo ? repo.branch : rootLabel}
         </span>
-        {repo?.upstream && (
+        {repo && (repo.ahead > 0 || repo.behind > 0) && (
           <span
             className="git-ahead-behind"
-            title={`${repo.ahead} ahead, ${repo.behind} behind ${repo.upstream}`}
+            title={`${repo.ahead} ahead, ${repo.behind} behind ${repo.upstream ?? 'its base'}`}
           >
             ↑{repo.ahead} ↓{repo.behind}
           </span>

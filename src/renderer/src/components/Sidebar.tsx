@@ -4,7 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
-  GitPullRequestArrow,
+  Play,
   Plus,
   Settings,
   Trash2,
@@ -41,14 +41,19 @@ interface SidebarProps {
   liveWorktreeIds: Set<string>
   /** Focus/resume a branch; false = nothing to resume, ask for an agent instead */
   onOpenWorktree: (wt: Worktree, source?: Source) => boolean
-  /** Open the Ship review for this branch */
-  onShipWorktree: (wt: Worktree) => void
   /** Spent branches are the only ones offering this — it deletes the checkout */
   onRemoveWorktree: (wt: Worktree) => void
   /** Undo a hand-marked "done" — never offered for a branch git itself calls spent */
   onReopenWorktree: (wt: Worktree) => void
   /** null = Home's settings */
   onOpenSettings: (id: string | null) => void
+  /**
+   * Run a project's start command — dev servers, in its main checkout. Offered
+   * per project rather than for whatever section happens to be open, which is
+   * what it was when it lived in the tab bar: that bar belongs to the focused
+   * *session*, and a session is an isolated checkout these shells never run in.
+   */
+  onRunStart: (projectId: string) => void
   onOpenCapabilities: () => void
 }
 
@@ -199,13 +204,17 @@ function SessionGroup({
  * — the live pane, the remembered terminal, or the newest session recorded
  * there; a branch with nothing to resume opens the agent menu instead, so a
  * worktree whose pane was closed is never a dead end.
+ *
+ * No Ship button: the tab bar already has one, and it acts on the checkout you
+ * are looking at. Shipping a branch with no pane open is opening it first —
+ * which is what clicking this row does — rather than a second entry point to
+ * keep in step with the first.
  */
 function WorktreeRow({
   worktree,
   projectPath,
   live,
   onOpen,
-  onShip,
   onRemove,
   onReopen
 }: {
@@ -213,7 +222,6 @@ function WorktreeRow({
   projectPath: string
   live: boolean
   onOpen: (wt: Worktree, source?: Source) => boolean
-  onShip: (wt: Worktree) => void
   onRemove: (wt: Worktree) => void
   onReopen: (wt: Worktree) => void
 }): React.JSX.Element {
@@ -306,20 +314,7 @@ function WorktreeRow({
                   <Trash2 size={14} strokeWidth={1.75} />
                 </IconButton>
               </>
-            ) : (
-              worktree.branch && (
-                <IconButton
-                  label="Review and ship this branch"
-                  dense
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onShip(worktree)
-                  }}
-                >
-                  <GitPullRequestArrow size={14} strokeWidth={1.75} />
-                </IconButton>
-              )
-            )}
+            ) : null}
           </>
         }
         onClick={
@@ -356,7 +351,7 @@ function WorktreeRow({
   )
 }
 
-/** Section header row (Home / a project) — chevron + name + live/count + settings. */
+/** Section header row (Home / a project) — chevron + name + live/count + run/settings. */
 function SectionRow({
   name,
   title,
@@ -364,6 +359,8 @@ function SectionRow({
   liveCount,
   sessionCount,
   onToggle,
+  onRunStart,
+  runTitle,
   onOpenSettings,
   settingsTitle
 }: {
@@ -373,6 +370,9 @@ function SectionRow({
   liveCount: number
   sessionCount: number
   onToggle: () => void
+  /** Absent for Home — a start command is a project's, not a folder's */
+  onRunStart?: () => void
+  runTitle?: string
   onOpenSettings: () => void
   settingsTitle: string
 }): React.JSX.Element {
@@ -384,12 +384,26 @@ function SectionRow({
         tone="alt"
         leading={<Chevron className="section-chevron" size={14} strokeWidth={1.75} />}
         trailing={
-          <IconButton label={settingsTitle} dense onClick={(e) => {
-            e.stopPropagation()
-            onOpenSettings()
-          }}>
-            <Settings size={14} strokeWidth={1.75} />
-          </IconButton>
+          <span className="section-row-actions">
+            {onRunStart && (
+              <IconButton
+                label={runTitle ?? 'Run start command'}
+                dense
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRunStart()
+                }}
+              >
+                <Play size={14} strokeWidth={1.75} />
+              </IconButton>
+            )}
+            <IconButton label={settingsTitle} dense onClick={(e) => {
+              e.stopPropagation()
+              onOpenSettings()
+            }}>
+              <Settings size={14} strokeWidth={1.75} />
+            </IconButton>
+          </span>
         }
         onClick={onToggle}
       >
@@ -486,10 +500,10 @@ export function Sidebar({
   onNewIsolated,
   liveWorktreeIds,
   onOpenWorktree,
-  onShipWorktree,
   onRemoveWorktree,
   onReopenWorktree,
   onOpenSettings,
+  onRunStart,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -640,6 +654,8 @@ export function Sidebar({
                   liveCount={liveCounts.get(p.id) ?? 0}
                   sessionCount={projectSessions.length}
                   onToggle={() => toggleProject(p.id)}
+                  onRunStart={() => onRunStart(p.id)}
+                  runTitle={`Run ${p.name}’s start command in its main checkout`}
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
                 />
@@ -653,7 +669,6 @@ export function Sidebar({
                         projectPath={p.path}
                         live={liveWorktreeIds.has(w.id)}
                         onOpen={onOpenWorktree}
-                        onShip={onShipWorktree}
                         onRemove={onRemoveWorktree}
                         onReopen={onReopenWorktree}
                       />
