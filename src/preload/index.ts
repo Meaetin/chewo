@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
 import type { ScanResult } from '../shared/adapter/types'
+import type { AccountUsage } from '../shared/account-usage'
 import type { AgentChatEvent, ApprovalDecision } from '../shared/agent-chat'
 import type { AgentId, AgentModel } from '../shared/agents'
 import type {
@@ -146,6 +147,13 @@ const api = {
   chatSessionId: (id: number) =>
     ipcRenderer.invoke('chat:sessionId', { id }) as Promise<string | undefined>,
   onChatEvent,
+  /**
+   * How much of each rate-limit window the account has spent. Null whenever the
+   * figures cannot be had (no credentials, expired token, endpoint unreachable)
+   * — the composer then names the window instead of inventing a percentage.
+   */
+  accountUsage: (force = false) =>
+    ipcRenderer.invoke('usage:account', { force }) as Promise<AccountUsage | null>,
   onTermBound: (cb: (e: TermBoundEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
     ipcRenderer.on('terminal:session-bound', listener)

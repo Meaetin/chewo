@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
@@ -10,10 +10,10 @@ import { safeSend } from './safe-send'
  * "Am I running the latest build?" for the installed app. The build is stamped
  * with the commit it was made from (electron.vite.config.ts define); this
  * module compares that against the repo's current HEAD and pushes the answer
- * to the sidebar footer, re-checking whenever .git/logs/HEAD moves. The
- * Update CTA rebuilds and reinstalls via `npm run dist:install`, then
- * relaunches. Dev mode always runs current source, so everything here is a
- * no-op when unpackaged.
+ * to the sidebar footer, re-checking whenever .git/logs/HEAD moves. The Update
+ * CTA builds, then hands the bundle swap to a detached install-app.mjs and
+ * quits. Dev mode always runs current source, so everything here is a no-op
+ * when unpackaged.
  */
 
 // Injected at build time — see electron.vite.config.ts
@@ -31,13 +31,37 @@ const enabled = (): boolean =>
 
 let updating = false
 
+// install-app.mjs runs after we have quit, so anything that goes wrong in the
+// swap has nowhere to report. It leaves the reason here; we read it on the next
+// launch and show "Update failed" rather than an unchanged "New version
+// available", which is indistinguishable from the button having done nothing.
+const errorFile = (): string => join(app.getPath('home'), '.chewo', 'update-error.txt')
+
+function lastUpdateError(): string | null {
+  try {
+    const message = readFileSync(errorFile(), 'utf8').trim()
+    return message || null
+  } catch {
+    return null
+  }
+}
+
+const clearUpdateError = (): void => rmSync(errorFile(), { force: true })
+
 export async function getVersionStatus(): Promise<VersionStatus | null> {
   if (!enabled()) return null
   if (updating) return { kind: 'updating' }
 
   const head = await runGit(__REPO_PATH__, ['rev-parse', 'HEAD'])
   if (!head.ok) return null
-  if (head.stdout.trim() === __BUILD_HASH__) return { kind: 'current' }
+  if (head.stdout.trim() === __BUILD_HASH__) {
+    // Whatever failed, we are running the build it was trying to install.
+    clearUpdateError()
+    return { kind: 'current' }
+  }
+
+  const failure = lastUpdateError()
+  if (failure) return { kind: 'update-failed', message: failure }
 
   const count = await runGit(__REPO_PATH__, ['rev-list', '--count', `${__BUILD_HASH__}..HEAD`])
   const commits = count.ok ? Number(count.stdout.trim()) : 0
@@ -49,6 +73,7 @@ export async function getVersionStatus(): Promise<VersionStatus | null> {
 export function runSelfUpdate(win: BrowserWindow): void {
   if (!enabled() || updating) return
   updating = true
+  clearUpdateError()
   safeSend(win, 'version:status', { kind: 'updating' } satisfies VersionStatus)
 
   // Build only — `dist:install` would end in install-app.mjs, which refuses to

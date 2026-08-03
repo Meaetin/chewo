@@ -103,10 +103,67 @@ describe('claude stream normalizer', () => {
     expect(pendingApprovals(state)).toEqual([])
   })
 
+  test('context fullness tracks the prompt, cached tokens included', () => {
+    // 8 fresh + 118 written to cache + 32,467 read from cache. Counting only
+    // the fresh input would report 8 tokens for a conversation filling 16% of
+    // the window — cached tokens still occupy it, only their price differs.
+    expect(state.usage.contextTokens).toBe(8 + 118 + 32467)
+    // Stated once per turn, in `result` — the only place the window's size appears
+    expect(state.usage.contextWindow).toBe(200000)
+  })
+
+  test('the rate-limit window is reported as a window, not as a quantity', () => {
+    // The whole payload: which window binds, its status, when it rolls over.
+    // No utilization figure exists on this event — `/usage`'s percentages come
+    // from an authenticated call the CLI makes and Chewo does not.
+    expect(state.usage.limitType).toBe('five_hour')
+    expect(state.usage.limitStatus).toBe('allowed')
+    expect(state.usage.limitResetsAt).toBe(1785671400)
+  })
+
   test('turn ends carry cost', () => {
     const turns = state.items.filter((i) => i.kind === 'turn')
     expect(turns.length).toBe(2)
     expect((turns[0] as { stats: { costUsd?: number } }).stats.costUsd).toBeGreaterThan(0)
+  })
+})
+
+describe('context readout', () => {
+  test("a subagent's prompt is not the pane's context", () => {
+    // Subagent messages carry their own (much smaller) usage. Letting them
+    // through makes the reading drop to a few hundred tokens every time a Task
+    // runs, then jump back — the number would be unreadable during the one
+    // kind of turn where it matters most.
+    const normalize = createClaudeNormalizer()
+    const main = normalize({
+      type: 'assistant',
+      message: { id: 'msg_1', content: [], usage: { input_tokens: 100, cache_read_input_tokens: 900 } }
+    })
+    expect(main).toEqual([{ type: 'usage', usage: { contextTokens: 1000 } }])
+
+    const sub = normalize({
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      message: { id: 'msg_2', content: [], usage: { input_tokens: 5, cache_read_input_tokens: 20 } }
+    })
+    expect(sub).toEqual([])
+  })
+
+  test('the window comes from the pane’s own model, not a subagent’s', () => {
+    const normalize = createClaudeNormalizer()
+    normalize({ type: 'system', subtype: 'init', session_id: 's', model: 'claude-opus-5', cwd: '/tmp' })
+    const events = normalize({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      modelUsage: {
+        'claude-haiku-4-5-20251001': { contextWindow: 200000, inputTokens: 10, cacheReadInputTokens: 40 },
+        'claude-opus-5': { contextWindow: 1000000, inputTokens: 500, cacheReadInputTokens: 90000 }
+      }
+    })
+    expect(events[0]).toEqual({ type: 'usage', usage: { contextWindow: 1000000 } })
+    // The turn boundary still arrives, and still last
+    expect(events[events.length - 1].type).toBe('turn_end')
   })
 })
 

@@ -4,6 +4,9 @@ import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
 import { countLines, isLongPaste, type Attachment } from '../../../../shared/attachments'
+import type { ChatUsage } from '../../../../shared/agent-chat'
+import { usageChips } from '../../chatUsage'
+import { useAccountUsage } from './useAccountUsage'
 
 /**
  * The two questions a session has to answer before it exists, asked here
@@ -128,6 +131,35 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   )
 }
 
+/**
+ * The conversation's two budgets, on one dim line under the pill. Outside the
+ * box rather than inside it because these describe the session, not the message
+ * being written — and below rather than above, so a growing input never pushes
+ * them around mid-sentence.
+ */
+function UsageLine({ usage, busy }: { usage: ChatUsage; busy: boolean }): React.JSX.Element | null {
+  const chips = usageChips(usage, useAccountUsage(busy))
+  if (chips.length === 0) return null
+  return (
+    <div className="chat-usage">
+      {chips.map((chip) => (
+        <span
+          key={chip.id}
+          className={`chat-usage-chip chat-usage-chip--${chip.tone}`}
+          title={chip.title}
+        >
+          {chip.fill !== undefined && (
+            <span className="chat-usage-meter" aria-hidden="true">
+              <span className="chat-usage-meter-fill" style={{ width: `${chip.fill * 100}%` }} />
+            </span>
+          )}
+          {chip.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /** Read a pasted image file as a data URL + its base64 payload for staging. */
 const readImage = (file: File): Promise<{ dataUrl: string; base64: string }> =>
   new Promise((resolve, reject) => {
@@ -195,6 +227,8 @@ interface ChatComposerProps {
   placeholder: string
   /** Only while the session is unstarted — the agent and checkout pickers */
   setup?: SessionSetup
+  /** Context fullness and rate-limit window; empty until the first turn speaks */
+  usage: ChatUsage
   onSend: (text: string, attachments: Attachment[]) => void
   onInterrupt: () => void
   /** A staging failure has nowhere else to surface from in here */
@@ -207,6 +241,7 @@ export function ChatComposer({
   slashCommands,
   placeholder,
   setup,
+  usage,
   onSend,
   onInterrupt,
   onError
@@ -389,6 +424,8 @@ export function ChatComposer({
 
         {setup && <SessionSetupRow setup={setup} />}
       </div>
+
+      <UsageLine usage={usage} busy={busy} />
     </div>
   )
 }

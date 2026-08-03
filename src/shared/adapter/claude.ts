@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
+import { promptTokens } from '../agent-chat'
 import { parseToolPatch, type ToolPatch } from '../diff'
 import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
@@ -32,7 +33,7 @@ interface ClaudeRecord {
   customTitle?: string
   agentName?: string
   summary?: string
-  message?: { role?: string; content?: unknown }
+  message?: { role?: string; content?: unknown; usage?: unknown }
   /** The tool's own structured payload, which is where an Edit's real diff
    *  lives — the `tool_result` block beside it only carries prose */
   toolUseResult?: unknown
@@ -287,6 +288,19 @@ export function parseClaudeSession(
 
   const timestamps = records.map((r) => r.timestamp).filter((t): t is string => !!t)
 
+  // Read from `mainRecs`, not from `chain`: the linearized chain can be a
+  // fraction of the file when compaction broke the parentUuid walk, and the
+  // newest record is the one that knows the current size either way. A
+  // sidechain record reports a subagent's context, not this conversation's.
+  const contextTokens = (() => {
+    for (let i = mainRecs.length - 1; i >= 0; i--) {
+      if (mainRecs[i].type !== 'assistant') continue
+      const tokens = promptTokens(mainRecs[i].message?.usage)
+      if (tokens) return tokens
+    }
+    return undefined
+  })()
+
   return {
     meta: {
       id: first((r) => r.sessionId) ?? basename(filePath, '.jsonl'),
@@ -300,6 +314,7 @@ export function parseClaudeSession(
       messageCount: mainMessages.filter((m) => !m.commandName).length,
       preview
     },
+    contextTokens,
     messages,
     stats
   }

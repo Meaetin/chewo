@@ -53,6 +53,7 @@ import { loadProjects, saveProjects } from './projects'
 import { loadSettings, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
 import { nextPaneId } from './pane-ids'
+import { accountUsage } from './claude-usage'
 import { pruneAttachments, stageImage } from './attachments'
 import type { AgentId } from '../shared/agents'
 import type { SettingsFile } from '../shared/appearance'
@@ -236,6 +237,12 @@ function registerIpc(): void {
   ipcMain.on('chat:interrupt', (_e, { id }: { id: number }) => interruptChat(id))
   ipcMain.on('chat:kill', (_e, { id }: { id: number }) => killChat(id))
   ipcMain.handle('chat:sessionId', (_e, { id }: { id: number }) => chatSessionId(id))
+
+  // Account-wide, cached in main — every pane asks, one request is made. Only
+  // the parsed percentages cross this boundary; the token never does.
+  ipcMain.handle('usage:account', (_e, { force }: { force?: boolean } = {}) =>
+    accountUsage(force === true)
+  )
 
   ipcMain.handle('capabilities:scan', (_e, projects: ProjectTarget[]) =>
     scanCapabilities(projects)

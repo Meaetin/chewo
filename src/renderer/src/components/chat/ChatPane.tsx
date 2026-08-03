@@ -282,10 +282,19 @@ export function ChatPane({
     let cancelled = false
     window.api
       .getSession({ source: resumeFrom.source, filePath: resumeFrom.filePath })
-      .then((result: { messages: NormalizedMessage[] }) => {
+      .then((result: { messages: NormalizedMessage[]; contextTokens?: number }) => {
         if (cancelled) return
         const items = seedItems(result.messages)
         dispatch({ kind: 'seed', items })
+        // The transcript knows how full the window was when the conversation
+        // stopped; the CLI will not say so again until the next turn ends. The
+        // window's *size* is not in the file, so this reads as a token count
+        // until the first reply — a number one turn stale beats a blank.
+        if (result.contextTokens)
+          dispatch({
+            kind: 'event',
+            event: { type: 'usage', usage: { contextTokens: result.contextTokens } }
+          })
         // Open on the most recent page; the rest loads as the user scrolls up
         setHidden(Math.max(0, items.length - PAGE))
         setLoadingHistory(false)
@@ -401,6 +410,7 @@ export function ChatPane({
         disabled={exited || awaiting.length > 0 || Boolean(notice)}
         slashCommands={state.info?.slashCommands ?? []}
         setup={started ? undefined : setup}
+        usage={state.usage}
         placeholder={
           exited
             ? 'Session ended'
