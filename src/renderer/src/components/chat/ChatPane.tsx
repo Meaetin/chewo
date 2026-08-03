@@ -101,7 +101,6 @@ export function ChatPane({
   onSessionBound
 }: ChatPaneProps): React.JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, emptyChatState)
-  const [pinned, setPinned] = useState(true)
   /**
    * How many items at the *front* are withheld. Counting from the front rather
    * than keeping a "visible count" is what makes this safe for a live
@@ -131,27 +130,61 @@ export function ChatPane({
 
   const loadEarlier = useCallback(() => setHidden((h) => Math.max(0, h - PAGE)), [])
 
+  /**
+   * Whether the view follows the stream. A ref rather than state for two
+   * reasons: nothing renders off it, and the layout effects below must see the
+   * user's wheel *immediately* — a `setState` would land a render later, and a
+   * token arriving in that gap would pin the view back to the bottom under a
+   * scroll that had already begun.
+   */
+  const pinnedRef = useRef(true)
+  const bottomGapRef = useRef(0)
+
+  /**
+   * Every pane stays mounted and is hidden with `display: none`, which zeroes
+   * `scrollHeight`, `clientHeight` and `scrollTop`. Any pane re-rendering — and
+   * they all re-render whenever App does — would then "pin" a conversation
+   * nobody is looking at to a bottom that measures 0, i.e. scroll it to the
+   * top, and record a bogus gap. So every scroll write is gated on this pane
+   * actually being on screen.
+   */
+  const measurable = (el: HTMLDivElement): boolean => active && el.clientHeight > 0
+
   const onScroll = (): void => {
     const el = scrollRef.current
-    if (!el) return
-    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 60)
+    if (!el || !measurable(el)) return
+    // Re-pins only by reaching the bottom again, so scrolling away stays away
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
     if (el.scrollTop < 240) setHidden((h) => Math.max(0, h - PAGE))
   }
 
+  // Unpin on the gesture, not on the scroll event it eventually produces:
+  // during a stream the effect below runs on every token, and one of those
+  // renders can fall between the wheel and the `scroll` that follows it.
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
+    if (e.deltaY < 0) pinnedRef.current = false
+  }
+  const onTouchMove = (): void => {
+    pinnedRef.current = false
+  }
+
   /**
-   * Prepending a page pushes everything down, so the message the user was
-   * reading would jump away. Restore the distance from the *bottom*, which is
-   * what stays fixed when content is added above.
+   * Restores the distance from the *bottom* — the thing that stays fixed when
+   * content is added above. Two cases, same arithmetic: a page prepended by
+   * "load earlier" pushes everything down, and a pane returning from
+   * `display: none` comes back with its scroll offset discarded.
    *
    * Declared before the recorder below so it consumes the gap measured on the
-   * previous render, not the one this render just invalidated.
+   * previous render, not the one this render just invalidated. `pinnedRef` is
+   * read rather than depended on, because firing this on the pinned → unpinned
+   * transition is precisely what used to yank the user back to the bottom the
+   * moment they scrolled up.
    */
-  const bottomGapRef = useRef(0)
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el || pinned) return
+    if (!el || !measurable(el) || pinnedRef.current) return
     el.scrollTop = el.scrollHeight - el.clientHeight - bottomGapRef.current
-  }, [hidden, pinned])
+  }, [hidden, active])
 
   /**
    * Runs every render, deliberately. Pinning once when the items change is not
@@ -163,8 +196,8 @@ export function ChatPane({
    */
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (!el) return
-    if (pinned) el.scrollTop = el.scrollHeight
+    if (!el || !measurable(el)) return
+    if (pinnedRef.current) el.scrollTop = el.scrollHeight
     else bottomGapRef.current = el.scrollHeight - el.scrollTop - el.clientHeight
   })
 
@@ -184,6 +217,9 @@ export function ChatPane({
   const send = useCallback(
     (text: string) => {
       setStarted(true)
+      // Sending is an explicit act of moving the conversation on, so it follows
+      // the reply even if the user had scrolled back to read something
+      pinnedRef.current = true
       if (!consultedFirstSend.current) {
         consultedFirstSend.current = true
         // Taken by the caller: this pane is being replaced by one in a fresh
@@ -273,7 +309,13 @@ export function ChatPane({
         onOpen={() => setHidden(0)}
       />
 
-      <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+      <div
+        className="chat-scroll"
+        ref={scrollRef}
+        onScroll={onScroll}
+        onWheel={onWheel}
+        onTouchMove={onTouchMove}
+      >
         <div className="chat-thread">
           {loadingHistory && (
             <div className="chat-working">
