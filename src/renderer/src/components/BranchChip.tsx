@@ -21,10 +21,37 @@ interface BranchChipProps {
   rootLabel: string
   /** Live status owned by App; the chip reads its branch and ahead/behind */
   status: RepoStatus | null
+  /**
+   * `origin/main` when the focused session is going to cut its own branch and
+   * hasn't yet. Such a pane is only borrowing the shared checkout until its
+   * first message, so reporting that checkout's branch as the session's is a
+   * lie — the base it will be cut from is what it actually has.
+   */
+  pendingBase?: string | null
 }
 
-export function BranchChip({ rootLabel, status }: BranchChipProps): React.JSX.Element | null {
+export function BranchChip({
+  rootLabel,
+  status,
+  pendingBase
+}: BranchChipProps): React.JSX.Element | null {
   const repo = status?.ok && status.isRepo ? status : null
+
+  if (pendingBase)
+    return (
+      <Tooltip
+        label={`Its own branch, cut from ${pendingBase} when you send the first message`}
+        side="top"
+      >
+        <span className="branch-chip branch-chip--pending">
+          <GitBranch size={13} strokeWidth={1.75} aria-hidden="true" />
+          <span className="branch-chip-name">new branch</span>
+          <span className="branch-chip-track">from {pendingBase}</span>
+        </span>
+      </Tooltip>
+    )
+
+
   // Nothing to show until status says this root really is a repo — a chip that
   // appears and then vanishes reads as a glitch
   if (!repo) return null

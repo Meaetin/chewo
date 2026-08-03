@@ -22,6 +22,14 @@ interface SelectProps<T extends string> {
   searchable?: boolean
   /** Placeholder for the filter box; only read when `searchable`. */
   searchPlaceholder?: string
+  /** Extra class on the trigger — for a compact variant, e.g. in the composer */
+  className?: string
+  /**
+   * Floor for the menu's width. The menu otherwise matches the trigger, which
+   * is right for a settings row and far too narrow for a trigger shrunk to fit
+   * its own label.
+   */
+  menuMinWidth?: number
 }
 
 const MENU_GAP = 4
@@ -41,7 +49,9 @@ export function Select<T extends string>({
   options,
   onChange,
   searchable = false,
-  searchPlaceholder = 'Search…'
+  searchPlaceholder = 'Search…',
+  className,
+  menuMinWidth
 }: SelectProps<T>): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -144,7 +154,7 @@ export function Select<T extends string>({
         id={id}
         ref={triggerRef}
         type="button"
-        className={`wt-select-trigger ${open ? 'wt-select-trigger-open' : ''}`}
+        className={`wt-select-trigger ${open ? 'wt-select-trigger-open' : ''}${className ? ` ${className}` : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu())}
@@ -164,7 +174,7 @@ export function Select<T extends string>({
             style={{
               top: rect.bottom + MENU_GAP,
               left: rect.left,
-              width: rect.width,
+              width: Math.max(rect.width, menuMinWidth ?? 0),
               maxHeight: Math.min(MENU_MAX_HEIGHT, window.innerHeight - rect.bottom - 16)
             }}
           >

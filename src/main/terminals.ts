@@ -29,6 +29,10 @@ export interface CreateTerminalOptions {
   permissionMode?: string
   /** codex --ask-for-approval; omit for the CLI's own default */
   approvalPolicy?: string
+  /** Model id passed verbatim to the CLI's model flag; omit for its default */
+  model?: string
+  /** Reasoning effort; omit for the model's own default */
+  effort?: string
   /** Card run (§10): the agent launches with this already submitted */
   initialPrompt?: string
   /** Extra --add-dir roots, e.g. a card's assets folder outside the cwd */
@@ -83,6 +87,31 @@ function permissionFlag(source: Source, opts: CreateTerminalOptions): string {
 }
 
 /**
+ * Model and reasoning effort, which the two CLIs spell differently: claude
+ * takes `--model`/`--effort`, codex takes `-m` and a config override
+ * (`-c model_reasoning_effort=…`) because it has no effort flag of its own.
+ *
+ * Both values are quoted rather than validated against a list: the accepted
+ * set is per model and discovered from the CLI at runtime, so there is no
+ * enum here to check against the way `permissionFlag` has one. Quoting is
+ * what keeps a value off the command line as anything but a single argument.
+ */
+function modelFlags(source: Source, opts: CreateTerminalOptions): string {
+  const model = opts.model?.trim()
+  const effort = opts.effort?.trim()
+  if (source === 'claude') {
+    return (
+      (model ? ` --model ${shellQuote(model)}` : '') +
+      (effort ? ` --effort ${shellQuote(effort)}` : '')
+    )
+  }
+  return (
+    (model ? ` -m ${shellQuote(model)}` : '') +
+    (effort ? ` -c ${shellQuote(`model_reasoning_effort="${effort}"`)}` : '')
+  )
+}
+
+/**
  * Card content reaches a shell command line, so it is quoted, never
  * interpolated (§10.3). Roots and image paths get the same treatment: a
  * project path can contain spaces, quotes, anything.
@@ -117,7 +146,7 @@ export function buildCommand(opts: CreateTerminalOptions): string | null {
     // (inspect output, re-run) after a dev server is stopped with Ctrl-C.
     return run ? `${run}; exec /bin/zsh -il` : null
   }
-  const flags = permissionFlag(opts.source, opts)
+  const flags = permissionFlag(opts.source, opts) + modelFlags(opts.source, opts)
   const tail = promptFlags(opts)
   const agent =
     opts.source === 'claude'

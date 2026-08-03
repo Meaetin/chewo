@@ -52,6 +52,7 @@ import {
 import { loadProjects, saveProjects } from './projects'
 import { loadSettings, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
+import { nextPaneId } from './pane-ids'
 import type { AgentId } from '../shared/agents'
 import type { SettingsFile } from '../shared/appearance'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
@@ -103,7 +104,7 @@ import {
   stopGitWatch,
   type GitDiffSpec
 } from './git'
-import { gitUpdateFromBase } from './git-ops'
+import { gitDefaultBase, gitFetchRemote, gitUpdateFromBase } from './git-ops'
 import { mergedBranches, shipPreview, shipPullRequest, type ShipArgs } from './git-ship'
 import {
   disposeVersionWatch,
@@ -203,6 +204,11 @@ function registerIpc(): void {
   )
   ipcMain.on('terminal:kill', (_e, { id }: { id: number }) => killTerminal(id))
 
+  // A session that hasn't been started yet is a tab with no process behind
+  // it; it still needs an id from the shared counter so the real pane can take
+  // its place in the strip later.
+  ipcMain.handle('pane:reserve', () => nextPaneId())
+
   ipcMain.handle('chat:create', (_e, opts: CreateChatOptions) => {
     if (!mainWindow) throw new Error('no window')
     return createChat(mainWindow, opts)
@@ -297,6 +303,8 @@ function registerIpc(): void {
   ipcMain.on('git:unwatch', (_e, a: { watchId: number }) => stopGitWatch(a.watchId))
 
   ipcMain.handle('git:update', (_e, root: string) => gitUpdateFromBase(root))
+  ipcMain.handle('git:fetch', (_e, root: string) => gitFetchRemote(root))
+  ipcMain.handle('git:default-base', (_e, root: string) => gitDefaultBase(root))
   ipcMain.handle('git:ship', (_e, a: ShipArgs) => shipPullRequest(a))
   ipcMain.handle('git:ship-preview', (_e, a: { root: string }) => shipPreview(a))
   ipcMain.handle('git:merged-branches', (_e, root: string) => mergedBranches(root))

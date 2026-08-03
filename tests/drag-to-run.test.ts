@@ -100,6 +100,29 @@ describe('buildCommand with a prompt', () => {
     ).toBe(`(npm i) && claude --resume abc --permission-mode plan 'go' --add-dir '/tmp/a'`)
   })
 
+  test('claude takes --model and --effort, before the prompt', () => {
+    expect(
+      buildCommand({ source: 'claude', model: 'opus', effort: 'high', initialPrompt: 'go' })
+    ).toBe(`claude --model 'opus' --effort 'high' 'go'`)
+  })
+
+  test('codex spells effort as a config override, not a flag', () => {
+    expect(buildCommand({ source: 'codex', model: 'gpt-5.6-sol', effort: 'high' })).toBe(
+      `codex -m 'gpt-5.6-sol' -c 'model_reasoning_effort="high"'`
+    )
+  })
+
+  test('a model id is quoted, so it cannot become anything but one argument', () => {
+    // Model ids come from a CLI's own catalog, but they reach a command line —
+    // there is no enum to validate against the way permission modes have one
+    const command = buildCommand({ source: 'codex', model: "a'; touch /tmp/pwned; '" })!
+    expect(argOf(command, 'codex -m ')).toBe("a'; touch /tmp/pwned; '")
+  })
+
+  test('no model or effort adds nothing', () => {
+    expect(buildCommand({ source: 'claude', model: '', effort: '  ' })).toBe('claude')
+  })
+
   test('a whitespace-only prompt adds nothing', () => {
     expect(buildCommand({ source: 'claude', initialPrompt: '   \n ' })).toBe('claude')
   })

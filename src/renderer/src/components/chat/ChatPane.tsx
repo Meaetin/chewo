@@ -12,7 +12,7 @@ import {
 } from '../../../../shared/agent-chat'
 import type { NormalizedMessage } from '../../../../shared/adapter/types'
 import { WorkingText } from '../ui'
-import { ChatComposer } from './ChatComposer'
+import { ChatComposer, type SessionSetup } from './ChatComposer'
 import { FindBar } from './FindBar'
 import { ChatItemView } from './ChatItems'
 
@@ -47,11 +47,17 @@ interface ChatPaneProps {
   /**
    * Consulted once, on the very first message this pane sends. Returning true
    * means the caller took the message — this pane sends nothing and is about
-   * to be replaced. It is how "work on a separate branch" defers branch
-   * creation until there is a task to name the branch after: the text becomes
-   * the `initialPrompt` of a new pane inside the worktree.
+   * to be replaced. It is how the setup row's choices are deferred until there
+   * is a task: a branch is named after one, and the agent decides which
+   * runtime the pane needs. The text becomes the replacement's `initialPrompt`.
    */
   beforeFirstSend?: (text: string) => boolean
+  /**
+   * Present only while the session is unstarted. The agent and the checkout
+   * are asked here rather than before the pane opens, because neither is
+   * answerable until you know the task — and this is where the task is typed.
+   */
+  setup?: SessionSetup
   /** Blocks the composer and explains why — e.g. while a worktree is being cut */
   notice?: string
   /** Fires once, when the CLI reports the conversation id it opened */
@@ -90,6 +96,7 @@ export function ChatPane({
   initialPrompt,
   resumeFrom,
   beforeFirstSend,
+  setup,
   notice,
   onSessionBound
 }: ChatPaneProps): React.JSX.Element {
@@ -166,9 +173,17 @@ export function ChatPane({
   const beforeFirstSendRef = useRef(beforeFirstSend)
   beforeFirstSendRef.current = beforeFirstSend
   const consultedFirstSend = useRef(false)
+  /**
+   * The setup row goes the moment the first message is sent, not when the CLI
+   * gets round to announcing a session id — that arrives a turn later, and a
+   * row still offering to change the checkout after the agent has started is
+   * offering something it can no longer do.
+   */
+  const [started, setStarted] = useState(false)
 
   const send = useCallback(
     (text: string) => {
+      setStarted(true)
       if (!consultedFirstSend.current) {
         consultedFirstSend.current = true
         // Taken by the caller: this pane is being replaced by one in a fresh
@@ -303,6 +318,7 @@ export function ChatPane({
         // would queue behind it with no sign of why nothing happened
         disabled={exited || awaiting.length > 0 || Boolean(notice)}
         slashCommands={state.info?.slashCommands ?? []}
+        setup={started ? undefined : setup}
         placeholder={
           exited
             ? 'Session ended'
@@ -310,7 +326,11 @@ export function ChatPane({
               ? notice
               : awaiting.length > 0
                 ? 'Waiting on the permission above…'
-                : 'Ask anything…'
+                : // An unstarted pane says which agent will read this, because
+                  // that is still a choice at this point
+                  !started && setup
+                  ? `Ask ${setup.source === 'codex' ? 'Codex' : 'Claude'}…`
+                  : 'Ask anything…'
         }
         onSend={send}
         onInterrupt={interrupt}

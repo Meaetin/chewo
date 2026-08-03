@@ -10,7 +10,17 @@ import {
 } from 'lucide-react'
 import { ChatPane } from './components/chat/ChatPane'
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
-import { agentDef, DEFAULT_AGENTS, type AgentAssignments } from '../../shared/agents'
+import {
+  agentDef,
+  AGENT_IDS,
+  DEFAULT_AGENTS,
+  sessionEffort,
+  sessionModel,
+  type AgentAssignments,
+  type AgentId,
+  type AgentModel,
+  type EffortLevel
+} from '../../shared/agents'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
 import {
   assignProject,
@@ -101,12 +111,29 @@ export interface TerminalTab {
   /** Pane runs in an isolated worktree — gets the merge button, keeps its ⎇ label */
   worktreeId?: string
   /**
-   * Where this session's work should land, chosen in the branch menu before
-   * the first message. 'separate' means "cut a worktree for this" — deferred
-   * until the user has typed something, because the branch is named after the
-   * task. Absent (and after the first message) means the checkout it opened in.
+   * Where this session's work should land, chosen in the pane's own setup row
+   * before the first message. 'separate' means "cut a worktree for this" —
+   * deferred until the user has typed something, because the branch is named
+   * after the task. Absent (and after the first message) means the checkout it
+   * opened in.
    */
   branchMode?: 'current' | 'separate'
+  /**
+   * Model and reasoning effort for the session, also from the setup row.
+   * Absent means "whatever `sessionModel`/`sessionEffort` resolve for this
+   * agent" — an explicit id would go stale the moment a CLI update renames a
+   * model, and the resolver is shared with the picker so the label and the
+   * spawn cannot disagree.
+   */
+  model?: string
+  effort?: EffortLevel
+  /**
+   * No process behind this pane yet. Its composer is the only live part: the
+   * CLI is spawned on the first message, once the setup row's answers are
+   * final. Nothing before that point is worth a running agent, and spawning
+   * early would mean re-spawning every time one of those answers changed.
+   */
+  pending?: boolean
   exited: boolean
 }
 
@@ -170,6 +197,14 @@ export function App(): React.JSX.Element {
   const [worktrees, setWorktrees] = useState<Worktree[]>([])
   /** Panes whose worktree is being cut right now — they show a notice, not a composer */
   const [cuttingBranch, setCuttingBranch] = useState<Set<number>>(new Set())
+  /** `origin/main` per project path — what an isolated session will be cut from */
+  const [defaultBases, setDefaultBases] = useState<Map<string, string | null>>(new Map())
+  /**
+   * Each agent's model catalog, for the composer's picker. Claude's is the
+   * static alias list; Codex's is read from `codex debug models`, which is why
+   * this is fetched rather than imported. Main caches it for the session.
+   */
+  const [modelCatalogs, setModelCatalogs] = useState<Record<string, AgentModel[]>>({})
   const [wtCreateOpen, setWtCreateOpen] = useState(false)
   /**
    * The Ship review, in two halves. `shipReading` is the root whose change is
@@ -620,6 +655,19 @@ export function App(): React.JSX.Element {
     ? `⎇ ${activeWorktree.taskName}`
     : (selectedProject?.name ?? 'Home')
 
+  /**
+   * An isolated session that has not cut its branch yet is only *standing* in
+   * the shared checkout — the branch there is whatever you last left the
+   * project on, and is emphatically not this session's. Showing it was what
+   * made every new session look like it had inherited an old branch. What the
+   * branch will actually be cut from is the honest answer, so the chip says
+   * that instead, and Update/Ship stay away until there is a branch to act on.
+   */
+  const pendingBase =
+    activeTab && activeTab.pending && activeTab.branchMode === 'separate' && selectedProject
+      ? (defaultBases.get(selectedProject.path) ?? 'the default branch')
+      : null
+
   // ---------- git panel ----------
 
   // Git visibility follows the same root as the file tree, but only for
@@ -844,21 +892,6 @@ export function App(): React.JSX.Element {
   // terminal instead of the transcript
   const liveSessionTabs = new Map(tabs.filter((t) => t.sessionId).map((t) => [t.sessionId!, t]))
 
-  const selectSection = useCallback(
-    (id: string | null) => {
-      setSelectedProjectId(id)
-      const sectionTabs = tabs.filter((t) => t.projectId === id)
-      if (sectionTabs.length === 0) {
-        setView({ kind: 'empty' })
-        return
-      }
-      const remembered = lastViewedTerm.current.get(id)
-      const target = sectionTabs.find((t) => t.termId === remembered) ?? sectionTabs[sectionTabs.length - 1]
-      setView({ kind: 'terminal', termId: target.termId })
-    },
-    [tabs]
-  )
-
   const hideSession = useCallback((id: string) => {
     setHiddenIds((prev) => new Set(prev).add(id))
   }, [])
@@ -887,6 +920,8 @@ export function App(): React.JSX.Element {
       projectId: string | null
       worktreeId?: string
       branchMode?: 'current' | 'separate'
+      model?: string
+      effort?: EffortLevel
       setupCommand?: string
       runCommand?: string
       initialPrompt?: string
@@ -902,6 +937,8 @@ export function App(): React.JSX.Element {
         runCommand: opts.runCommand,
         permissionMode: claudeMode,
         approvalPolicy: codexApproval,
+        model: opts.model,
+        effort: opts.effort,
         initialPrompt: opts.initialPrompt,
         extraDirs: opts.extraDirs,
         attachImages: opts.attachImages
@@ -917,6 +954,8 @@ export function App(): React.JSX.Element {
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
           branchMode: opts.branchMode,
+          model: opts.model,
+          effort: opts.effort,
           exited: false
         }
       ])
@@ -953,6 +992,8 @@ export function App(): React.JSX.Element {
       sessionId?: string
       worktreeId?: string
       branchMode?: 'current' | 'separate'
+      model?: string
+      effort?: EffortLevel
       label?: string
       setupCommand?: string
       initialPrompt?: string
@@ -963,6 +1004,8 @@ export function App(): React.JSX.Element {
         source: opts.source,
         cwd: opts.cwd,
         sessionId: opts.sessionId,
+        model: opts.model,
+        effort: opts.effort,
         permissionMode: claudeMode,
         setupCommand: opts.setupCommand,
         extraDirs: opts.extraDirs
@@ -978,6 +1021,8 @@ export function App(): React.JSX.Element {
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
           branchMode: opts.branchMode,
+          model: opts.model,
+          effort: opts.effort,
           initialPrompt: opts.initialPrompt,
           resumeSessionId: opts.sessionId,
           exited: false
@@ -1012,6 +1057,8 @@ export function App(): React.JSX.Element {
       label?: string
       worktreeId?: string
       branchMode?: 'current' | 'separate'
+      model?: string
+      effort?: EffortLevel
       setupCommand?: string
       initialPrompt?: string
       extraDirs?: string[]
@@ -1231,6 +1278,37 @@ export function App(): React.JSX.Element {
 
   // ---------- separate-branch sessions ----------
 
+  /** Both catalogs, once. Codex's is a CLI call, so it cannot be imported. */
+  useEffect(() => {
+    let live = true
+    for (const id of AGENT_IDS) {
+      void window.api.listAgentModels(id).then((list) => {
+        if (live) setModelCatalogs((m) => ({ ...m, [id]: list }))
+      })
+    }
+    return () => {
+      live = false
+    }
+  }, [])
+
+  /**
+   * What a pane will actually spawn with. One resolver for the picker's labels
+   * and for the spawn arguments, so a session can never run on a model the
+   * setup row was not showing.
+   */
+  const paneChoice = useCallback(
+    (agent: AgentId, model?: string, effort?: EffortLevel) => {
+      const catalog = modelCatalogs[agent] ?? agentDef(agent).models
+      const resolvedModel = sessionModel(agent, model, catalog)
+      return {
+        catalog,
+        model: resolvedModel,
+        effort: sessionEffort(agent, effort, catalog.find((m) => m.id === resolvedModel))
+      }
+    },
+    [modelCatalogs]
+  )
+
   /**
    * Swap a pane for a fresh one in the same slot. Used when a session moves
    * checkouts before it has said anything: the old runtime is killed and the
@@ -1255,57 +1333,87 @@ export function App(): React.JSX.Element {
   )
 
   /**
-   * The first message of an isolated session. The worktree is named after what
-   * the user just asked for — which is the whole reason this waits for a
-   * message instead of cutting it at spawn time.
+   * The first message of a session — where the setup row's answers are finally
+   * acted on, and where the CLI is actually spawned.
    *
-   * Returns true unconditionally once it has taken the message: both outcomes
-   * end in a replacement pane that receives the text as its `initialPrompt`,
-   * so there is no path where a typed message is silently dropped. A failure
-   * to cut the worktree lands the session back in the main checkout with the
-   * reason in a toast — the work still starts, just not in isolation.
+   * Everything the row asks about waits for this moment for the same reason:
+   * the branch is *named* after the task, and a process started before the
+   * agent, model or effort were settled would have to be thrown away and
+   * respawned for each change. So an unstarted pane has no process, and this
+   * builds the real one.
+   *
+   * Returning true is a promise to handle the message: the text always
+   * survives as the replacement's `initialPrompt`, so there is no path where a
+   * typed message is silently dropped. False means "not mine" — a pane already
+   * running the agent and checkout it asked for just sends. A worktree that
+   * cannot be cut lands the session in the main checkout with the reason in a
+   * toast; the work still starts, just not in isolation.
    */
-  const startSeparateBranch = useCallback(
+  const startChosenSession = useCallback(
     (tab: TerminalTab, text: string): boolean => {
-      const project = projects.find((p) => p.id === tab.projectId)
-      if (!project) {
+      const source = tab.source === 'shell' ? 'claude' : tab.source
+      // Codex has no chat backend yet (`codex app-server` is the next piece of
+      // work), so choosing it means the pane becomes a pty
+      const movingRuntime = tab.mode === 'chat' && source !== 'claude'
+      const project = projects.find((p) => p.id === tab.projectId) ?? null
+      const wantsBranch = tab.branchMode === 'separate' && !tab.worktreeId
+      const isolating = wantsBranch && !!project
+      const { model, effort } = paneChoice(source, tab.model, tab.effort)
+
+      if (wantsBranch && !project && !tab.pending && !movingRuntime) {
         showToast('Isolated branches need a project — this session is in Home.')
         return false
       }
+      // A pending pane has nothing running, so there is always something to do
+      if (!tab.pending && !isolating && !movingRuntime) return false
+
+      const inPlace = (): Parameters<typeof openAgent>[0] => ({
+        source,
+        cwd: project?.path ?? null,
+        projectId: project?.id ?? null,
+        // The pane has not been named by a conversation yet, so the agent is
+        // the only honest label until `bindChatSession` replaces it
+        label: source,
+        model,
+        effort,
+        initialPrompt: text,
+        forceTerminal: tab.mode === 'terminal' && !tab.pending
+      })
+
+      if (!isolating) {
+        void replacePane(tab.termId, inPlace())
+        return true
+      }
+
+      const owner = project as Project
       setCuttingBranch((s) => new Set(s).add(tab.termId))
       void (async () => {
-        const fallback = (): Parameters<typeof openAgent>[0] => ({
-          source: tab.source === 'shell' ? 'claude' : tab.source,
-          cwd: project.path,
-          projectId: project.id,
-          label: tab.label,
-          initialPrompt: text,
-          forceTerminal: tab.mode === 'terminal'
-        })
         try {
           const taken = worktrees
-            .filter((w) => w.projectId === project.id)
+            .filter((w) => w.projectId === owner.id)
             .map((w) => w.taskName)
           const taskName = branchNameFor(text, taken)
-          const cut = await cutWorktree(project, taskName)
+          const cut = await cutWorktree(owner, taskName)
           if (!cut.ok) {
-            showToast(`Kept this session in ${project.name}: ${cut.error}`)
-            await replacePane(tab.termId, fallback())
+            showToast(`Kept this session in ${owner.name}: ${cut.error}`)
+            await replacePane(tab.termId, inPlace())
             return
           }
           await replacePane(tab.termId, {
-            source: tab.source === 'shell' ? 'claude' : tab.source,
+            source,
             cwd: cut.worktree.path,
-            projectId: project.id,
+            projectId: owner.id,
             label: `⎇ ${taskName}`,
             worktreeId: cut.worktree.id,
-            setupCommand: project.worktreeSetup || undefined,
+            model,
+            effort,
+            setupCommand: owner.worktreeSetup || undefined,
             initialPrompt: text,
-            forceTerminal: tab.mode === 'terminal'
+            forceTerminal: tab.mode === 'terminal' && !tab.pending
           })
         } catch (err) {
-          showToast(`Kept this session in ${project.name}: ${String(err)}`)
-          await replacePane(tab.termId, fallback())
+          showToast(`Kept this session in ${owner.name}: ${String(err)}`)
+          await replacePane(tab.termId, inPlace())
         } finally {
           setCuttingBranch((s) => {
             const next = new Set(s)
@@ -1316,7 +1424,7 @@ export function App(): React.JSX.Element {
       })()
       return true
     },
-    [projects, worktrees, cutWorktree, replacePane, showToast]
+    [projects, worktrees, cutWorktree, replacePane, showToast, paneChoice]
   )
 
 
@@ -1348,72 +1456,135 @@ export function App(): React.JSX.Element {
   )
 
   /**
-   * Cut the checkout and start the session in one go — the path for a session
-   * that already knows its task. Claude's equivalent waits for its first
-   * message (`startSeparateBranch`); Codex has no composer, so the task was
-   * typed in the New session menu and there is nothing left to wait for.
+   * Open an **unstarted** agent session in a section: a pane with a composer
+   * and nothing behind it yet. Both launchers land here — the sidebar's "New
+   * session" button and clicking a project — so neither can drift.
+   *
+   * Nothing is decided at this point except the section. The agent and the
+   * checkout are chosen in the pane's own setup row and read back off the tab
+   * when the first message arrives, because both questions are only really
+   * answerable once you know the task — and the branch is *named* after it.
+   *
+   * Isolated by default wherever there is a project to isolate from. Ship
+   * stages the whole tree (`git add -A`) and several agents share these
+   * checkouts, so a session in the main checkout means one agent's click
+   * sweeps another's half-finished work into its PR. The worktree is what
+   * makes a no-prompt ship safe; the toggle is the way out of it, not into it.
    */
-  const startIsolatedNow = useCallback(
-    async (project: Project, source: Source, task: string): Promise<void> => {
-      const taken = worktrees.filter((w) => w.projectId === project.id).map((w) => w.taskName)
-      const taskName = branchNameFor(task, taken)
-      const cut = await cutWorktree(project, taskName)
-      if (!cut.ok) {
-        // Isolation failed, the work still starts — same bargain as the
-        // deferred path, and the prompt is never dropped
-        showToast(`Started in ${project.name} instead: ${cut.error}`)
-        void openAgent({
-          source,
-          cwd: project.path,
-          projectId: project.id,
-          initialPrompt: task
-        })
-        return
-      }
-      void openAgent({
-        source,
-        cwd: cut.worktree.path,
-        projectId: project.id,
-        label: `⎇ ${taskName}`,
-        worktreeId: cut.worktree.id,
-        setupCommand: project.worktreeSetup || undefined,
-        initialPrompt: task
-      })
+  const newAgent = useCallback(
+    (project: Project | null) => {
+      void (async () => {
+        // A tab with no process behind it, so the id comes from main's counter
+        // rather than from a spawn. Nothing here is committed to yet: agent,
+        // model, effort and checkout are all still the setup row's to change,
+        // and spawning now would mean re-spawning on every one of them.
+        const termId = await window.api.reservePaneId()
+        setTabs((t) => [
+          ...t,
+          {
+            termId,
+            projectId: project?.id ?? null,
+            // Claude only as the row's starting position — picking Codex before
+            // the first message opens a pty instead
+            source: 'claude',
+            mode: 'chat',
+            // Not the agent's name: which agent is still a choice, and the
+            // conversation's own title replaces this on the first turn
+            label: 'New session',
+            branchMode: project ? 'separate' : 'current',
+            pending: true,
+            exited: false
+          }
+        ])
+        setView({ kind: 'terminal', termId })
+      })()
     },
-    [worktrees, cutWorktree, openAgent, showToast]
+    []
   )
 
   /**
-   * New agent session in the selected section — the tab bar and the sidebar's
-   * "New session" button both land here, so neither can drift from the other.
+   * Refresh a project's remote-tracking refs when it is selected.
    *
-   * Isolated by default when there is a project to isolate from. Ship stages
-   * the whole tree (`git add -A`), and several agents share these checkouts,
-   * so a session in the main checkout means one agent's click sweeps another's
-   * half-finished work into its PR. The worktree is what makes a no-prompt
-   * ship safe; the branch menu's toggle is the way out of it, not into it.
-   * Nothing is cut here — that waits for the first message, which is what the
-   * worktree gets named after.
+   * A session is a worktree cut from `origin/<default>`, so "new sessions
+   * start on current main" is a fetch and nothing more — no ref that a
+   * checkout, a dev server or a running agent is standing on moves, which is
+   * what makes it safe to do without asking. Throttled per project because
+   * clicking between two projects should not be a network call each way, and
+   * fire-and-forget because nothing on screen is waiting for it.
    */
-  const newAgent = useCallback(
-    (source: Source, opts?: { isolate: boolean; task?: string }) => {
-      const project = selectedProject
-      const isolate = Boolean(opts?.isolate && project)
-      // Codex arrives with its task already typed (a pty has no composer to
-      // take it from later), so its checkout can be cut right now
-      if (isolate && project && opts?.task) {
-        void startIsolatedNow(project, source, opts.task)
+  const fetchedAt = useRef(new Map<string, number>())
+  const prefetchProject = useCallback((project: Project) => {
+    // `origin/main` names the base an isolated session will be cut from. Read
+    // from the local symref, so it costs nothing and is worth keeping current.
+    void window.api.gitDefaultBase(project.path).then((base) =>
+      setDefaultBases((m) => (m.get(project.path) === base ? m : new Map(m).set(project.path, base)))
+    )
+    const last = fetchedAt.current.get(project.path) ?? 0
+    if (Date.now() - last < 5 * 60_000) return
+    fetchedAt.current.set(project.path, Date.now())
+    void window.api.gitFetch(project.path)
+  }, [])
+
+  /**
+   * Select a project (or Home) in the sidebar.
+   *
+   * A project with no panes open lands on a ready-to-type session rather than
+   * an empty state: clicking a project is the start of doing work in it, and a
+   * pane you have to go and ask for is a step between the two. Only when the
+   * section is empty — an existing pane is what you meant to come back to.
+   */
+  const selectSection = useCallback(
+    (id: string | null) => {
+      setSelectedProjectId(id)
+      const project = projects.find((p) => p.id === id) ?? null
+      // Every selection, not only the ones that open a pane: whatever you do
+      // next in this project starts from the refs this brings in
+      if (project) prefetchProject(project)
+      const sectionTabs = tabs.filter((t) => t.projectId === id)
+      if (sectionTabs.length === 0) {
+        if (project) newAgent(project)
+        else setView({ kind: 'empty' })
         return
       }
-      void openAgent({
-        source,
-        // Selected project → its path; no project → $HOME (main falls back)
-        cwd: project?.path ?? null,
-        projectId: project?.id ?? null,
-        branchMode: isolate ? 'separate' : 'current'
-      })
+      const remembered = lastViewedTerm.current.get(id)
+      const target = sectionTabs.find((t) => t.termId === remembered) ?? sectionTabs[sectionTabs.length - 1]
+      setView({ kind: 'terminal', termId: target.termId })
     },
-    [openAgent, selectedProject, startIsolatedNow]
+    [tabs, projects, newAgent, prefetchProject]
+  )
+
+  /**
+   * The agent and the checkout a pane will use, changed from its setup row
+   * until the first message settles both. Held on the tab rather than inside
+   * the pane so the tab strip's badge and the branch chip read the same
+   * answer the send path will act on.
+   */
+  const setPaneChoice = useCallback(
+    (
+      termId: number,
+      next: {
+        source?: Source
+        branchMode?: 'current' | 'separate'
+        model?: string
+        effort?: EffortLevel
+      }
+    ) => {
+      // Only the keys actually present: the row sends one answer at a time, and
+      // spreading the rest as `undefined` would wipe the others
+      const patch = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined))
+      setTabs((ts) =>
+        ts.map((t) => {
+          if (t.termId !== termId) return t
+          // A model id belongs to one CLI's catalog, and the effort set is per
+          // model — switching agents drops both rather than carrying a flag
+          // the new CLI would reject at spawn
+          if (next.source && next.source !== t.source)
+            return { ...t, ...patch, model: undefined, effort: undefined }
+          return { ...t, ...patch }
+        })
+      )
+    },
+    []
   )
 
   /**
@@ -1982,7 +2153,10 @@ export function App(): React.JSX.Element {
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
         onSelect={openSession}
-        onNewTerminal={newAgent}
+        onNewTerminal={() => {
+          if (selectedProject) prefetchProject(selectedProject)
+          newAgent(selectedProject)
+        }}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
         liveWorktreeIds={
           new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
@@ -2128,8 +2302,13 @@ export function App(): React.JSX.Element {
 
           {/* Pinned to the far right, outside the scrolling tab strip */}
           <div className="terminal-tab-actions">
-            {gitRoot && <BranchChip rootLabel={treeRootLabel} status={repoStatus} />}
             {gitRoot && (
+              <BranchChip rootLabel={treeRootLabel} status={repoStatus} pendingBase={pendingBase} />
+            )}
+            {/* Nothing to update and nothing to ship until the branch exists —
+                both would act on the shared checkout this pane is only
+                borrowing, which is the whole thing the worktree avoids */}
+            {gitRoot && !pendingBase && (
               <UpdateButton
                 root={gitRoot}
                 status={repoStatus}
@@ -2137,7 +2316,7 @@ export function App(): React.JSX.Element {
                 onError={showToast}
               />
             )}
-            {gitRoot && (
+            {gitRoot && !pendingBase && (
               <ShipButton
                 status={repoStatus}
                 busy={shipReading === gitRoot}
@@ -2301,11 +2480,45 @@ export function App(): React.JSX.Element {
                   source={tab.source === 'shell' ? 'claude' : tab.source}
                   initialPrompt={tab.initialPrompt}
                   resumeFrom={resumeSourceFor(tab)}
-                  // Only a session that asked for isolation and hasn't got it
-                  // yet defers its first message
-                  beforeFirstSend={
-                    tab.branchMode === 'separate' && !tab.worktreeId
-                      ? (text) => startSeparateBranch(tab, text)
+                  // Consulted on every pane's first message; it returns false
+                  // for one already running the agent and checkout it asked for
+                  beforeFirstSend={(text) => startChosenSession(tab, text)}
+                  // Only a pane with no process behind it: once the CLI is
+                  // running, its agent, model, effort and checkout are facts
+                  setup={
+                    tab.pending
+                      ? (() => {
+                          const agent = tab.source === 'shell' ? 'claude' : tab.source
+                          const choice = paneChoice(agent, tab.model, tab.effort)
+                          return {
+                            source: agent,
+                            isolate: tab.branchMode === 'separate',
+                            models: choice.catalog,
+                            model: choice.model,
+                            effort: choice.effort,
+                            projectName: tabProject?.name,
+                            base: tabProject ? (defaultBases.get(tabProject.path) ?? null) : null,
+                            // Only meaningful for the visible pane: `repoStatus`
+                            // follows the *active* tab's root, and an unstarted
+                            // pane's root is its project's checkout
+                            currentBranch:
+                              paneActive && repoStatus?.ok && repoStatus.isRepo
+                                ? repoStatus.branch
+                                : undefined,
+                            onChange: (patch) =>
+                              setPaneChoice(tab.termId, {
+                                source: patch.source,
+                                branchMode:
+                                  patch.isolate === undefined
+                                    ? undefined
+                                    : patch.isolate
+                                      ? 'separate'
+                                      : 'current',
+                                model: patch.model,
+                                effort: patch.effort
+                              })
+                          }
+                        })()
                       : undefined
                   }
                   notice={
