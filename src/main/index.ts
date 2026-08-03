@@ -53,6 +53,7 @@ import { loadProjects, saveProjects } from './projects'
 import { loadSettings, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
 import { nextPaneId } from './pane-ids'
+import { pruneAttachments, stageImage } from './attachments'
 import type { AgentId } from '../shared/agents'
 import type { SettingsFile } from '../shared/appearance'
 import { notesChatCancel, notesChatSend, type NotesChatArgs } from './notes-chat'
@@ -213,9 +214,19 @@ function registerIpc(): void {
     if (!mainWindow) throw new Error('no window')
     return createChat(mainWindow, opts)
   })
-  ipcMain.on('chat:send', (_e, { id, text }: { id: number; text: string }) => {
-    if (mainWindow) sendChat(mainWindow, id, text)
-  })
+  ipcMain.on(
+    'chat:send',
+    (_e, { id, text, images }: { id: number; text: string; images?: string[] }) => {
+      if (mainWindow) sendChat(mainWindow, id, text, images)
+    }
+  )
+
+  // Pasted images are staged to disk before they are sent, because a chat
+  // pane, a codex pty and a claude pty each carry an image differently and a
+  // file is the one thing all three can be built from.
+  ipcMain.handle('attachment:stage', (_e, { base64, mimeType }: { base64: string; mimeType: string }) =>
+    stageImage(base64, mimeType)
+  )
   ipcMain.on(
     'chat:respond',
     (_e, { id, requestId, decision }: { id: number; requestId: string; decision: ApprovalDecision }) => {
@@ -680,6 +691,9 @@ app.whenReady().then(() => {
     mainWindow.on('closed', () => closeHud())
   }
   publishScopeIndex(projectsFile)
+  // Staged clipboard images outlive the turn they were sent in; sweep the old
+  // ones rather than growing ~/.chewo/attachments forever
+  pruneAttachments()
   if (mainWindow) watchRepoHead(mainWindow)
   watchSessionStores()
   watchNotesStore()

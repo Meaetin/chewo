@@ -351,7 +351,7 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
 
   // ---- push ----
   const compare = await comparisonRef(cwd, base)
-  const upstream = await runGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+  const tracksSelf = await tracksOwnBranch(cwd, branch)
   const ahead = await runGit(cwd, ['rev-list', '--count', `${compare}..HEAD`])
   // A count git couldn't produce is unknown, not zero — refusing to ship on a
   // failed `rev-list` would strand real commits behind a "nothing to do"
@@ -366,7 +366,7 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
         : `Nothing to ship — ${branch} has no commits ${base} lacks.`
     }
 
-  const push = upstream.ok
+  const push = tracksSelf
     ? await runGit(cwd, ['push'], NETWORK_TIMEOUT_MS)
     : await runGit(cwd, ['push', '--set-upstream', await pushRemote(cwd), branch], NETWORK_TIMEOUT_MS)
   if (!push.ok) return { ok: false, error: gitErrorOf(push) }
@@ -456,6 +456,21 @@ async function openPrUrl(cwd: string, branch: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * Whether the branch's upstream is *its own* remote branch, which is the only
+ * case a bare `git push` handles.
+ *
+ * Having an upstream is not enough: cutting a worktree from `origin/<default>`
+ * makes git's `autoSetupMerge` point the task branch at `refs/heads/main`, so
+ * `@{u}` resolves and `git push` then dies with *the upstream branch of your
+ * current branch does not match the name of your current branch*. Falling
+ * through to `--set-upstream` both pushes and repoints it.
+ */
+async function tracksOwnBranch(cwd: string, branch: string): Promise<boolean> {
+  const merge = await runGit(cwd, ['config', '--get', `branch.${branch}.merge`])
+  return merge.ok && merge.stdout.trim() === `refs/heads/${branch}`
 }
 
 /** `origin` when it exists, else whatever remote the repo does have. */

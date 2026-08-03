@@ -5568,6 +5568,127 @@ body {
   box-shadow: var(--focus-ring);
 }
 
+/* ---- pasted attachments ----
+   A strip along the top of the same pill, mirroring the setup row along the
+   bottom: what is attached to the message being written belongs inside its
+   border, not floating above it. */
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-8);
+  border-bottom: 1px solid var(--c-line-2);
+}
+
+.chat-attachment {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  max-width: 220px;
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-4);
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-2);
+}
+
+.chat-attachment-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: var(--radius-1);
+  display: block;
+}
+
+.chat-attachment-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-1);
+  background: var(--c-surface-1);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.chat-attachment-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-attachment-label {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-attachment-detail {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-faint);
+}
+
+/* Hidden until wanted: the chip is usually just confirmation the paste
+   landed, so the control that undoes it should not compete with it. Kept
+   reachable by keyboard, which is what `focus-within` is for.
+
+   The offset sits on IconButton's Tooltip wrapper rather than on the button:
+   `.tooltip` is itself `position: relative`, so an absolute button inside it
+   would anchor to the wrapper and never reach the chip's corner. */
+.chat-attachment > .tooltip {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.chat-attachment:hover > .tooltip,
+.chat-attachment:focus-within > .tooltip {
+  opacity: 1;
+}
+
+.chat-attachment-remove {
+  background: var(--c-surface-2);
+  border: var(--border-hair);
+  border-radius: var(--radius-pill);
+}
+
+/* ---- attachments echoed in a sent turn ---- */
+.chat-user-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+}
+
+.chat-user-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-6);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  white-space: nowrap;
+}
+
+.chat-user-attachment-thumb {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 2px;
+  display: block;
+}
+
 .chat-composer-row {
   display: flex;
   /* Centred, not bottom-aligned: with one line of text the field is shorter

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { BrowserWindow } from 'electron'
 import type { AgentChatEvent, ApprovalDecision } from '../shared/agent-chat'
+import { imageBlocks } from './attachments'
 import { claudeChatArgs, createClaudeNormalizer } from './claude-chat'
 import { nextPaneId } from './pane-ids'
 import { safeSend } from './safe-send'
@@ -207,12 +208,23 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
   return id
 }
 
-/** Send a user turn. Returns false when the pane's process is already gone. */
-export function sendChat(win: BrowserWindow, id: number, text: string): boolean {
+/**
+ * Send a user turn. Returns false when the pane's process is already gone.
+ *
+ * `images` are staged attachment paths, read here and inlined as base64
+ * content blocks. A plain turn keeps sending a bare string rather than a
+ * one-element array — same thing on the wire, but it keeps the common case
+ * exactly as it was.
+ */
+export function sendChat(win: BrowserWindow, id: number, text: string, images?: string[]): boolean {
   const record = chats.get(id)
   if (!record) return false
+  const blocks = images?.length ? imageBlocks(images) : []
+  const content = blocks.length
+    ? [...(text ? [{ type: 'text', text }] : []), ...blocks]
+    : text
   record.proc.stdin.write(
-    JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n'
+    JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n'
   )
   emit(win, id, { type: 'busy', busy: true })
   return true

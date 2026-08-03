@@ -11,6 +11,14 @@ import {
   type ChatState
 } from '../../../../shared/agent-chat'
 import type { NormalizedMessage } from '../../../../shared/adapter/types'
+import {
+  chipOf,
+  chipsForPaths,
+  composeMessage,
+  splitComposed,
+  type Attachment,
+  type AttachmentChip
+} from '../../../../shared/attachments'
 import { WorkingText } from '../ui'
 import { ChatComposer, type SessionSetup } from './ChatComposer'
 import { FindBar } from './FindBar'
@@ -38,6 +46,12 @@ interface ChatPaneProps {
    */
   initialPrompt?: string
   /**
+   * Staged image paths belonging to `initialPrompt`. A pane replaced on its
+   * first message inherits both: the pasted text is already folded into the
+   * prompt, but pixels cannot be, so the files come across separately.
+   */
+  initialImages?: string[]
+  /**
    * The conversation this pane was opened to resume. Its transcript is read
    * from disk and shown as history, because the CLI replays nothing on
    * `--resume`. Only ever the session the pane *started* with — seeding from a
@@ -49,9 +63,10 @@ interface ChatPaneProps {
    * means the caller took the message — this pane sends nothing and is about
    * to be replaced. It is how the setup row's choices are deferred until there
    * is a task: a branch is named after one, and the agent decides which
-   * runtime the pane needs. The text becomes the replacement's `initialPrompt`.
+   * runtime the pane needs. The text becomes the replacement's `initialPrompt`
+   * and the staged images its `initialImages`.
    */
-  beforeFirstSend?: (text: string) => boolean
+  beforeFirstSend?: (text: string, images: string[]) => boolean
   /**
    * Present only while the session is unstarted. The agent and the checkout
    * are asked here rather than before the pane opens, because neither is
@@ -62,11 +77,13 @@ interface ChatPaneProps {
   notice?: string
   /** Fires once, when the CLI reports the conversation id it opened */
   onSessionBound: (sessionId: string) => void
+  /** Surfaced as a toast — a pasted image that could not be staged */
+  onError?: (message: string) => void
 }
 
 type Action =
   | { kind: 'event'; event: AgentChatEvent }
-  | { kind: 'sent'; text: string }
+  | { kind: 'sent'; text: string; attachments: AttachmentChip[] }
   | { kind: 'seed'; items: ChatItem[] }
 
 function chatReducer(state: ChatState, action: Action): ChatState {
@@ -74,7 +91,7 @@ function chatReducer(state: ChatState, action: Action): ChatState {
     case 'event':
       return reduceChat(state, action.event)
     case 'sent':
-      return appendUserMessage(state, action.text)
+      return appendUserMessage(state, action.text, action.attachments)
     case 'seed':
       // Prepended, not replaced: the read is async, so a fast first turn may
       // already have produced live items that must stay after the history
@@ -94,11 +111,13 @@ export function ChatPane({
   active,
   source,
   initialPrompt,
+  initialImages,
   resumeFrom,
   beforeFirstSend,
   setup,
   notice,
-  onSessionBound
+  onSessionBound,
+  onError
 }: ChatPaneProps): React.JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, emptyChatState)
   /**
@@ -214,8 +233,15 @@ export function ChatPane({
    */
   const [started, setStarted] = useState(false)
 
-  const send = useCallback(
-    (text: string) => {
+  /**
+   * The one place a turn leaves this pane. `display` is what the bubble shows
+   * — the sentence the user typed — while `message` is what the agent reads,
+   * with any pasted text folded back in verbatim. They diverge on purpose: a
+   * 900-line log belongs in the model's context, not in the transcript the
+   * user is scrolling.
+   */
+  const deliver = useCallback(
+    (display: string, message: string, images: string[], chips: AttachmentChip[]) => {
       setStarted(true)
       // Sending is an explicit act of moving the conversation on, so it follows
       // the reply even if the user had scrolled back to read something
@@ -224,12 +250,22 @@ export function ChatPane({
         consultedFirstSend.current = true
         // Taken by the caller: this pane is being replaced by one in a fresh
         // worktree, so echoing the message here would render it twice
-        if (beforeFirstSendRef.current?.(text)) return
+        if (beforeFirstSendRef.current?.(message, images)) return
       }
-      dispatch({ kind: 'sent', text })
-      window.api.chatSend(chatId, text)
+      dispatch({ kind: 'sent', text: display, attachments: chips })
+      window.api.chatSend(chatId, message, images)
     },
     [chatId]
+  )
+
+  const send = useCallback(
+    (text: string, attachments: Attachment[]) => {
+      const images = attachments
+        .filter((a) => a.kind === 'image' && a.path)
+        .map((a) => a.path as string)
+      deliver(text, composeMessage(text, attachments), images, attachments.map(chipOf))
+    },
+    [deliver]
   )
 
   const decide = useCallback(
@@ -271,8 +307,12 @@ export function ChatPane({
   useEffect(() => {
     if (!initialPrompt || sentInitial.current) return
     sentInitial.current = true
-    send(initialPrompt)
-  }, [initialPrompt, send])
+    // Already composed by the pane this one replaced, so it goes to the agent
+    // as-is; only the bubble is unpacked, back into the chips it came from
+    const images = initialImages ?? []
+    const { display, chips } = splitComposed(initialPrompt)
+    deliver(display, initialPrompt, images, [...chipsForPaths(images), ...chips])
+  }, [initialPrompt, initialImages, deliver])
 
   // Esc stops the turn, matching the CLI it is standing in for
   useEffect(() => {
@@ -376,6 +416,7 @@ export function ChatPane({
         }
         onSend={send}
         onInterrupt={interrupt}
+        onError={onError}
       />
     </div>
   )

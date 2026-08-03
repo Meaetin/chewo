@@ -14,6 +14,7 @@
  */
 
 import type { NormalizedMessage } from './adapter/types'
+import type { AttachmentChip } from './attachments'
 
 export type ChatAgent = 'claude' | 'codex'
 
@@ -114,7 +115,9 @@ export type AgentChatEvent =
 // ---------- items (what the UI renders) ----------
 
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string }
+  /** `attachments` echo the composer's chips — the pasted blob went to the
+   *  agent verbatim, but the bubble shows the chip, not the blob */
+  | { kind: 'user'; id: string; text: string; attachments?: AttachmentChip[] }
   | { kind: 'text'; id: string; text: string; done: boolean }
   | { kind: 'thinking'; id: string; text: string; done: boolean }
   | { kind: 'tool'; id: string; call: ToolCall }
@@ -330,10 +333,22 @@ export function seedItems(messages: NormalizedMessage[]): ChatItem[] {
 }
 
 /** The user's own message, appended locally on send — the CLI never echoes it back. */
-export function appendUserMessage(state: ChatState, text: string): ChatState {
+export function appendUserMessage(
+  state: ChatState,
+  text: string,
+  attachments?: AttachmentChip[]
+): ChatState {
   return {
     ...state,
-    items: [...state.items, { kind: 'user', id: `user-${state.items.length}`, text }]
+    items: [
+      ...state.items,
+      {
+        kind: 'user',
+        id: `user-${state.items.length}`,
+        text,
+        ...(attachments?.length ? { attachments } : {})
+      }
+    ]
   }
 }
 

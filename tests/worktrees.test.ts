@@ -145,6 +145,56 @@ describe('base branch selection', () => {
   })
 })
 
+// A branch cut from `origin/<default>` inherits that remote branch as its
+// upstream unless we say otherwise, which makes Ship's `git push` refuse with
+// "the upstream branch of your current branch does not match the name of your
+// current branch" — the failure mode this pins.
+describe('task branches do not inherit the base branch upstream', () => {
+  let repo: string
+  let remote: string
+
+  const git = (...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', repo, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    remote = mkdtempSync(join(homedir(), '.chewo-wt-remote-'))
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote])
+    repo = mkdtempSync(join(homedir(), '.chewo-wt-upstream-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-m', 'initial')
+    git('remote', 'add', 'origin', remote)
+    git('push', '-u', 'origin', 'main')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  })
+
+  test('a worktree based on origin/main gets no upstream at all', async () => {
+    const res = await createWorktree(repo, 'from-origin', 'origin/main')
+    if (!res.ok) throw new Error(res.error)
+    // `git config --get` exits 1 on a missing key, which is the passing case
+    let merge = ''
+    try {
+      merge = execFileSync('git', ['-C', repo, 'config', '--get', `branch.${res.branch}.merge`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      }).trim()
+    } catch {
+      merge = ''
+    }
+    expect(merge).toBe('')
+  })
+})
+
 // The sidebar's branch list comes from git, not from our records — this is
 // what makes a worktree survive a closed pane or a wiped projects.json.
 describe('listWorktrees', () => {
