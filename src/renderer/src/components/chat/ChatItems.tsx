@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleSlash,
+  FileText,
   Loader
 } from 'lucide-react'
 import type { ApprovalDecision, ChatItem, ToolCall } from '../../../../shared/agent-chat'
@@ -234,7 +235,29 @@ export function ChatItemView({
   switch (item.kind) {
     case 'user':
       // Literal, never markdown — pasted code and logs must survive verbatim
-      return <div className="chat-user">{item.text}</div>
+      return (
+        <div className="chat-user">
+          {item.text}
+          {/* What was attached, in the same shape the composer showed. The
+              blocks themselves went to the agent in full; repeating them here
+              would make the transcript unreadable. */}
+          {item.attachments?.length ? (
+            <div className="chat-user-attachments">
+              {item.attachments.map((a) => (
+                <span key={a.id} className={`chat-user-attachment chat-user-attachment--${a.kind}`}>
+                  {a.kind === 'image' && a.preview ? (
+                    <img className="chat-user-attachment-thumb" src={a.preview} alt="" />
+                  ) : (
+                    <FileText size={12} strokeWidth={1.75} aria-hidden="true" />
+                  )}
+                  {a.label}
+                  {a.lines ? ` · ${a.lines} lines` : ''}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )
 
     case 'text':
       return <AssistantText text={item.text} done={item.done} />

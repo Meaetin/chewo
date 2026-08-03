@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, GitBranch, Square } from 'lucide-react'
+import { ArrowUp, FileText, GitBranch, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
+import { countLines, isLongPaste, type Attachment } from '../../../../shared/attachments'
 
 /**
  * The two questions a session has to answer before it exists, asked here
@@ -127,6 +128,65 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   )
 }
 
+/** Read a pasted image file as a data URL + its base64 payload for staging. */
+const readImage = (file: File): Promise<{ dataUrl: string; base64: string }> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      resolve({ dataUrl, base64: dataUrl.slice(dataUrl.indexOf(',') + 1) })
+    }
+    reader.readAsDataURL(file)
+  })
+
+/**
+ * One pasted item, sitting on top of the input inside the same pill. Hovering
+ * reveals the X — the chips are usually just confirmation that the paste
+ * landed, so the control that undoes it stays out of the way until wanted.
+ */
+function AttachmentChipView({
+  attachment,
+  onRemove
+}: {
+  attachment: Attachment
+  onRemove: () => void
+}): React.JSX.Element {
+  const detail =
+    attachment.kind === 'text'
+      ? `${attachment.lines} ${attachment.lines === 1 ? 'line' : 'lines'}`
+      : 'Image'
+
+  return (
+    <div
+      className={`chat-attachment chat-attachment--${attachment.kind}`}
+      // The whole point of folding it away is that it is too big to show, so
+      // the hover gives back the opening of it rather than nothing
+      title={attachment.kind === 'text' ? attachment.text?.slice(0, 600) : undefined}
+    >
+      {attachment.kind === 'image' && attachment.preview ? (
+        <img className="chat-attachment-thumb" src={attachment.preview} alt="" />
+      ) : (
+        <span className="chat-attachment-icon">
+          <FileText size={13} strokeWidth={1.75} aria-hidden="true" />
+        </span>
+      )}
+      <span className="chat-attachment-text">
+        <span className="chat-attachment-label">{attachment.label}</span>
+        <span className="chat-attachment-detail">{detail}</span>
+      </span>
+      <IconButton
+        label={`Remove ${attachment.label}`}
+        dense
+        className="chat-attachment-remove"
+        onClick={onRemove}
+      >
+        <X size={12} strokeWidth={2} />
+      </IconButton>
+    </div>
+  )
+}
+
 interface ChatComposerProps {
   busy: boolean
   disabled: boolean
@@ -135,8 +195,10 @@ interface ChatComposerProps {
   placeholder: string
   /** Only while the session is unstarted — the agent and checkout pickers */
   setup?: SessionSetup
-  onSend: (text: string) => void
+  onSend: (text: string, attachments: Attachment[]) => void
   onInterrupt: () => void
+  /** A staging failure has nowhere else to surface from in here */
+  onError?: (message: string) => void
 }
 
 export function ChatComposer({
@@ -146,9 +208,11 @@ export function ChatComposer({
   placeholder,
   setup,
   onSend,
-  onInterrupt
+  onInterrupt,
+  onError
 }: ChatComposerProps): React.JSX.Element {
   const [value, setValue] = useState('')
+  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [paletteIndex, setPaletteIndex] = useState(0)
   const areaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -174,11 +238,64 @@ export function ChatComposer({
 
   const paletteOpen = matches.length > 0
 
+  /**
+   * Chip numbering counts pastes, not surviving chips: removing "Image 1" must
+   * not silently rename "Image 2" to it, or the label stops naming a thing.
+   */
+  const pasteSeq = useRef({ image: 0, text: 0 })
+
+  /**
+   * A paste becomes a chip in two cases and stays a plain paste otherwise: an
+   * image, which has no textual form at all, and a block of text long enough
+   * that inlining it would bury whatever the user is actually asking.
+   */
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (disabled) return
+    const files = [...e.clipboardData.items]
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null)
+
+    if (files.length > 0) {
+      e.preventDefault()
+      for (const file of files) {
+        const label = `Image ${++pasteSeq.current.image}`
+        void readImage(file)
+          .then(async ({ dataUrl, base64 }) => {
+            // Staged now rather than on send: the file is what every runtime
+            // is fed from, and doing it here means the failure is visible
+            // while the chip is still the thing the user is looking at
+            const path = await window.api.stageAttachment(base64, file.type)
+            setAttachments((prev) => [
+              ...prev,
+              { id: path, kind: 'image', label, path, preview: dataUrl }
+            ])
+          })
+          .catch((err: unknown) => onError?.(`Could not attach the image: ${String(err)}`))
+      }
+      return
+    }
+
+    const text = e.clipboardData.getData('text/plain')
+    if (!text || !isLongPaste(text)) return
+    e.preventDefault()
+    const n = ++pasteSeq.current.text
+    setAttachments((prev) => [
+      ...prev,
+      { id: `text-${n}`, kind: 'text', label: `Pasted text ${n}`, text, lines: countLines(text) }
+    ])
+  }
+
+  // An attachment alone is a complete message — "look at this" is a request.
+  // The one exception is an unstarted pane, whose first message also names the
+  // branch and decides the runtime; there, words are the point.
+  const sendable = Boolean(value.trim()) || (attachments.length > 0 && !setup)
+
   const submit = (): void => {
-    const text = value.trim()
-    if (!text || disabled) return
-    onSend(text)
+    if (!sendable || disabled) return
+    onSend(value.trim(), attachments)
     setValue('')
+    setAttachments([])
   }
 
   const accept = (name: string): void => {
@@ -206,6 +323,18 @@ export function ChatComposer({
       {/* One box. The setup controls belong to the message being written, so
           they sit inside the same border rather than floating above it. */}
       <div className="chat-composer-box">
+        {attachments.length > 0 && (
+          <div className="chat-attachments">
+            {attachments.map((a) => (
+              <AttachmentChipView
+                key={a.id}
+                attachment={a}
+                onRemove={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+              />
+            ))}
+          </div>
+        )}
+
         <div className="chat-composer-row">
           <textarea
             ref={areaRef}
@@ -215,6 +344,7 @@ export function ChatComposer({
             placeholder={placeholder}
             disabled={disabled}
             onChange={(e) => setValue(e.target.value)}
+            onPaste={onPaste}
             onKeyDown={(e) => {
               if (paletteOpen) {
                 if (e.key === 'ArrowDown') {
@@ -249,7 +379,7 @@ export function ChatComposer({
             <IconButton
               label="Send (\u21b5)"
               className="chat-send"
-              disabled={disabled || !value.trim()}
+              disabled={disabled || !sendable}
               onClick={submit}
             >
               <ArrowUp size={16} strokeWidth={2} />

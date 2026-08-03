@@ -71,6 +71,7 @@ import { BranchChip, UpdateButton } from './components/BranchChip'
 import { ShipButton } from './components/ShipButton'
 import { ShipModal } from './components/ShipModal'
 import { branchNameFor } from '../../shared/branch-names'
+import { splitComposed, withImagePaths } from '../../shared/attachments'
 import type { ShipPreview, ShipSuccess } from '../../main/git-ship'
 import { useGitDirtyCount, useGitStatus } from './useGitStatus'
 import { WorktreeCreateModal } from './components/WorktreeModals'
@@ -99,6 +100,8 @@ export interface TerminalTab {
   /** A card run's prompt, handed to the chat pane to submit on mount.
    *  Transient — never persisted, or reopening a session would re-run it. */
   initialPrompt?: string
+  /** Staged image paths belonging to `initialPrompt`; equally transient */
+  initialImages?: string[]
   /**
    * The conversation this pane was opened to *resume*, as opposed to
    * `sessionId`, which a fresh pane fills in once the CLI announces itself.
@@ -997,6 +1000,7 @@ export function App(): React.JSX.Element {
       label?: string
       setupCommand?: string
       initialPrompt?: string
+      initialImages?: string[]
       extraDirs?: string[]
     }): Promise<number> => {
       const { claudeMode } = settingsForSection(opts.projectId)
@@ -1024,6 +1028,7 @@ export function App(): React.JSX.Element {
           model: opts.model,
           effort: opts.effort,
           initialPrompt: opts.initialPrompt,
+          initialImages: opts.initialImages,
           resumeSessionId: opts.sessionId,
           exited: false
         }
@@ -1061,13 +1066,43 @@ export function App(): React.JSX.Element {
       effort?: EffortLevel
       setupCommand?: string
       initialPrompt?: string
+      /**
+       * Images attached to `initialPrompt` that the caller has NOT already
+       * accounted for — a paste out of the composer. Translating them is this
+       * function's job, because "how does an image reach this agent" is a
+       * property of the runtime, which is the one thing it decides.
+       *
+       * A card run does not use this: `composeCardPrompt` names its assets in
+       * the prompt itself (SPEC-TODOS §10.2), so it passes the raw
+       * `extraDirs`/`attachImages` below and would be saying it twice.
+       */
+      images?: string[]
       extraDirs?: string[]
       attachImages?: string[]
       forceTerminal?: boolean
-    }): Promise<number> =>
-      opts.source === 'claude' && !opts.forceTerminal
-        ? openChat({ ...opts, source: 'claude' })
-        : openTerminal(opts),
+    }): Promise<number> => {
+      const images = opts.images ?? []
+      if (opts.source === 'claude' && !opts.forceTerminal)
+        // A chat pane inlines the bytes as base64 content blocks, so the files
+        // need no unlocking and no mention in the prompt
+        return openChat({ ...opts, source: 'claude', initialImages: images })
+
+      // The two pty paths, diverging exactly as `promptFlags` describes:
+      // claude reads image paths it finds in the prompt, so the staging folder
+      // has to be unlocked with --add-dir; codex cannot read one with its file
+      // tools at all and takes the files with -i.
+      if (images.length === 0) return openTerminal(opts)
+      const dirs = [...new Set(images.map((p) => p.slice(0, p.lastIndexOf('/'))))]
+      return openTerminal(
+        opts.source === 'claude'
+          ? {
+              ...opts,
+              initialPrompt: withImagePaths(opts.initialPrompt ?? '', images),
+              extraDirs: [...(opts.extraDirs ?? []), ...dirs]
+            }
+          : { ...opts, attachImages: [...(opts.attachImages ?? []), ...images] }
+      )
+    },
     [openChat, openTerminal]
   )
 
@@ -1350,7 +1385,7 @@ export function App(): React.JSX.Element {
    * toast; the work still starts, just not in isolation.
    */
   const startChosenSession = useCallback(
-    (tab: TerminalTab, text: string): boolean => {
+    (tab: TerminalTab, text: string, images: string[]): boolean => {
       const source = tab.source === 'shell' ? 'claude' : tab.source
       // Codex has no chat backend yet (`codex app-server` is the next piece of
       // work), so choosing it means the pane becomes a pty
@@ -1377,6 +1412,7 @@ export function App(): React.JSX.Element {
         model,
         effort,
         initialPrompt: text,
+        images,
         forceTerminal: tab.mode === 'terminal' && !tab.pending
       })
 
@@ -1392,7 +1428,10 @@ export function App(): React.JSX.Element {
           const taken = worktrees
             .filter((w) => w.projectId === owner.id)
             .map((w) => w.taskName)
-          const taskName = branchNameFor(text, taken)
+          // Named from what was *typed*, not from the folded-in paste: with a
+          // short sentence the slug's five words would otherwise start eating
+          // the wrapper tag ("fix-this-pasted-label-text")
+          const taskName = branchNameFor(splitComposed(text).display || text, taken)
           const cut = await cutWorktree(owner, taskName)
           if (!cut.ok) {
             showToast(`Kept this session in ${owner.name}: ${cut.error}`)
@@ -1409,6 +1448,7 @@ export function App(): React.JSX.Element {
             effort,
             setupCommand: owner.worktreeSetup || undefined,
             initialPrompt: text,
+            images,
             forceTerminal: tab.mode === 'terminal' && !tab.pending
           })
         } catch (err) {
@@ -2479,10 +2519,12 @@ export function App(): React.JSX.Element {
                   active={paneActive}
                   source={tab.source === 'shell' ? 'claude' : tab.source}
                   initialPrompt={tab.initialPrompt}
+                  initialImages={tab.initialImages}
                   resumeFrom={resumeSourceFor(tab)}
+                  onError={showToast}
                   // Consulted on every pane's first message; it returns false
                   // for one already running the agent and checkout it asked for
-                  beforeFirstSend={(text) => startChosenSession(tab, text)}
+                  beforeFirstSend={(text, images) => startChosenSession(tab, text, images)}
                   // Only a pane with no process behind it: once the CLI is
                   // running, its agent, model, effort and checkout are facts
                   setup={

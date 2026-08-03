@@ -132,7 +132,12 @@ const api = {
     extraDirs?: string[]
     setupCommand?: string
   }) => ipcRenderer.invoke('chat:create', opts) as Promise<number>,
-  chatSend: (id: number, text: string) => ipcRenderer.send('chat:send', { id, text }),
+  /** `images` are staged attachment paths; main reads them into content blocks */
+  chatSend: (id: number, text: string, images?: string[]) =>
+    ipcRenderer.send('chat:send', { id, text, images }),
+  /** Write a pasted clipboard image to ~/.chewo/attachments; resolves its path */
+  stageAttachment: (base64: string, mimeType: string) =>
+    ipcRenderer.invoke('attachment:stage', { base64, mimeType }) as Promise<string>,
   chatRespond: (id: number, requestId: string, decision: ApprovalDecision) =>
     ipcRenderer.send('chat:respond', { id, requestId, decision }),
   chatInterrupt: (id: number) => ipcRenderer.send('chat:interrupt', { id }),
