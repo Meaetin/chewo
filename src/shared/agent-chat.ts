@@ -15,6 +15,7 @@
 
 import type { NormalizedMessage } from './adapter/types'
 import type { AttachmentChip } from './attachments'
+import type { ToolPatch } from './diff'
 
 export type ChatAgent = 'claude' | 'codex'
 
@@ -57,8 +58,14 @@ export interface ToolCall {
   requestId?: string
   /** The CLI's one-line summary of the call, e.g. "note.txt" */
   description?: string
+  /** The CLI says Allow/Deny must not be offered — this tool's card *is* its
+   *  UI, and the user answers on the card (see `ask-user-question.ts`) */
+  requiresUserInteraction?: boolean
   suggestions?: PermissionSuggestion[]
   result?: string
+  /** The diff a file-editing tool applied, when it reported one. Set from the
+   *  result, never from the input — it is what happened, not what was asked. */
+  patch?: ToolPatch
   /** Non-null when the call belongs to a subagent, not the main thread */
   parentToolUseId?: string | null
 }
@@ -100,12 +107,16 @@ export type AgentChatEvent =
       toolUseId: string
       requestId: string
       description?: string
+      /** The request's own copy of the arguments — authoritative, and the base
+       *  an interactive tool's answers are merged into */
+      input?: unknown
+      requiresUserInteraction?: boolean
       suggestions: PermissionSuggestion[]
     }
   /** The user said no. Emitted before the CLI's own error result so the chip
    *  reads "denied" instead of implying the tool failed. */
   | { type: 'tool_denied'; toolUseId: string }
-  | { type: 'tool_result'; toolUseId: string; result: string; isError: boolean }
+  | { type: 'tool_result'; toolUseId: string; result: string; isError: boolean; patch?: ToolPatch }
   /** The agent is working — drives the composer's stop button and the spinner */
   | { type: 'busy'; busy: boolean }
   | { type: 'turn_end'; stats: ChatTurnStats }
@@ -237,6 +248,10 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
         status: 'awaiting',
         requestId: event.requestId,
         description: event.description ?? call.description,
+        // The request repeats the arguments; prefer them, but never clear what
+        // the assistant message already established if this one omits them
+        input: event.input ?? call.input,
+        requiresUserInteraction: event.requiresUserInteraction,
         suggestions: event.suggestions
       }))
 
@@ -256,7 +271,8 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
         status: call.status === 'denied' ? 'denied' : event.isError ? 'error' : 'ok',
         requestId: undefined,
         suggestions: undefined,
-        result: event.result
+        result: event.result,
+        patch: event.patch ?? call.patch
       }))
 
     case 'busy':
@@ -324,7 +340,8 @@ export function seedItems(messages: NormalizedMessage[]): ChatItem[] {
           name: m.toolName ?? 'tool',
           input: m.text ? { command: m.text } : {},
           status: 'ok',
-          result: m.toolResult
+          result: m.toolResult,
+          patch: m.toolPatch
         }
       })
     }

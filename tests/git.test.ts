@@ -11,7 +11,8 @@ import {
   gitUntrackedFiles,
   gitWatchIgnored
 } from '../src/main/git'
-import { parseDiff, unwrapCommitBody } from '../src/renderer/src/components/GitDiffView'
+import { parseDiff } from '../src/renderer/src/components/DiffBody'
+import { unwrapCommitBody } from '../src/renderer/src/components/GitDiffView'
 
 // Real git against a scratch repo. It must live under an allowed root
 // (resolveInsideRoots), so it goes in the home directory like the worktrees.

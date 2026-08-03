@@ -1,3 +1,5 @@
+import type { ToolPatch } from '../diff'
+
 export type Source = 'claude' | 'codex'
 
 export interface SessionMeta {
@@ -28,6 +30,8 @@ export interface NormalizedMessage {
   toolName?: string
   /** Output of the tool call, when recoverable — capped, render collapsed */
   toolResult?: string
+  /** The diff a file-editing tool applied, when the record kept one */
+  toolPatch?: ToolPatch
   filesTouched?: string[]
   timestamp?: string
   isSidechain?: boolean

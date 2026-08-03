@@ -31,6 +31,7 @@ import type {
   PermissionSuggestion,
   ToolCall
 } from '../shared/agent-chat'
+import { parseToolPatch } from '../shared/diff'
 
 /** Argv for one chat session. `sessionId` resumes an existing conversation. */
 export function claudeChatArgs(opts: {
@@ -222,18 +223,25 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
     }
 
     // ---- tool results ride back as a synthetic user message ----
+    //
+    // The `tool_result` block carries prose ("The file … has been updated
+    // successfully"); the diff that prose is describing rides beside it on
+    // `tool_use_result`. That field is per *event*, not per block, so it is
+    // only trustworthy when the event carries a single result — otherwise
+    // there is no way to say which file it belongs to.
     if (ev.type === 'user') {
       const message = ev.message as { content?: ContentBlock[] | string } | undefined
       if (!Array.isArray(message?.content)) return []
-      for (const block of message.content) {
-        if (block.type === 'tool_result' && block.tool_use_id) {
-          out.push({
-            type: 'tool_result',
-            toolUseId: block.tool_use_id,
-            result: resultText(block.content),
-            isError: Boolean(block.is_error)
-          })
-        }
+      const blocks = message.content.filter((b) => b.type === 'tool_result' && b.tool_use_id)
+      const patch = blocks.length === 1 ? parseToolPatch(ev.tool_use_result) : undefined
+      for (const block of blocks) {
+        out.push({
+          type: 'tool_result',
+          toolUseId: block.tool_use_id as string,
+          result: resultText(block.content),
+          isError: Boolean(block.is_error),
+          patch
+        })
       }
       return out
     }
@@ -246,6 +254,8 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
             tool_use_id?: string
             display_name?: string
             description?: string
+            input?: unknown
+            requires_user_interaction?: boolean
             permission_suggestions?: PermissionSuggestion[]
           }
         | undefined
@@ -256,6 +266,9 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
           toolUseId: request.tool_use_id,
           requestId: String(ev.request_id ?? ''),
           description: request.description,
+          input: request.input,
+          // Not a permission question at all: the tool answers *on* this card
+          requiresUserInteraction: request.requires_user_interaction === true,
           suggestions: request.permission_suggestions ?? []
         }
       ]

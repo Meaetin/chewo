@@ -1750,7 +1750,7 @@ body {
   padding-bottom: var(--space-24);
 }
 
-.git-diff-hunk {
+.diff-hunk {
   color: var(--live);
   background: var(--bg-sidebar);
   border-top: 1px solid var(--border);
@@ -1761,23 +1761,23 @@ body {
   white-space: pre;
 }
 
-.git-diff-note,
-.git-diff-notice {
+.diff-note,
+.diff-notice {
   padding: var(--space-4) var(--space-16);
   color: var(--text-faint);
   font-style: italic;
 }
 
-.git-diff-notice {
+.diff-notice {
   padding: var(--space-16);
 }
 
-.git-diff-line {
+.diff-line {
   display: flex;
   white-space: pre;
 }
 
-.git-diff-ln {
+.diff-ln {
   flex: none;
   width: 44px;
   text-align: right;
@@ -1787,35 +1787,35 @@ body {
   user-select: none;
 }
 
-.git-diff-code {
+.diff-code {
   flex: 1;
   padding-left: 10px;
   color: var(--text-secondary);
 }
 
-.git-diff-line-add {
+.diff-line-add {
   background: var(--c-diff-add-wash);
 }
 
-.git-diff-line-add .git-diff-ln {
+.diff-line-add .diff-ln {
   background: var(--c-diff-add-gutter);
   color: var(--c-diff-add);
 }
 
-.git-diff-line-add .git-diff-code {
+.diff-line-add .diff-code {
   color: var(--c-diff-add);
 }
 
-.git-diff-line-del {
+.diff-line-del {
   background: var(--c-diff-del-wash);
 }
 
-.git-diff-line-del .git-diff-ln {
+.diff-line-del .diff-ln {
   background: var(--c-diff-del-gutter);
   color: var(--c-diff-del);
 }
 
-.git-diff-line-del .git-diff-code {
+.diff-line-del .diff-code {
   color: var(--c-diff-del);
 }
 
@@ -5464,6 +5464,198 @@ body {
   color: var(--text-tertiary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ---- the diff an edit applied ----
+   Borrows .diff-line/.diff-ln/.diff-code from the git panel, so the change an
+   agent just made and the same change read back from `git diff` are the same
+   picture. The gutter is narrower here — a chat column is not a full pane. */
+.chat-diff {
+  margin-top: var(--space-4);
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  overflow: hidden;
+  background: var(--bg-card);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  line-height: 1.6;
+}
+
+/* Wraps rather than scrolls sideways: a nested horizontal scroller inside a
+   scrolling thread is a trap for the wheel gesture the pane needs. */
+.chat-diff .diff-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-diff .diff-ln {
+  width: 40px;
+  padding-right: var(--space-8);
+}
+
+.chat-diff .diff-code {
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
+}
+
+.chat-diff .diff-hunk {
+  padding: 2px var(--space-8);
+  border-top: none;
+}
+
+.chat-diff .diff-line + .diff-hunk {
+  border-top: 1px solid var(--border);
+}
+
+.chat-diff-stat {
+  display: inline-flex;
+  gap: var(--space-6);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.chat-diff-stat-add { color: var(--c-diff-add); }
+.chat-diff-stat-del { color: var(--c-diff-del); }
+
+.chat-diff-more {
+  display: block;
+  width: 100%;
+  padding: var(--space-4) var(--space-8);
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-diff-more:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.chat-diff-more--capped {
+  cursor: default;
+  font-style: italic;
+}
+
+.chat-diff-more--capped:hover {
+  background: var(--bg-sidebar);
+  color: var(--text-tertiary);
+}
+
+/* ---- the agent's own question ----
+   Periwinkle, not amber: an approval card means "you must decide whether to
+   let this happen", and this is not that — nothing is pending your consent,
+   the agent simply wants an answer. */
+.chat-question {
+  border: 1px solid var(--c-project);
+  background: var(--c-project-wash);
+  border-radius: var(--radius-3);
+  padding: var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.chat-question-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--c-project);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.chat-question-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.chat-question-text {
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+}
+
+.chat-question-chip {
+  display: inline-block;
+  margin-right: var(--space-8);
+  padding: 1px var(--space-6);
+  border-radius: var(--radius-1);
+  background: var(--c-project-wash);
+  border: 1px solid var(--c-project);
+  color: var(--c-project);
+  font-size: var(--fs-2xs);
+  vertical-align: 1px;
+}
+
+.chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chat-question-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  padding: var(--space-6) var(--space-8);
+  border: var(--border-hair);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.chat-question-option:hover {
+  background: var(--bg-hover);
+}
+
+.chat-question-option--on {
+  border-color: var(--c-project);
+  background: var(--c-project-wash);
+  color: var(--text-primary);
+}
+
+.chat-question-option-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.chat-question-option-desc {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-tertiary);
+}
+
+.chat-question-other {
+  padding: var(--space-6) var(--space-8);
+  border: var(--border-hair);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+.chat-question-other::placeholder {
+  color: var(--text-faint);
+}
+
+.chat-question-hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-2xs);
+}
+
+.chat-question-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
 }
 
 /* ---- approval card ----
