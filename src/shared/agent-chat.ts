@@ -78,6 +78,68 @@ export interface ChatTurnStats {
   cancelled?: boolean
 }
 
+/**
+ * The two budgets a session spends: the context window it is filling, and the
+ * account's rate-limit window.
+ *
+ * Every field is optional and arrives from a *different* message — the prompt
+ * size from each assistant message, the window from the turn's `result`, the
+ * limit from a `rate_limit_event` that may never come — so `reduceChat` merges
+ * these rather than replacing, and the UI renders whichever half it has.
+ *
+ * What is deliberately absent is a *percentage* for the rate-limit window.
+ * Nothing on the wire carries one: `rate_limit_event` reports a status and a
+ * reset time and nothing else (verified against CLI 2.1.220 and against stored
+ * session logs). The numbers `/usage` prints come from a separate authenticated
+ * call the CLI makes to `/api/oauth/usage`, which Chewo does not make — so this
+ * says when the window rolls over, never how much of it is left.
+ */
+export interface ChatUsage {
+  /**
+   * Tokens the last request carried: fresh input plus both cache figures.
+   * A cached token still occupies the window — only its price differs — so all
+   * three count. This is a size, not a running total: it is what the next
+   * request will cost, and it drops when the conversation is compacted.
+   */
+  contextTokens?: number
+  /** The model's window, reported only at turn end, so a pane knows the
+   *  denominator one turn later than it knows the numerator. */
+  contextWindow?: number
+  /**
+   * The binding rate-limit window. `five_hour` in practice, but the CLI also
+   * names `seven_day`, `seven_day_opus`, `seven_day_sonnet` and
+   * `seven_day_overage_included` and reports whichever one you are closest to —
+   * so this is never assumed to be the five-hour one.
+   */
+  limitType?: string
+  /** The CLI's own vocabulary: `allowed`, `allowed_warning`, `rejected`. */
+  limitStatus?: string
+  /** Unix seconds — when `limitType`'s window rolls over. */
+  limitResetsAt?: number
+}
+
+/**
+ * How full the window is, from a wire or on-disk `usage`: fresh input + both
+ * cache figures. A cached token still occupies context — only its price differs
+ * — so leaving them out understates a long conversation by an order of
+ * magnitude (a real turn here reads 32,467 cached against 8 fresh).
+ *
+ * Output tokens are excluded: they are not in *this* request's prompt. They
+ * join it on the next one, which is when the next message reports them.
+ *
+ * Lives here rather than beside either caller because the live stream and the
+ * stored transcript must answer "how full is it" identically — a resumed pane
+ * that disagreed with itself the moment the user spoke would look broken.
+ */
+export function promptTokens(usage: unknown): number | undefined {
+  if (!usage || typeof usage !== 'object') return undefined
+  const u = usage as Record<string, unknown>
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
+  const total =
+    num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens)
+  return total > 0 ? total : undefined
+}
+
 export interface ChatSessionInfo {
   /** The CLI's conversation id — the same one the sidebar and `--resume` use */
   sessionId: string
@@ -119,6 +181,8 @@ export type AgentChatEvent =
   | { type: 'tool_result'; toolUseId: string; result: string; isError: boolean; patch?: ToolPatch }
   /** The agent is working — drives the composer's stop button and the spinner */
   | { type: 'busy'; busy: boolean }
+  /** A patch, never a whole picture — see `ChatUsage` */
+  | { type: 'usage'; usage: ChatUsage }
   | { type: 'turn_end'; stats: ChatTurnStats }
   | { type: 'notice'; tone: 'error' | 'info'; text: string }
   | { type: 'exit'; code: number }
@@ -139,6 +203,8 @@ export interface ChatState {
   items: ChatItem[]
   info: ChatSessionInfo | null
   busy: boolean
+  /** Empty until the first turn reports something; never partially reset */
+  usage: ChatUsage
   /** Set once the child process is gone — the composer goes read-only */
   exitCode: number | null
 }
@@ -147,6 +213,7 @@ export const emptyChatState = (): ChatState => ({
   items: [],
   info: null,
   busy: false,
+  usage: {},
   exitCode: null
 })
 
@@ -277,6 +344,11 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
 
     case 'busy':
       return { ...state, busy: event.busy }
+
+    case 'usage':
+      // Merged, not replaced: each source knows only its own half, and an
+      // absent field means "no news", not "no longer true".
+      return { ...state, usage: { ...state.usage, ...event.usage } }
 
     case 'turn_end': {
       // A tool in flight when the turn ends never gets its result — after an

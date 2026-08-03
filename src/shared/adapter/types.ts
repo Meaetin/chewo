@@ -47,6 +47,14 @@ export interface ParseStats {
 
 export interface ParseResult {
   meta: SessionMeta
+  /**
+   * The context the conversation was last sitting at, from the newest
+   * main-branch assistant record's own `usage`. A resumed pane would otherwise
+   * show nothing at all until the user spoke — the CLI replays no history on
+   * `--resume`, so the first live reading is a turn away. Absent for a
+   * transcript that never recorded one.
+   */
+  contextTokens?: number
   messages: NormalizedMessage[]
   stats: ParseStats
 }
