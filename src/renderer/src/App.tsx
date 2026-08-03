@@ -82,7 +82,7 @@ import { AppSettings, type SettingsPane } from './components/settings/AppSetting
 import { applyAppearance } from './theme/applyAppearance'
 import { makeTerminalTheme } from './theme/terminalTheme'
 import { makeEditorTheme } from './theme/editorTheme'
-import { Badge, Dot, IconButton } from './components/ui'
+import { Badge, ContextMenu, Dot, IconButton } from './components/ui'
 import { reorderOpenFiles } from './fileTabs'
 
 export type PaneSource = Source | 'shell'
@@ -193,6 +193,8 @@ export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [draggedTermId, setDraggedTermId] = useState<number | null>(null)
+  /** Where to open `+`'s checkout menu — viewport coords, null while closed */
+  const [shellMenuAt, setShellMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [view, setView] = useState<MainView>({ kind: 'empty' })
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -655,6 +657,10 @@ export function App(): React.JSX.Element {
   const activeWorktree = activeTab?.worktreeId
     ? worktrees.find((w) => w.id === activeTab.worktreeId)
     : undefined
+  // The checkout `+` offers as an alternative to main. A pending session has
+  // none of its own — it is only borrowing the shared one until its first
+  // message — so there is nothing to choose and `+` stays a single click.
+  const shellWorktree = activeTab?.pending ? undefined : activeWorktree
   const treeRoot = activeWorktree?.path ?? selectedProject?.path ?? window.api.homeDir
   const treeRootLabel = activeWorktree
     ? `⎇ ${activeWorktree.taskName}`
@@ -1031,15 +1037,23 @@ export function App(): React.JSX.Element {
   )
 
   /** A plain shell. Agents go through `newAgent` — this is the only pane type
-   *  that is a terminal because it *is* a terminal, not because of a CLI. */
+   *  that is a terminal because it *is* a terminal, not because of a CLI.
+   *
+   *  A shell is where you check the branch by hand — run the tests, read the
+   *  build, poke at the thing the agent just wrote — so which checkout it opens
+   *  in is the whole question, and it is not answerable from the focus alone:
+   *  `git log` wants the branch, `npm install` usually wants main. So unlike ▷,
+   *  which follows the focused session silently, `+` *asks* whenever there is
+   *  something to ask about, and stays a single click when there isn't. */
   const newShell = useCallback(
-    () =>
+    (worktree?: Worktree) =>
       void openTerminal({
         source: 'shell',
         // Selected project → its path; no project → $HOME (main falls back)
-        cwd: selectedProject?.path ?? null,
+        cwd: worktree?.path ?? selectedProject?.path ?? null,
         projectId: selectedProject?.id ?? null,
-        label: 'zsh'
+        worktreeId: worktree?.id,
+        label: worktree ? '⎇ zsh' : 'zsh'
       }),
     [openTerminal, selectedProject]
   )
@@ -1188,17 +1202,33 @@ export function App(): React.JSX.Element {
   /**
    * Play button: one shell per non-empty line of the project's start command.
    *
-   * Takes the project rather than reading the selected one, because it lives
-   * on the sidebar's project row now — where it can be pressed for a project
-   * that isn't open. Its shells always run in the project's *main* checkout
-   * (dev servers are not agent sessions), so the pane it opens belongs to that
-   * section and the section has to come with it, or the new tab lands in a
-   * strip nobody is looking at.
+   * Takes the project rather than reading the selected one, because it lives on
+   * the sidebar's project row — where it can be pressed for a project that
+   * isn't open. The pane it opens belongs to that section, so the section has
+   * to come with it, or the new tab lands in a strip nobody is looking at.
+   *
+   * It runs what you are *looking at*: with an isolated session
+   * focused, the dev server comes up in that session's checkout, so pressing ▷
+   * is the shortest path from "the agent changed something" to seeing it. The
+   * main checkout is the fallback for every other focus (another project, Home,
+   * a pane with no branch of its own) — and for a pending session, which has no
+   * checkout yet and is only borrowing the shared one.
+   *
+   * Two things this deliberately does not do. It does not remap ports, so two
+   * branches serving the same dev port collide and the second one says so —
+   * quieter than silently serving the wrong branch on the port you opened. And
+   * the pane is tagged with the worktree, which keeps the branch counted as
+   * live: an unattended `npm run dev` will hold a merged worktree back from the
+   * reaper, which beats yanking a checkout out from under a running server.
    */
   const runStartCommands = useCallback(
     (projectId: string) => {
       const project = projects.find((p) => p.id === projectId)
       if (!project) return
+      const worktree =
+        activeTab?.projectId === projectId && !activeTab.pending && activeTab.worktreeId
+          ? worktrees.find((w) => w.id === activeTab.worktreeId)
+          : undefined
       setSelectedProjectId(projectId)
       const lines = (project.runCommand?.trim() || 'npm run dev')
         .split('\n')
@@ -1207,14 +1237,17 @@ export function App(): React.JSX.Element {
       for (const line of lines) {
         void openTerminal({
           source: 'shell',
-          cwd: project.path,
+          cwd: worktree?.path ?? project.path,
           projectId: project.id,
-          label: line.length > 24 ? `${line.slice(0, 24)}…` : line,
+          worktreeId: worktree?.id,
+          // ⎇ marks a branch-bound pane everywhere else in the strip, and two
+          // dev servers are otherwise the same word twice
+          label: `${worktree ? '⎇ ' : ''}${line.length > 24 ? `${line.slice(0, 24)}…` : line}`,
           runCommand: line
         })
       }
     },
-    [openTerminal, projects]
+    [openTerminal, projects, worktrees, activeTab]
   )
 
   const resumeSession = useCallback(
@@ -2352,6 +2385,11 @@ export function App(): React.JSX.Element {
         onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
         onOpenSettings={(id) => setSettingsFor({ id })}
         onRunStart={runStartCommands}
+        runTarget={
+          activeTab && !activeTab.pending && activeWorktree
+            ? { projectId: activeTab.projectId, taskName: activeWorktree.taskName }
+            : null
+        }
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
         )}
@@ -2513,16 +2551,41 @@ export function App(): React.JSX.Element {
                 onOpen={() => void openShip(gitRoot)}
               />
             )}
-            {/* ▷ lives on the sidebar's project row now — it runs dev servers
-                in the project's *main* checkout, so it never belonged to the
-                focused session's strip in the first place */}
+            {/* ▷ lives on the sidebar's project row now — a start command is a
+                project's, and it can be pressed for one that isn't even open */}
             <IconButton
-              label={`New shell in ${selectedProject?.name ?? 'Home'}`}
+              label={
+                shellWorktree
+                  ? `New shell — in ⎇ ${shellWorktree.taskName} or ${selectedProject?.name ?? 'Home'}`
+                  : `New shell in ${selectedProject?.name ?? 'Home'}`
+              }
               className="new-shell-button"
-              onClick={newShell}
+              onClick={(e) => {
+                if (!shellWorktree) {
+                  newShell()
+                  return
+                }
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                setShellMenuAt({ x: r.left, y: r.bottom + 4 })
+              }}
             >
               <Plus size={18} strokeWidth={1.75} />
             </IconButton>
+            {shellMenuAt && shellWorktree && (
+              <ContextMenu
+                x={shellMenuAt.x}
+                y={shellMenuAt.y}
+                items={[
+                  { id: 'worktree', label: `⎇ ${shellWorktree.taskName}` },
+                  { id: 'main', label: `${selectedProject?.name ?? 'Home'} — main checkout` }
+                ]}
+                onSelect={(id) => {
+                  setShellMenuAt(null)
+                  newShell(id === 'worktree' ? shellWorktree : undefined)
+                }}
+                onClose={() => setShellMenuAt(null)}
+              />
+            )}
           </div>
         </div>
         )}
