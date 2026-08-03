@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { execFile, spawn } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { runGit } from './git'
@@ -51,11 +51,13 @@ export function runSelfUpdate(win: BrowserWindow): void {
   updating = true
   safeSend(win, 'version:status', { kind: 'updating' } satisfies VersionStatus)
 
-  // Login shell: the packaged app launches with launchd's bare PATH, where
-  // npm/node (homebrew, nvm, …) don't resolve
+  // Build only — `dist:install` would end in install-app.mjs, which refuses to
+  // replace a running Chewo, and the updater is a running Chewo. Login shell:
+  // the packaged app launches with launchd's bare PATH, where npm/node
+  // (homebrew, nvm, …) don't resolve.
   execFile(
     '/bin/zsh',
-    ['-lc', 'npm run dist:install'],
+    ['-lc', 'npm run dist'],
     { cwd: __REPO_PATH__, timeout: 15 * 60_000, maxBuffer: 32 * 1024 * 1024 },
     (err, stdout, stderr) => {
       updating = false
@@ -70,12 +72,34 @@ export function runSelfUpdate(win: BrowserWindow): void {
         } satisfies VersionStatus)
         return
       }
-      // The .app in /Applications was just replaced under us; the running
-      // process keeps its mapped binary, so relaunch picks up the new one
-      app.relaunch()
-      app.exit(0)
+      installAndRelaunch()
     }
   )
+}
+
+/**
+ * Hand the bundle swap to a detached helper that waits for us to exit, then
+ * reopens the new build. Replacing /Applications/Chewo.app from inside the app
+ * it is replacing is the one thing install-app.mjs is written to refuse, so the
+ * app leaves first and the copy happens with nothing mounted on it. The helper
+ * survives `app.exit` by being detached + unref'd; its output is the only record
+ * of a failure after this process is gone, hence the log file.
+ */
+function installAndRelaunch(): void {
+  const log = join(app.getPath('home'), '.chewo', 'update.log')
+  mkdirSync(dirname(log), { recursive: true })
+  const cmd =
+    `node scripts/install-app.mjs --wait-for ${process.pid} --reopen ` +
+    `>> ${JSON.stringify(log)} 2>&1`
+  const child = spawn('/bin/zsh', ['-lc', cmd], {
+    cwd: __REPO_PATH__,
+    detached: true,
+    stdio: 'ignore'
+  })
+  child.unref()
+  // No app.relaunch(): the helper opens the *new* bundle once the swap lands,
+  // and relaunching here would race it into the old one.
+  app.exit(0)
 }
 
 let watcher: FSWatcher | null = null
