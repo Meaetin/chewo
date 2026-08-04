@@ -20,6 +20,7 @@ import {
   type AskQuestion
 } from '../../../../shared/ask-user-question'
 import { patchStats, patchToUnified, type ToolPatch } from '../../../../shared/diff'
+import { imageDataUrl, type ToolImage } from '../../../../shared/tool-images'
 import { DiffBody } from '../DiffBody'
 import { Button, WorkingText } from '../ui'
 import { useSmoothText } from './useSmoothText'
@@ -98,6 +99,29 @@ function DiffView({ patch }: { patch: ToolPatch }): React.JSX.Element {
   )
 }
 
+/**
+ * What a tool handed back as a picture — a Read of a PNG, an MCP screenshot.
+ * Shown at a readable size and clickable to full resolution, since the reason
+ * to look at one is usually a detail.
+ */
+function ToolImages({ images }: { images: ToolImage[] }): React.JSX.Element {
+  const [full, setFull] = useState<number | null>(null)
+  return (
+    <div className="chat-tool-images">
+      {images.map((image, i) => (
+        <img
+          key={i}
+          className={`chat-tool-image${full === i ? ' chat-tool-image--full' : ''}`}
+          src={imageDataUrl(image)}
+          alt=""
+          title={full === i ? 'Click to shrink' : 'Click for full size'}
+          onClick={() => setFull(full === i ? null : i)}
+        />
+      ))}
+    </div>
+  )
+}
+
 function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.Element {
   // `null` means "not decided yet", so a diff can open by default while a
   // click still wins — the patch arrives after the chip mounts, so an
@@ -105,8 +129,11 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
   const [toggled, setToggled] = useState<boolean | null>(null)
   const summary = toolSummary(call)
   const patch = call.patch
-  const expandable = Boolean(call.result || patch)
-  const open = toggled ?? Boolean(patch)
+  const images = call.images ?? []
+  const expandable = Boolean(call.result || patch || images.length)
+  // A picture is the whole point of the call that produced it, so it opens like
+  // a diff rather than hiding behind a chevron.
+  const open = toggled ?? Boolean(patch || images.length)
   const stats = patch ? patchStats(patch) : null
 
   return (
@@ -139,7 +166,16 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
       </div>
       {/* The diff supersedes the prose it describes: "the file has been updated
           successfully" says nothing the chip's own tick does not. */}
-      {open && (patch ? <DiffView patch={patch} /> : <pre className="chat-tool-output">{call.result}</pre>)}
+      {open && (
+        <>
+          {images.length > 0 && <ToolImages images={images} />}
+          {patch ? (
+            <DiffView patch={patch} />
+          ) : call.result ? (
+            <pre className="chat-tool-output">{call.result}</pre>
+          ) : null}
+        </>
+      )}
     </div>
   )
 }

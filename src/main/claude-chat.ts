@@ -34,6 +34,7 @@ import {
   type ToolCall
 } from '../shared/agent-chat'
 import { parseToolPatch } from '../shared/diff'
+import { splitToolResult } from '../shared/tool-images'
 
 /** Argv for one chat session. `sessionId` resumes an existing conversation. */
 export function claudeChatArgs(opts: {
@@ -80,22 +81,6 @@ interface ContentBlock {
   tool_use_id?: string
   content?: unknown
   is_error?: boolean
-}
-
-/** Tool results come back as a string or as content parts; flatten to text. */
-function resultText(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        const p = part as { type?: string; text?: string }
-        if (p.type === 'text' && typeof p.text === 'string') return p.text
-        return p.type ? `[${p.type}]` : ''
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  return ''
 }
 
 interface WireModelUsage {
@@ -296,12 +281,17 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
       const blocks = message.content.filter((b) => b.type === 'tool_result' && b.tool_use_id)
       const patch = blocks.length === 1 ? parseToolPatch(ev.tool_use_result) : undefined
       for (const block of blocks) {
+        // Images ride in the same content array as the prose — a Read of a PNG
+        // has no text at all, so flattening them to "[image]" left the chip
+        // reporting a tool that returned nothing.
+        const { text, images } = splitToolResult(block.content)
         out.push({
           type: 'tool_result',
           toolUseId: block.tool_use_id as string,
-          result: resultText(block.content),
+          result: text,
           isError: Boolean(block.is_error),
-          patch
+          patch,
+          ...(images.length ? { images } : {})
         })
       }
       return out

@@ -1,4 +1,5 @@
 import type { ToolPatch } from '../diff'
+import type { ToolImage } from '../tool-images'
 
 export type Source = 'claude' | 'codex'
 
@@ -32,6 +33,8 @@ export interface NormalizedMessage {
   toolResult?: string
   /** The diff a file-editing tool applied, when the record kept one */
   toolPatch?: ToolPatch
+  /** Pictures the tool handed back, budgeted newest-first — see `SEED_IMAGE_BUDGET` */
+  toolImages?: ToolImage[]
   filesTouched?: string[]
   timestamp?: string
   isSidechain?: boolean

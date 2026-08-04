@@ -16,6 +16,9 @@
  *                                    `updatedInput.answers` shape that carries
  *                                    the answers back (question text → string)
  *   tool_use_result.structuredPatch  the diff behind every edit chip
+ *   tool_result image parts          `{type:'image',source:{type:'base64',…}}`
+ *                                    inside a result's content array — what a
+ *                                    Read of a PNG paints in the chat
  *
  * Any of those can change without breaking a build or a unit test, because the
  * fixtures are recordings. This drives the real binary and fails loudly.
@@ -24,7 +27,7 @@
  * nothing outside its temp directory.
  */
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createClaudeNormalizer, claudeChatArgs } from '../src/main/claude-chat'
@@ -44,6 +47,7 @@ interface Findings {
   sawInteractiveAsk: boolean
   answersReachedModel: boolean
   sawPatch: boolean
+  sawResultImage: boolean
   controlErrors: string[]
 }
 
@@ -60,6 +64,7 @@ async function probe(): Promise<Findings> {
     sawInteractiveAsk: false,
     answersReachedModel: false,
     sawPatch: false,
+    sawResultImage: false,
     controlErrors: []
   }
 
@@ -264,6 +269,91 @@ async function probeInteractive(found: Findings): Promise<void> {
   rmSync(dir, { recursive: true, force: true })
 }
 
+/**
+ * The third turn: a `Read` of a real PNG. Its result carries no text at all —
+ * the picture *is* the result — so a wire change here is silent in the worst
+ * way, leaving a chip that reports a tool which returned nothing.
+ *
+ * A 1×1 red PNG, small enough that the base64 costs nothing.
+ */
+const RED_DOT_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+async function probeImage(found: Findings): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'chewo-chat-canary-img-'))
+  const png = join(dir, 'dot.png')
+  writeFileSync(png, Buffer.from(RED_DOT_PNG, 'base64'))
+
+  const args = claudeChatArgs({ model: 'haiku' })
+  const proc = spawn('/bin/zsh', ['-ilc', 'claude "$@"', 'chewo', ...args], { cwd: dir })
+
+  const normalize = createClaudeNormalizer()
+  let buffer = ''
+
+  await new Promise<void>((resolve) => {
+    const finish = (): void => {
+      proc.kill()
+      resolve()
+    }
+    const timer = setTimeout(finish, TIMEOUT_MS)
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString()
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        if (!line.trim()) continue
+
+        let raw: Record<string, unknown>
+        try {
+          raw = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        for (const event of normalize(raw)) {
+          if (event.type === 'tool_approval') {
+            proc.stdin.write(
+              JSON.stringify({
+                type: 'control_response',
+                response: {
+                  subtype: 'success',
+                  request_id: event.requestId,
+                  response: { behavior: 'allow', updatedInput: event.input ?? {} }
+                }
+              }) + '\n'
+            )
+          }
+          if (event.type === 'tool_result' && event.images?.length) found.sawResultImage = true
+          if (event.type === 'turn_end') {
+            clearTimeout(timer)
+            finish()
+          }
+        }
+      }
+    })
+
+    proc.on('error', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    proc.on('close', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+
+    proc.stdin.write(
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: `Read the image ${png} and name its colour in one word.` }
+      }) + '\n'
+    )
+  })
+
+  rmSync(dir, { recursive: true, force: true })
+}
+
 const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
   { key: 'sawSession', label: 'system/init → session id + slash commands', fatal: true },
   { key: 'sawToolStart', label: 'tool_use blocks → tool chips', fatal: true },
@@ -286,11 +376,17 @@ const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
     key: 'sawPatch',
     label: 'tool_use_result.structuredPatch → the diff under an edit chip',
     fatal: false
+  },
+  {
+    key: 'sawResultImage',
+    label: 'tool_result image parts → the picture under a Read chip',
+    fatal: false
   }
 ]
 
 const found = await probe()
 await probeInteractive(found)
+await probeImage(found)
 
 let failed = false
 for (const { key, label, fatal } of CHECKS) {
