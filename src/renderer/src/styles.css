@@ -5559,6 +5559,33 @@ body {
   font-size: var(--fs-mono-sm);
 }
 
+/* ---- pictures a tool handed back ---- */
+
+.chat-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.chat-tool-image {
+  /* Capped so a screenshot sits in the thread rather than becoming it; the
+     click below trades the cap for the real thing. */
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  background: var(--bg-card);
+  cursor: zoom-in;
+  display: block;
+}
+
+.chat-tool-image--full {
+  max-height: none;
+  cursor: zoom-out;
+}
+
 .chat-tool-output {
   margin-top: var(--space-4);
   max-height: 320px;

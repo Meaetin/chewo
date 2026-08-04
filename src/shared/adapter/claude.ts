@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { promptTokens } from '../agent-chat'
 import { parseToolPatch, type ToolPatch } from '../diff'
+import { splitToolResult, type ToolImage } from '../tool-images'
 import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
 
@@ -40,10 +41,12 @@ interface ClaudeRecord {
 }
 
 /** What a `tool_use_id` came back with: prose for every tool, plus the patch
- *  for the ones that edited a file. */
+ *  for the ones that edited a file and the pictures for the ones that read an
+ *  image. */
 interface ToolOutcome {
   text: string
   patch?: ToolPatch
+  images?: ToolImage[]
 }
 
 interface ContentBlock {
@@ -58,18 +61,14 @@ interface ContentBlock {
 
 const RESULT_CAP = 4000
 
-/** tool_result content is a string or an array of text blocks */
-function resultText(content: unknown): string {
-  if (typeof content === 'string') return content.slice(0, RESULT_CAP)
-  if (Array.isArray(content)) {
-    return (content as ContentBlock[])
-      .filter((b) => b.type === 'text' && b.text)
-      .map((b) => b.text)
-      .join('\n')
-      .slice(0, RESULT_CAP)
-  }
-  return ''
-}
+/**
+ * Total base64 a resumed conversation will carry. A session file keeps every
+ * screenshot it ever read and a resumed pane holds every item in memory, so the
+ * budget is spent **newest-first** — `collectToolResults` walks records
+ * backwards — and anything past it degrades to its "not shown" line rather than
+ * to silence.
+ */
+const SEED_IMAGE_BUDGET = 24_000_000
 
 const KNOWN_TYPES = new Set([
   'user',
@@ -153,6 +152,7 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, ToolOutcome>):
         filesTouched: extractFiles(block.input),
         toolResult: outcome?.text || undefined,
         toolPatch: outcome?.patch,
+        toolImages: outcome?.images,
         ...base
       })
     }
@@ -171,15 +171,36 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, ToolOutcome>):
  */
 function collectToolResults(records: ClaudeRecord[]): Map<string, ToolOutcome> {
   const results = new Map<string, ToolOutcome>()
-  for (const rec of records) {
+  let spent = 0
+  // Backwards, so the images the budget buys are the ones nearest the bottom of
+  // the conversation — where a resumed pane opens. Ids are unique, so walking
+  // the other way changes nothing else.
+  for (let i = records.length - 1; i >= 0; i--) {
+    const rec = records[i]
     if (rec.type !== 'user' || !Array.isArray(rec.message?.content)) continue
     const blocks = (rec.message.content as ContentBlock[]).filter(
       (b) => b.type === 'tool_result' && b.tool_use_id
     )
     const patch = blocks.length === 1 ? parseToolPatch(rec.toolUseResult) : undefined
     for (const block of blocks) {
-      const text = resultText(block.content)
-      if (text || patch) results.set(block.tool_use_id as string, { text, patch })
+      const { text, images } = splitToolResult(block.content, { textCap: RESULT_CAP })
+      const kept: ToolImage[] = []
+      const dropped: string[] = []
+      for (const image of images) {
+        if (spent + image.data.length > SEED_IMAGE_BUDGET) dropped.push('[image — not shown]')
+        else {
+          spent += image.data.length
+          kept.push(image)
+        }
+      }
+      const prose = [text, ...dropped].filter(Boolean).join('\n')
+      if (prose || patch || kept.length) {
+        results.set(block.tool_use_id as string, {
+          text: prose,
+          patch,
+          ...(kept.length ? { images: kept } : {})
+        })
+      }
     }
   }
   return results

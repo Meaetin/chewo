@@ -16,6 +16,7 @@
 import type { NormalizedMessage } from './adapter/types'
 import type { AttachmentChip } from './attachments'
 import type { ToolPatch } from './diff'
+import type { ToolImage } from './tool-images'
 
 export type ChatAgent = 'claude' | 'codex'
 
@@ -66,6 +67,8 @@ export interface ToolCall {
   /** The diff a file-editing tool applied, when it reported one. Set from the
    *  result, never from the input — it is what happened, not what was asked. */
   patch?: ToolPatch
+  /** Pictures the tool handed back — a Read of a PNG, an MCP screenshot */
+  images?: ToolImage[]
   /** Non-null when the call belongs to a subagent, not the main thread */
   parentToolUseId?: string | null
 }
@@ -178,7 +181,14 @@ export type AgentChatEvent =
   /** The user said no. Emitted before the CLI's own error result so the chip
    *  reads "denied" instead of implying the tool failed. */
   | { type: 'tool_denied'; toolUseId: string }
-  | { type: 'tool_result'; toolUseId: string; result: string; isError: boolean; patch?: ToolPatch }
+  | {
+      type: 'tool_result'
+      toolUseId: string
+      result: string
+      isError: boolean
+      patch?: ToolPatch
+      images?: ToolImage[]
+    }
   /** The agent is working — drives the composer's stop button and the spinner */
   | { type: 'busy'; busy: boolean }
   /** A patch, never a whole picture — see `ChatUsage` */
@@ -339,7 +349,8 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
         requestId: undefined,
         suggestions: undefined,
         result: event.result,
-        patch: event.patch ?? call.patch
+        patch: event.patch ?? call.patch,
+        images: event.images?.length ? event.images : call.images
       }))
 
     case 'busy':
@@ -413,7 +424,8 @@ export function seedItems(messages: NormalizedMessage[]): ChatItem[] {
           input: m.text ? { command: m.text } : {},
           status: 'ok',
           result: m.toolResult,
-          patch: m.toolPatch
+          patch: m.toolPatch,
+          images: m.toolImages
         }
       })
     }
