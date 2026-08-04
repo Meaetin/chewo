@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import {
   branchFor,
   createWorktree,
@@ -260,6 +260,96 @@ describe('listWorktrees', () => {
   test('non-repo path is reported, not thrown', async () => {
     const res = await listWorktrees(homedir())
     expect(res.ok).toBe(false)
+  })
+})
+
+// Removal is unforced by default so the automatic paths (the merged-PR reaper,
+// cleanup after a ship) can never lose work git would have saved. `discard` is
+// the deliberate abandon, and the whole point of it is that git stops refusing.
+describe('removeWorktree', () => {
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  const branchExists = (branch: string): boolean => {
+    try {
+      git('rev-parse', '--verify', '--quiet', `refs/heads/${branch}`)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wtrm-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-m', 'initial')
+  })
+
+  afterEach(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('refuses a checkout with uncommitted work, and keeps it on disk', async () => {
+    const made = await createWorktree(repo, 'dirty')
+    if (!made.ok) throw new Error(made.error)
+    writeFileSync(join(made.path, 'scratch.txt'), 'in progress\n')
+
+    const res = await removeWorktree(repo, made.path, made.branch)
+    expect(res.ok).toBe(false)
+    expect(existsSync(made.path)).toBe(true)
+    expect(branchExists(made.branch)).toBe(true)
+  })
+
+  test('discard throws the uncommitted work away, checkout and branch with it', async () => {
+    const made = await createWorktree(repo, 'abandon')
+    if (!made.ok) throw new Error(made.error)
+    writeFileSync(join(made.path, 'scratch.txt'), 'in progress\n')
+
+    const res = await removeWorktree(repo, made.path, made.branch, true)
+    expect(res).toEqual({ ok: true, branchDeleted: true })
+    expect(existsSync(made.path)).toBe(false)
+    expect(branchExists(made.branch)).toBe(false)
+  })
+
+  test('a clean checkout on an unmerged branch loses the checkout but keeps the branch', async () => {
+    const made = await createWorktree(repo, 'unmerged')
+    if (!made.ok) throw new Error(made.error)
+    writeFileSync(join(made.path, 'b.txt'), 'work\n')
+    execFileSync('git', ['-C', made.path, 'add', '-A'])
+    execFileSync('git', [
+      '-C', made.path, '-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-m', 'work'
+    ])
+
+    const res = await removeWorktree(repo, made.path, made.branch)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.branchDeleted).toBe(false)
+    expect(res.note).toBeTruthy()
+    expect(existsSync(made.path)).toBe(false)
+    expect(branchExists(made.branch)).toBe(true)
+  })
+
+  test('discard deletes an unmerged branch outright', async () => {
+    const made = await createWorktree(repo, 'unmerged-force')
+    if (!made.ok) throw new Error(made.error)
+    writeFileSync(join(made.path, 'b.txt'), 'work\n')
+    execFileSync('git', ['-C', made.path, 'add', '-A'])
+    execFileSync('git', [
+      '-C', made.path, '-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-m', 'work'
+    ])
+
+    const res = await removeWorktree(repo, made.path, made.branch, true)
+    expect(res).toEqual({ ok: true, branchDeleted: true })
+    expect(branchExists(made.branch)).toBe(false)
   })
 })
 

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { SessionMeta, Source } from '../../../shared/adapter/types'
 import type { VersionStatus } from '../../../main/app-version'
+import type { WorktreeState } from '../../../main/worktrees'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
 import { useWorktreeState } from '../useGitStatus'
 import { Badge, Button, Dot, IconButton, Input, Row } from './ui'
@@ -42,7 +43,7 @@ interface SidebarProps {
   /** Focus/resume a branch; false = nothing to resume, ask for an agent instead */
   onOpenWorktree: (wt: Worktree, source?: Source) => boolean
   /** Spent branches are the only ones offering this — it deletes the checkout */
-  onRemoveWorktree: (wt: Worktree) => void
+  onRemoveWorktree: (wt: Worktree, state: WorktreeState | null) => void
   /** Undo a hand-marked "done" — never offered for a branch git itself calls spent */
   onReopenWorktree: (wt: Worktree) => void
   /** null = Home's settings */
@@ -225,7 +226,7 @@ function WorktreeRow({
   projectPath: string
   live: boolean
   onOpen: (wt: Worktree, source?: Source) => boolean
-  onRemove: (wt: Worktree) => void
+  onRemove: (wt: Worktree, state: WorktreeState | null) => void
   onReopen: (wt: Worktree) => void
 }): React.JSX.Element {
   const [menu, setMenu] = useState(false)
@@ -292,32 +293,36 @@ function WorktreeRow({
                 {dirty}
               </span>
             )}
-            {spent ? (
-              <>
-                {byHand && (
-                  <IconButton
-                    label="Not done after all — put this branch back to work"
-                    dense
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onReopen(worktree)
-                    }}
-                  >
-                    <Undo2 size={14} strokeWidth={1.75} />
-                  </IconButton>
-                )}
-                <IconButton
-                  label={`${spentReason} — remove this checkout`}
-                  dense
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRemove(worktree)
-                  }}
-                >
-                  <Trash2 size={14} strokeWidth={1.75} />
-                </IconButton>
-              </>
-            ) : null}
+            {spent && byHand && (
+              <IconButton
+                label="Not done after all — put this branch back to work"
+                dense
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onReopen(worktree)
+                }}
+              >
+                <Undo2 size={14} strokeWidth={1.75} />
+              </IconButton>
+            )}
+            {/* Every branch, not just spent ones: abandoning a task you've
+                changed your mind about is the ordinary way one ends. The
+                dialog names what gets thrown away; the row is hover-revealed,
+                so this is never a stray click. */}
+            <IconButton
+              label={
+                spent
+                  ? `${spentReason} — remove this checkout`
+                  : `Delete ${worktree.branch || worktree.taskName} and its checkout`
+              }
+              dense
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove(worktree, state)
+              }}
+            >
+              <Trash2 size={14} strokeWidth={1.75} />
+            </IconButton>
           </>
         }
         onClick={

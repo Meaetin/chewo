@@ -192,8 +192,13 @@ const api = {
   }) => ipcRenderer.invoke('worktree:state', args) as Promise<WorktreeState>,
   createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
-  worktreeRemove: (args: { projectPath: string; worktreePath: string; branch: string }) =>
-    ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
+  worktreeRemove: (args: {
+    projectPath: string
+    worktreePath: string
+    branch: string
+    /** Throw away uncommitted files and unmerged commits — a person's explicit call only */
+    discard?: boolean
+  }) => ipcRenderer.invoke('worktree:remove', args) as Promise<RemoveWorktreeResult>,
 
   gitStatus: (root: string) => ipcRenderer.invoke('git:status', root) as Promise<RepoStatus>,
   gitLog: (args: { root: string; limit?: number }) =>
