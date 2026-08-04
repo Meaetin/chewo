@@ -299,8 +299,8 @@ function registerIpc(): void {
   )
   ipcMain.handle(
     'worktree:remove',
-    (_e, a: { projectPath: string; worktreePath: string; branch: string }) =>
-      removeWorktree(a.projectPath, a.worktreePath, a.branch)
+    (_e, a: { projectPath: string; worktreePath: string; branch: string; discard?: boolean }) =>
+      removeWorktree(a.projectPath, a.worktreePath, a.branch, a.discard)
   )
 
   ipcMain.handle('git:status', (_e, root: string) => gitStatus(root))

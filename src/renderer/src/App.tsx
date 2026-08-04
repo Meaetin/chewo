@@ -22,6 +22,7 @@ import {
   type EffortLevel
 } from '../../shared/agents'
 import type { SessionMeta, Source } from '../../shared/adapter/types'
+import type { WorktreeState } from '../../main/worktrees'
 import {
   assignProject,
   sessionInProject,
@@ -1580,13 +1581,14 @@ export function App(): React.JSX.Element {
 
   /** git worktree remove + branch -d, then drop panes/tabs/records. Error string or null. */
   const removeWorktree = useCallback(
-    async (wt: Worktree): Promise<string | null> => {
+    async (wt: Worktree, discard = false): Promise<string | null> => {
       const project = projects.find((p) => p.id === wt.projectId)
       if (!project) return 'Project no longer exists'
       const res = await window.api.worktreeRemove({
         projectPath: project.path,
         worktreePath: wt.path,
-        branch: wt.branch
+        branch: wt.branch,
+        discard
       })
       if (!res.ok) return res.error
       const doomedTabs = tabs.filter((t) => t.worktreeId === wt.id)
@@ -1797,18 +1799,55 @@ export function App(): React.JSX.Element {
     }
   }, [reapMerged])
 
-  /** Sidebar's remove on a spent branch — git still refuses if work would be lost. */
+  /**
+   * The sidebar's remove, on any branch — spent or still live.
+   *
+   * Abandoning a task you don't want to finish is a normal thing to do, so the
+   * button is not reserved for branches git considers safe to delete. What
+   * makes it safe is that the dialog names the loss before it happens: the
+   * row's polled `WorktreeState` says how many uncommitted files and how many
+   * commits go with it, and `discard` (the only `--force`/`-D` in the app) is
+   * passed only when there is something to discard and the person said yes to
+   * that sentence.
+   *
+   * The escalation exists because that state is polled, not live: an agent can
+   * write a file between the last poll and the click, and git then refuses a
+   * removal the dialog promised. Rather than leave a dead button, the refusal
+   * is re-asked as the discard question it should have been.
+   */
   const confirmRemoveWorktree = useCallback(
-    (wt: Worktree) => {
+    (wt: Worktree, state: WorktreeState | null) => {
       const what = wt.branch ? `and delete branch ${wt.branch}` : '(it has no branch)'
       // Removal kills every pane running in the checkout — say so before it happens
       const open = tabs.filter((t) => t.worktreeId === wt.id).length
       const alsoCloses = open
         ? `\n\nThis closes ${open} open terminal${open === 1 ? '' : 's'} running there.`
         : ''
-      if (!window.confirm(`Remove the ${wt.taskName} worktree ${what}?${alsoCloses}`)) return
-      void removeWorktree(wt).then((err) => {
-        if (err) showToast(err)
+
+      const dirty = state?.dirty ?? 0
+      const ahead = state?.ahead ?? 0
+      const losses = [
+        dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : '',
+        ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not on ${wt.baseBranch || 'main'}` : ''
+      ].filter(Boolean)
+      const discard = losses.length > 0
+
+      const question = discard
+        ? `Delete the ${wt.taskName} branch and throw away ${losses.join(' and ')}?` +
+          `\n\nThis cannot be undone${ahead ? ' — unless those commits were already pushed' : ''}.` +
+          alsoCloses
+        : `Remove the ${wt.taskName} worktree ${what}?${alsoCloses}`
+      if (!window.confirm(question)) return
+
+      void removeWorktree(wt, discard).then((err) => {
+        if (!err) return
+        if (discard) return showToast(err)
+        // The clean-looking checkout wasn't. Ask the real question rather than
+        // toasting a refusal at someone who already asked for this branch gone.
+        if (!window.confirm(`git refused: ${err}\n\nDelete it anyway, discarding that work?`)) return
+        void removeWorktree(wt, true).then((e) => {
+          if (e) showToast(e)
+        })
       })
     },
     [removeWorktree, showToast, tabs]
@@ -2867,7 +2906,9 @@ export function App(): React.JSX.Element {
               shipWorktree
                 ? () => {
                     setShipReview(null)
-                    confirmRemoveWorktree(shipWorktree)
+                    // No polled state here — the unforced attempt goes first and
+                    // its refusal is what asks the discard question
+                    confirmRemoveWorktree(shipWorktree, null)
                   }
                 : undefined
             }

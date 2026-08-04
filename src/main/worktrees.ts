@@ -352,13 +352,28 @@ export type RemoveWorktreeResult =
  * Remove the worktree and delete its branch. git refuses on modified or
  * untracked files (our uncommitted-work safety net) and `-d` refuses on
  * unmerged branches — both are surfaced, never forced.
+ *
+ * `discard` is the one exception, and it only ever arrives from a person who
+ * was told in a dialog exactly what is about to be lost: abandoning a branch
+ * you don't want to finish *means* throwing away uncommitted files and
+ * unmerged commits, so a refusal there is the wrong answer rather than a
+ * safety net. Everything automatic (the merged-PR reaper, cleanup after a
+ * ship) leaves it off, which keeps "git refuses" as the guard where nobody is
+ * watching.
  */
 export async function removeWorktree(
   projectPath: string,
   worktreePath: string,
-  branch: string
+  branch: string,
+  discard = false
 ): Promise<RemoveWorktreeResult> {
-  const rm = await git(projectPath, ['worktree', 'remove', worktreePath], 120_000)
+  const rm = await git(
+    projectPath,
+    discard
+      ? ['worktree', 'remove', '--force', worktreePath]
+      : ['worktree', 'remove', worktreePath],
+    120_000
+  )
   if (!rm.ok) {
     // A folder that is already gone can't be "removed" — git only lists the
     // checkout until it's pruned. Anything else is a real refusal to surface.
@@ -368,7 +383,7 @@ export async function removeWorktree(
   }
 
   if (!branch) return { ok: true, branchDeleted: false }
-  const br = await git(projectPath, ['branch', '-d', branch])
+  const br = await git(projectPath, ['branch', discard ? '-D' : '-d', branch])
   return br.ok
     ? { ok: true, branchDeleted: true }
     : { ok: true, branchDeleted: false, note: `Worktree removed; branch kept: ${gitError(br)}` }
