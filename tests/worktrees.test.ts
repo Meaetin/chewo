@@ -19,6 +19,8 @@ import {
   createWorktree,
   listBranches,
   listWorktrees,
+  pruneCandidates,
+  pruneMergedBranches,
   removeWorktree,
   validateBaseRef,
   worktreeState,
@@ -720,5 +722,193 @@ describe('buildCommand permission flags', () => {
     expect(
       buildCommand({ source: 'claude', setupCommand: 'npm i', permissionMode: 'acceptEdits' })
     ).toBe('(npm i) && claude --permission-mode acceptEdits')
+  })
+})
+
+// The reaper's other half. `reapMerged` walks Worktree *records*, so a branch
+// whose record drifted away — or that was made in a terminal and never had one
+// — is invisible to it and accumulates forever. This sweeps those, and every
+// guard below is what makes it safe to run unattended on window focus.
+describe('pruneMergedBranches', () => {
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args], {
+      encoding: 'utf8'
+    })
+
+  const commitOn = (branch: string, file: string): void => {
+    git('checkout', '-q', '-b', branch)
+    writeFileSync(join(repo, file), `${file}\n`)
+    git('add', '-A')
+    git('commit', '-q', '-m', file)
+    git('checkout', '-q', 'main')
+  }
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-prune-test-'))
+    execFileSync('git', ['init', '-q', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'initial')
+  })
+
+  afterEach(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('deletes a merged branch that has no worktree left', async () => {
+    commitOn('agent/landed', 'b.txt')
+    landInMain(repo, 'agent/landed')
+
+    expect(await pruneMergedBranches(repo, ['agent/landed'])).toEqual(['agent/landed'])
+    expect(git('branch', '--format=%(refname:short)')).not.toContain('agent/landed')
+  })
+
+  // A squash or rebase merge rewrites SHAs, so git cannot see the branch as
+  // merged and refuses — the same blind spot worktreeState has, and the reason
+  // this is safe to run with nobody watching.
+  test('keeps a branch git cannot see as merged, even when the PR says merged', async () => {
+    commitOn('agent/squashed', 'c.txt')
+
+    expect(await pruneMergedBranches(repo, ['agent/squashed'])).toEqual([])
+    expect(git('branch', '--format=%(refname:short)')).toContain('agent/squashed')
+  })
+
+  test('never deletes a branch checked out in a worktree', async () => {
+    const res = await createWorktree(repo, 'live')
+    if (!res.ok) throw new Error(res.error)
+    landInMain(repo, branchFor('live'))
+
+    // Merged and record-less, so only the checkout itself is holding it
+    expect(await pruneMergedBranches(repo, [branchFor('live')])).toEqual([])
+    expect(git('branch', '--format=%(refname:short)')).toContain(branchFor('live'))
+  })
+
+  test('never deletes the branch HEAD is on', async () => {
+    expect(await pruneMergedBranches(repo, ['main'])).toEqual([])
+    expect(git('branch', '--format=%(refname:short)')).toContain('main')
+  })
+
+  // The guard that earns its place: once you are ahead of the default branch,
+  // it *is* merged into HEAD, so plain `-d` would happily delete it.
+  test('never deletes the remote default branch, even from a branch ahead of it', async () => {
+    const origin = mkdtempSync(join(homedir(), '.chewo-prune-origin-'))
+    rmSync(origin, { recursive: true, force: true })
+    execFileSync('git', ['clone', '-q', repo, origin])
+    const clone = (...args: string[]): string =>
+      execFileSync('git', ['-C', origin, '-c', 'user.name=T', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8'
+      })
+    try {
+      clone('checkout', '-q', '-b', 'work')
+      writeFileSync(join(origin, 'd.txt'), 'd\n')
+      clone('add', '-A')
+      clone('commit', '-q', '-m', 'ahead')
+
+      expect(await pruneMergedBranches(origin, ['main'])).toEqual([])
+      expect(clone('branch', '--format=%(refname:short)')).toContain('main')
+    } finally {
+      rmSync(origin, { recursive: true, force: true })
+    }
+  })
+
+  test('ignores names that are not local branches, and an empty list', async () => {
+    expect(await pruneMergedBranches(repo, [])).toEqual([])
+    expect(await pruneMergedBranches(repo, ['never-existed', 'origin/main'])).toEqual([])
+  })
+})
+
+// The gate that keeps the sweep off the network: `reapMerged` asks every
+// project, so a repo with nothing to clean must be ruled out locally before a
+// `gh pr list` is spent on it.
+describe('pruneCandidates', () => {
+  let repo: string
+  let clone: string
+
+  const git = (dir: string, ...args: string[]): string =>
+    execFileSync('git', ['-C', dir, '-c', 'user.name=T', '-c', 'user.email=t@t', ...args], {
+      encoding: 'utf8'
+    })
+
+  beforeEach(() => {
+    // Bare: a non-bare origin refuses a push to the branch it has checked out,
+    // and these tests land work on origin/main to make a branch prunable
+    repo = mkdtempSync(join(homedir(), '.chewo-cand-origin-'))
+    rmSync(repo, { recursive: true, force: true })
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', repo])
+
+    const seed = mkdtempSync(join(homedir(), '.chewo-cand-seed-'))
+    execFileSync('git', ['init', '-q', '-b', 'main', seed])
+    writeFileSync(join(seed, 'a.txt'), 'one\n')
+    git(seed, 'add', '-A')
+    git(seed, 'commit', '-q', '-m', 'initial')
+    git(seed, 'remote', 'add', 'origin', repo)
+    git(seed, 'push', '-q', '-u', 'origin', 'main')
+    rmSync(seed, { recursive: true, force: true })
+
+    clone = mkdtempSync(join(homedir(), '.chewo-cand-clone-'))
+    rmSync(clone, { recursive: true, force: true })
+    execFileSync('git', ['clone', '-q', repo, clone])
+  })
+
+  afterEach(() => {
+    rmSync(join(WORKTREES_ROOT, basename(clone)), { recursive: true, force: true })
+    rmSync(clone, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('a repo holding only its default branch has nothing to offer', async () => {
+    expect(await pruneCandidates(clone)).toEqual([])
+  })
+
+  test('live work is not a candidate, so an active repo costs no gh call', async () => {
+    git(clone, 'checkout', '-q', '-b', 'wip')
+    writeFileSync(join(clone, 'b.txt'), 'b\n')
+    git(clone, 'add', '-A')
+    git(clone, 'commit', '-q', '-m', 'wip')
+    git(clone, 'checkout', '-q', 'main')
+
+    expect(await pruneCandidates(clone)).toEqual([])
+  })
+
+  test('a landed branch with no checkout is offered', async () => {
+    git(clone, 'checkout', '-q', '-b', 'agent/landed')
+    writeFileSync(join(clone, 'c.txt'), 'c\n')
+    git(clone, 'add', '-A')
+    git(clone, 'commit', '-q', '-m', 'c')
+    git(clone, 'checkout', '-q', 'main')
+    git(clone, 'merge', '-q', '--no-ff', '--no-edit', 'agent/landed')
+    git(clone, 'push', '-q', 'origin', 'main')
+    git(clone, 'fetch', '-q', 'origin')
+
+    expect(await pruneCandidates(clone)).toEqual(['agent/landed'])
+  })
+
+  test('never offers a branch held by a worktree, or the default branch', async () => {
+    const res = await createWorktree(clone, 'live')
+    if (!res.ok) throw new Error(res.error)
+    git(clone, 'merge', '-q', '--no-ff', '--no-edit', branchFor('live'))
+    git(clone, 'push', '-q', 'origin', 'main')
+    git(clone, 'fetch', '-q', 'origin')
+
+    const offered = await pruneCandidates(clone)
+    expect(offered).not.toContain(branchFor('live'))
+    expect(offered).not.toContain('main')
+  })
+
+  test('a repo with no remote default has no notion of landed', async () => {
+    const solo = mkdtempSync(join(homedir(), '.chewo-cand-solo-'))
+    execFileSync('git', ['init', '-q', '-b', 'main', solo])
+    writeFileSync(join(solo, 'a.txt'), 'one\n')
+    git(solo, 'add', '-A')
+    git(solo, 'commit', '-q', '-m', 'initial')
+    git(solo, 'branch', 'spare')
+    try {
+      expect(await pruneCandidates(solo)).toEqual([])
+    } finally {
+      rmSync(solo, { recursive: true, force: true })
+    }
   })
 })

@@ -184,6 +184,12 @@ const api = {
     ipcRenderer.invoke('worktree:branches', projectPath) as Promise<ListBranchesResult>,
   worktreeList: (projectPath: string) =>
     ipcRenderer.invoke('worktree:list', projectPath) as Promise<ListWorktreesResult>,
+  /** Merged branches with no checkout left; main re-checks every one before deleting */
+  worktreePruneBranches: (projectPath: string, merged: string[]) =>
+    ipcRenderer.invoke('worktree:prune-branches', projectPath, merged) as Promise<string[]>,
+  /** Local-only: what this project could lose, so an idle repo costs no gh call */
+  worktreePruneCandidates: (projectPath: string) =>
+    ipcRenderer.invoke('worktree:prune-candidates', projectPath) as Promise<string[]>,
   worktreeState: (args: {
     projectPath: string
     worktreePath: string
