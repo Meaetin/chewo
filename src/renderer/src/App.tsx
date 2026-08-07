@@ -1623,11 +1623,12 @@ export function App(): React.JSX.Element {
    * when the first message arrives, because both questions are only really
    * answerable once you know the task — and the branch is *named* after it.
    *
-   * Isolated by default wherever there is a project to isolate from. Ship
-   * stages the whole tree (`git add -A`) and several agents share these
-   * checkouts, so a session in the main checkout means one agent's click
-   * sweeps another's half-finished work into its PR. The worktree is what
-   * makes a no-prompt ship safe; the toggle is the way out of it, not into it.
+   * Starts in the project's own checkout, not a worktree. Most sessions are a
+   * question or a small edit on the branch already open, and cutting a branch
+   * for one is a folder to clean up afterwards. The setup row's toggle is the
+   * way *into* isolation, and it is worth reaching for whenever a session will
+   * be shipped: Ship stages the whole tree (`git add -A`), so two agents in
+   * one checkout means one of them sweeps the other's work into its PR.
    */
   const newAgent = useCallback(
     (project: Project | null) => {
@@ -1649,7 +1650,7 @@ export function App(): React.JSX.Element {
             // Not the agent's name: which agent is still a choice, and the
             // conversation's own title replaces this on the first turn
             label: 'New session',
-            branchMode: project ? 'separate' : 'current',
+            branchMode: 'current',
             pending: true,
             exited: false
           }
