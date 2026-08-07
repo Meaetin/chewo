@@ -93,6 +93,8 @@ import {
   createWorktree,
   listBranches,
   listWorktrees,
+  pruneCandidates,
+  pruneMergedBranches,
   removeWorktree,
   worktreeState
 } from './worktrees'
@@ -284,6 +286,12 @@ function registerIpc(): void {
 
   ipcMain.handle('worktree:branches', (_e, projectPath: string) => listBranches(projectPath))
   ipcMain.handle('worktree:list', (_e, projectPath: string) => listWorktrees(projectPath))
+  ipcMain.handle('worktree:prune-branches', (_e, projectPath: string, merged: string[]) =>
+    pruneMergedBranches(projectPath, merged)
+  )
+  ipcMain.handle('worktree:prune-candidates', (_e, projectPath: string) =>
+    pruneCandidates(projectPath)
+  )
   ipcMain.handle(
     'worktree:state',
     (

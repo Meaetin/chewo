@@ -520,3 +520,116 @@ export async function removeWorktree(
     ? { ok: true, branchDeleted: true }
     : { ok: true, branchDeleted: false, note: `Worktree removed; branch kept: ${gitError(br)}` }
 }
+
+/**
+ * Delete merged local branches that have no checkout left — the other half of
+ * the reaper.
+ *
+ * `reapMerged` is worktree-*record*-driven: it walks the `Worktree`s we know
+ * about and removes the ones whose PR landed. A branch outlives its record,
+ * so that misses two whole classes. The records drift by design (dev and
+ * packaged builds keep separate `projects.json` files, and closing a pane
+ * deletes the `SavedTerminal` that was the branch's only handle), and a
+ * branch made in a terminal or before the worktree flow never had a record at
+ * all. Both are invisible to the reaper and pile up forever.
+ *
+ * Nothing here trusts the caller's list. A branch checked out in *any*
+ * worktree is skipped, so a live agent's branch can never be pulled out from
+ * under it; so are HEAD and the repo's default branch. The delete is `-d`,
+ * never `-D` — the same house rule as everywhere else in this file, and the
+ * reason it is safe to run unattended: git refuses anything it can't see as
+ * merged. A squash- or rebase-merged branch is exactly that case (the merge
+ * rewrote its SHAs), so it survives this and is left for a person to remove
+ * from the sidebar, which is the same blind spot `worktreeState` has.
+ *
+ * Returns the names actually deleted — a refusal is not an error here, it is
+ * the guard doing its job, so it is dropped rather than surfaced.
+ */
+export async function pruneMergedBranches(
+  projectPath: string,
+  merged: string[]
+): Promise<string[]> {
+  if (!merged.length) return []
+
+  const held = await heldBranches(projectPath)
+  // A checkout list we couldn't read is not "nothing is checked out" — without
+  // it there is no way to know a branch is free, so nothing is touched
+  if (!held) return []
+
+  const refs = await git(projectPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+  if (!refs.ok) return []
+  const local = new Set(refs.stdout.split('\n').map((s) => s.trim()).filter(Boolean))
+
+  const deleted: string[] = []
+  for (const branch of new Set(merged)) {
+    if (!local.has(branch) || held.has(branch)) continue
+    if ((await git(projectPath, ['branch', '-d', branch])).ok) deleted.push(branch)
+  }
+  return deleted
+}
+
+/**
+ * Branches no sweep may touch: checked out in any worktree (so a live agent's
+ * branch can never go), whatever HEAD is on, and the repo's own default.
+ *
+ * `null` means the checkout list could not be read, which callers must treat
+ * as "delete nothing" rather than as an empty set.
+ */
+async function heldBranches(projectPath: string): Promise<Set<string> | null> {
+  const wt = await git(projectPath, ['worktree', 'list', '--porcelain'])
+  if (!wt.ok) return null
+  const held = new Set(
+    wt.stdout
+      .split('\n')
+      .filter((l) => l.startsWith('branch '))
+      .map((l) => l.slice('branch '.length).trim().replace(/^refs\/heads\//, ''))
+  )
+  const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (head.ok) held.add(head.stdout.trim())
+
+  // `origin/main` names the branch we must never delete locally; a remote name
+  // can't contain a slash, so the first segment is the remote
+  const base = await defaultRemoteRef(projectPath)
+  if (base) held.add(base.replace(/^[^/]+\//, ''))
+  return held
+}
+
+/**
+ * Branches this project could conceivably lose, read **without any network**.
+ *
+ * This exists to keep the sweep off the network. `reapMerged` asks every
+ * project, not just the ones holding worktree records — that is the whole
+ * point, since a project whose records drifted away is exactly the one with
+ * orphans — but a `gh pr list` per project per window focus is a real tax on
+ * a sidebar with a dozen repos, most of which have nothing to clean and are
+ * not even open. An empty answer here means the project is skipped before any
+ * round-trip is spent.
+ *
+ * `--merged <origin/default>` is the filter because it is close to the test
+ * `git branch -d` will apply anyway, so this rules out the common cases for
+ * free: a repo holding only its default branch, and one whose extra branches
+ * are all live work. It is a *necessary* condition, not a sufficient one —
+ * the delete still goes through `-d`, and a stale `origin/<default>` (an
+ * unvisited project has not been fetched) simply under-reports, which leaves
+ * branches for the next pass instead of deleting anything it shouldn't.
+ */
+export async function pruneCandidates(projectPath: string): Promise<string[]> {
+  const base = await defaultRemoteRef(projectPath)
+  // No remote default is no notion of "landed", so there is nothing to sweep
+  if (!base) return []
+  const held = await heldBranches(projectPath)
+  if (!held) return []
+
+  const refs = await git(projectPath, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    '--merged',
+    base,
+    'refs/heads'
+  ])
+  if (!refs.ok) return []
+  return refs.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((b) => b && !held.has(b))
+}

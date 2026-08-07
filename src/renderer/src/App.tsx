@@ -1840,29 +1840,66 @@ export function App(): React.JSX.Element {
       if (live.has(w.id) || !w.branch) continue
       byProject.set(w.projectId, [...(byProject.get(w.projectId) ?? []), w])
     }
-    // Stamped only once there is something to ask about: worktrees load a beat
-    // after the first render, and an empty first pass would otherwise spend the
-    // window and leave the real one waiting five minutes
-    if (byProject.size === 0) return
+    // Stamped only once there is something to ask about, and `loaded` is the
+    // honest signal for that: projects and worktrees arrive in the same read,
+    // so before it an empty list means "not read yet" and would spend the
+    // window, while after it an empty list is a real answer. Gating on the
+    // worktree records instead — as this did — skipped the whole pass for a
+    // project whose records had drifted away, which is exactly the project
+    // with orphaned branches to prune.
+    if (!loaded.current || projects.length === 0) return
     reapedAt.current = Date.now()
     const seq = ++reapSeq.current
 
+    // Which projects are worth a network call, decided locally first. This
+    // pass asks every project rather than only the ones holding records — a
+    // project whose records drifted away is precisely the one with orphans —
+    // and a `gh pr list` each on every window focus would be a real tax on a
+    // sidebar of a dozen repos you mostly aren't looking at. A repo with no
+    // record *and* nothing locally prunable never reaches the network.
+    const scoped = await Promise.all(
+      projects.map(async (p) => ({
+        project: p,
+        records: byProject.get(p.id) ?? [],
+        orphans: await window.api.worktreePruneCandidates(p.path)
+      }))
+    )
+    if (seq !== reapSeq.current) return
+
+    const answers = await Promise.all(
+      scoped
+        .filter((s) => s.records.length || s.orphans.length)
+        .map(async (s) => [s, await window.api.gitMergedBranches(s.project.path)] as const)
+    )
+    if (seq !== reapSeq.current) return
+
     const reaped: string[] = []
-    for (const [projectId, candidates] of byProject) {
-      const project = projects.find((p) => p.id === projectId)
-      if (!project) continue
-      const merged = new Set(await window.api.gitMergedBranches(project.path))
-      if (seq !== reapSeq.current) return
-      for (const wt of candidates) {
+    const pruned: string[] = []
+    for (const [{ project, orphans }, mergedNames] of answers) {
+      // Empty is also what an unreachable gh returns, and both mean don't reap
+      if (!mergedNames.length) continue
+      const merged = new Set(mergedNames)
+      for (const wt of byProject.get(project.id) ?? []) {
         if (!merged.has(wt.branch)) continue
         // git's refusal is the guard; a kept worktree is not worth a toast
         if ((await removeWorktree(wt)) === null) reaped.push(wt.taskName)
         if (seq !== reapSeq.current) return
       }
+      // The branches the pass above structurally cannot see — merged, but with
+      // no record left to find them by. Narrowed to the local candidates so a
+      // project whose orphans are all live work costs nothing here; main
+      // re-checks every name itself and deletes with `-d` regardless, so this
+      // is a filter for cost, never the safety.
+      const stale = orphans.filter((b) => merged.has(b))
+      if (stale.length)
+        pruned.push(...(await window.api.worktreePruneBranches(project.path, stale)))
+      if (seq !== reapSeq.current) return
     }
-    if (reaped.length)
+
+    const total = reaped.length + pruned.length
+    if (total)
       showToast(
-        `Cleaned up ${reaped.length} merged ${reaped.length === 1 ? 'branch' : 'branches'}: ${reaped.join(', ')}`
+        `Cleaned up ${total} merged ${total === 1 ? 'branch' : 'branches'}: ${[...reaped, ...pruned].join(', ')}`
       )
   }, [worktrees, projects, tabs, removeWorktree, showToast])
 
