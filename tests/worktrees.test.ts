@@ -1,10 +1,21 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { DEFAULT_LOCAL_FILES } from '../src/shared/local-files'
 import {
   branchFor,
+  cloneNodeModules,
+  copyLocalFiles,
   createWorktree,
   listBranches,
   listWorktrees,
@@ -260,6 +271,145 @@ describe('listWorktrees', () => {
   test('non-repo path is reported, not thrown', async () => {
     const res = await listWorktrees(homedir())
     expect(res.ok).toBe(false)
+  })
+})
+
+// Only git knows which files it ignores, so the candidate list has to come
+// from a real repo — a hand-rolled walk is exactly what this avoids.
+describe('copyLocalFiles', () => {
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args], {
+      encoding: 'utf8'
+    })
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wtcopy-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, '.gitignore'), '.env*\n!.env.example\nnode_modules/\ndist/\n')
+    writeFileSync(join(repo, '.env.example'), 'API_KEY=\n')
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-m', 'initial')
+    // The machine-local files a fresh checkout will not have
+    writeFileSync(join(repo, '.env'), 'API_KEY=real\n')
+    writeFileSync(join(repo, '.env.local'), 'OVERRIDE=1\n')
+    mkdirSync(join(repo, 'apps', 'web'), { recursive: true })
+    writeFileSync(join(repo, 'apps', 'web', '.env'), 'PORT=3000\n')
+    mkdirSync(join(repo, 'node_modules', 'left-pad'), { recursive: true })
+    writeFileSync(join(repo, 'node_modules', 'left-pad', 'index.js'), '//\n')
+    mkdirSync(join(repo, 'dist'), { recursive: true })
+    writeFileSync(join(repo, 'dist', 'bundle.js'), '//\n')
+  })
+
+  afterEach(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('the defaults carry every env file across, at any depth', async () => {
+    const made = await createWorktree(repo, 'copy')
+    if (!made.ok) throw new Error(made.error)
+
+    const res = await copyLocalFiles(repo, made.path, DEFAULT_LOCAL_FILES)
+    expect(res.error).toBeUndefined()
+    expect(res.copied.sort()).toEqual(['.env', '.env.local', 'apps/web/.env'])
+    expect(readFileSync(join(made.path, '.env'), 'utf8')).toBe('API_KEY=real\n')
+    expect(readFileSync(join(made.path, 'apps', 'web', '.env'), 'utf8')).toBe('PORT=3000\n')
+  })
+
+  test('build output and dependencies are left where they are', async () => {
+    const made = await createWorktree(repo, 'skips')
+    if (!made.ok) throw new Error(made.error)
+
+    await copyLocalFiles(repo, made.path, DEFAULT_LOCAL_FILES)
+    expect(existsSync(join(made.path, 'dist'))).toBe(false)
+    expect(existsSync(join(made.path, 'node_modules'))).toBe(false)
+  })
+
+  test('node_modules is never copied here however broad the pattern', async () => {
+    const made = await createWorktree(repo, 'greedy')
+    if (!made.ok) throw new Error(made.error)
+
+    const res = await copyLocalFiles(repo, made.path, ['*'])
+    expect(existsSync(join(made.path, 'node_modules'))).toBe(false)
+    expect(res.copied).toContain('dist/')
+  })
+
+  test('a tracked file already in the checkout is never overwritten', async () => {
+    const made = await createWorktree(repo, 'tracked')
+    if (!made.ok) throw new Error(made.error)
+    writeFileSync(join(repo, '.env.example'), 'TAMPERED=1\n')
+
+    const res = await copyLocalFiles(repo, made.path, ['.env.example'])
+    expect(res.copied).toEqual([])
+    expect(readFileSync(join(made.path, '.env.example'), 'utf8')).toBe('API_KEY=\n')
+  })
+
+  test('directories named by a pattern come across whole', async () => {
+    mkdirSync(join(repo, '.certs'), { recursive: true })
+    writeFileSync(join(repo, '.certs', 'dev.pem'), 'PEM\n')
+    writeFileSync(join(repo, '.gitignore'), '.env*\n!.env.example\nnode_modules/\n.certs/\n')
+    const made = await createWorktree(repo, 'certs')
+    if (!made.ok) throw new Error(made.error)
+
+    const res = await copyLocalFiles(repo, made.path, ['.certs'])
+    expect(res.copied).toEqual(['.certs/'])
+    expect(readFileSync(join(made.path, '.certs', 'dev.pem'), 'utf8')).toBe('PEM\n')
+  })
+
+  // The safety argument for the whole feature: only files git will keep
+  // ignoring travel, so Ship's `git add -A` can never stage what this copied.
+  test('a file git does not ignore is not a candidate, however it is named', async () => {
+    writeFileSync(join(repo, 'local.config.json'), '{}\n')
+    const made = await createWorktree(repo, 'untracked')
+    if (!made.ok) throw new Error(made.error)
+
+    const res = await copyLocalFiles(repo, made.path, ['local.config.json', '*'])
+    expect(res.copied).not.toContain('local.config.json')
+    expect(existsSync(join(made.path, 'local.config.json'))).toBe(false)
+  })
+})
+
+// The pane is already open while this runs, so a partially-filled
+// `node_modules` is something the session can genuinely catch in the act.
+describe('cloneNodeModules', () => {
+  let repo: string
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-wtclone-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@t', 'add', '-A'])
+    execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-m', 'i'])
+    mkdirSync(join(repo, 'node_modules', 'left-pad'), { recursive: true })
+    writeFileSync(join(repo, 'node_modules', 'left-pad', 'index.js'), '//\n')
+  })
+
+  afterEach(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('the tree arrives whole, and nothing is left beside the worktree', async () => {
+    const made = await createWorktree(repo, 'deps')
+    if (!made.ok) throw new Error(made.error)
+
+    expect(await cloneNodeModules(repo, made.path)).toBeNull()
+    expect(readFileSync(join(made.path, 'node_modules', 'left-pad', 'index.js'), 'utf8')).toBe('//\n')
+    expect(readdirSync(dirname(made.path)).filter((n) => n.includes('staged'))).toEqual([])
+  })
+
+  test('an install that won the race keeps its own tree', async () => {
+    const made = await createWorktree(repo, 'raced')
+    if (!made.ok) throw new Error(made.error)
+    // Stand in for `npm install` finishing while the copy was still running
+    mkdirSync(join(made.path, 'node_modules', 'installed'), { recursive: true })
+
+    expect(await cloneNodeModules(repo, made.path)).toBeNull()
+    expect(existsSync(join(made.path, 'node_modules', 'installed'))).toBe(true)
+    expect(existsSync(join(made.path, 'node_modules', 'left-pad'))).toBe(false)
   })
 })
 

@@ -48,16 +48,25 @@ export interface AgentSettings {
   codexApproval?: CodexApprovalPolicy
 }
 
+/** Settings only a project has — Home has no worktrees and no play button. */
+export interface ProjectSettings {
+  /** Runs visibly in a fresh worktree pane before the agent launches (install, codegen) */
+  worktreeSetup?: string
+  /** Commands the tab-bar play button launches — one shell per non-empty line. Unset = `npm run dev`. */
+  runCommand?: string
+  /**
+   * Git-ignored files copied into every new worktree — one gitignore-style
+   * pattern per line. Unset = `DEFAULT_LOCAL_FILES` in `shared/local-files.ts`.
+   */
+  worktreeCopy?: string
+}
+
 /** User-created workspace: a named path prefix that sessions auto-assign to. */
-export interface Project extends AgentSettings {
+export interface Project extends AgentSettings, ProjectSettings {
   id: string
   name: string
   path: string
   terminals: SavedTerminal[]
-  /** Runs visibly in a fresh worktree pane before the agent launches (env copy, install) */
-  worktreeSetup?: string
-  /** Commands the tab-bar play button launches — one shell per non-empty line. Unset = `npm run dev`. */
-  runCommand?: string
 }
 
 /** An isolated git checkout created for one agent task; shares the project's .git. */

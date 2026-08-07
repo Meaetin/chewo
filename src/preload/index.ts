@@ -190,7 +190,13 @@ const api = {
     branch: string
     baseCommit?: string
   }) => ipcRenderer.invoke('worktree:state', args) as Promise<WorktreeState>,
-  createWorktree: (args: { projectPath: string; taskName: string; base?: string }) =>
+  createWorktree: (args: {
+    projectPath: string
+    taskName: string
+    base?: string
+    /** Raw `Project.worktreeCopy` — main parses it, so the default lives in one place */
+    localFiles?: string
+  }) =>
     ipcRenderer.invoke('worktree:create', args) as Promise<CreateWorktreeResult>,
   worktreeRemove: (args: {
     projectPath: string
@@ -217,7 +223,11 @@ const api = {
   gitDefaultBase: (root: string) =>
     ipcRenderer.invoke('git:default-base', root) as Promise<string | null>,
   gitShip: (args: ShipArgs) => ipcRenderer.invoke('git:ship', args) as Promise<ShipResult>,
-  gitShipPreview: (args: { root: string }) =>
+  gitShipCompare: (args: { root: string; base: string }) =>
+    ipcRenderer.invoke('git:ship-compare', args) as Promise<
+      { ok: true; commits: string[] } | { ok: false; error: string }
+    >,
+  gitShipPreview: (args: { root: string; base?: string }) =>
     ipcRenderer.invoke('git:ship-preview', args) as Promise<ShipPreviewResult>,
   gitMergedBranches: (root: string) =>
     ipcRenderer.invoke('git:merged-branches', root) as Promise<string[]>,

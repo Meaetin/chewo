@@ -356,10 +356,15 @@ Sidebar action `⎇` (enabled when a project is selected) → dialog:
   agents, "which tab is which" is the real problem.
 - **Agent** — Claude / Codex.
 - **Setup command** (optional, per-project, persisted as
-  `project.worktreeSetup`) — e.g. `cp <main>/.env . && npm install`. Runs
-  visibly in the pane, chained `(setup) && <agent>`, so a failed setup never
-  launches the agent silently. Needed because gitignored files
-  (`.env`, `node_modules`) don't exist in a fresh worktree.
+  `project.worktreeSetup`) — e.g. `npm run codegen`. Runs visibly in the pane,
+  chained `(setup) && <agent>`, so a failed setup never launches the agent
+  silently. It runs on **every** creation path, the automatic one included:
+  `startChosenSession` passes `project.worktreeSetup` to the replacement pane,
+  and both runtimes honour it (`buildCommand` in `terminals.ts` for a pty,
+  `createChat` in `chat-sessions.ts` for a chat pane).
+- **Copy into new worktrees** (optional, per-project, persisted as
+  `project.worktreeCopy`) — see §10.6. `.env` and friends arrive without a
+  setup command.
 
 Branched from the main checkout's current `HEAD`. Worktrees live OUTSIDE the
 repo so main-checkout file watchers (Vite, nodemon) never see them.
@@ -388,7 +393,48 @@ repo so main-checkout file watchers (Vite, nodemon) never see them.
 - Dev servers / port management in worktrees.
 - Auto-detecting "agent is done" — the user decides when to merge.
 - In-app conflict resolution or auto-stash of the main checkout.
-- Auto-copying gitignored files (secret-leak risk; setup command instead).
+- ~~Auto-copying gitignored files (secret-leak risk; setup command instead).~~
+  **Reversed 2026-08-06 — see §10.6.** Isolation became the default for every
+  session, so "write a setup command first" became a tax on every project
+  rather than a choice made once per worktree.
+
+### 10.6 Machine-local files follow the project (2026-08-06)
+
+`git worktree add` checks out tracked files only, so a fresh session has no
+`.env` and its first `npm run dev` fails for a reason unrelated to the code.
+`copyLocalFiles` (`src/main/worktrees.ts`) copies the main checkout's ignored
+files across before the pane opens; patterns are gitignore-flavoured, one per
+line, in **Copy into new worktrees** (`project.worktreeCopy`, defaults in
+`src/shared/local-files.ts` — every `.env*` except the committed examples).
+
+The rules, and why the original secret-leak rejection no longer bites:
+
+- **Only files git already ignores are candidates.** `.gitignore` is tracked,
+  so it comes with the checkout — anything copied here stays ignored there,
+  and Ship's `git add -A` cannot stage it. A file git does *not* ignore is
+  skipped however the patterns are written, since copying one would hand Ship
+  an untracked file to commit that the agent never wrote.
+- Candidates come from `git ls-files --others --ignored --exclude-standard
+  --directory`, not a directory walk: git's rules decide what is machine-local,
+  and `--directory` collapses a wholly-ignored folder to one entry (one row for
+  `node_modules`, not thirty thousand).
+- `node_modules` and `.git` are never copied here — the first is
+  `cloneNodeModules`' APFS clone, the second is shared with the main checkout.
+- A path the checkout already occupies is never overwritten, and the copy is
+  capped at 100 entries so a `*` pattern can't turn a session start into a
+  disk copy.
+- **Awaited**, unlike the `node_modules` clone: an agent that starts against a
+  missing `.env` reads a broken config once and reasons from it all session.
+  Failure is still non-fatal and only toasts.
+
+The `node_modules` clone stays fire-and-forget, which means the pane is open
+and running while it copies — so it lands **atomically**: into a sibling of the
+worktree (same volume for the rename, outside the checkout so `git status` and
+Ship never see it half-copied), renamed into place at the end, and discarded if
+something else created `node_modules` first. Otherwise a setup command that
+installs would be writing the same tree `cp` is still filling in. Nothing in
+the app runs `npm install`; a setup command should be a side effect a copy
+can't produce (`direnv allow`, a venv, a per-branch database), not a file.
 
 ### 10.5 Per-section agent launch settings (2026-07-17)
 
