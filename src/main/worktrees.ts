@@ -241,6 +241,19 @@ async function freshestBase(projectPath: string, remoteRef: string): Promise<str
 }
 
 /**
+ * The remote a base ref belongs to, or null when it names a local branch.
+ * Asked of git rather than pattern-matched on `origin/`: a remote can be
+ * called anything, and a local branch is perfectly allowed to have a slash in
+ * its name (`feature/login` is not a remote called `feature`).
+ */
+async function remoteOf(projectPath: string, ref: string): Promise<string | null> {
+  const slash = ref.indexOf('/')
+  if (slash <= 0) return null
+  const exists = await git(projectPath, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`])
+  return exists.ok ? ref.slice(0, slash) : null
+}
+
+/**
  * `base` is the start point for the new branch — any branch in the repo,
  * including a remote-tracking one.
  *
@@ -250,6 +263,13 @@ async function freshestBase(projectPath: string, remoteRef: string): Promise<str
  * pulling means the main checkout is never touched — no ref moves under the
  * agents already working in it. The fetch is best effort: offline, or a repo
  * with no remote, falls back to local HEAD exactly as this used to behave.
+ *
+ * A **named** base is fetched on the same terms when it is a remote-tracking
+ * ref, and for the same reason: `origin/feature` on disk is a cache of a
+ * branch somebody else moves, so cutting from it unfetched means "as of
+ * whenever this repo last heard" — the exact staleness starting current is
+ * supposed to rule out. A local branch is skipped: its ref is the truth
+ * already, and there is nothing to be behind.
  */
 export async function createWorktree(
   projectPath: string,
@@ -286,7 +306,12 @@ export async function createWorktree(
   } else {
     const badBase = validateBaseRef(base)
     if (badBase) return { ok: false, error: badBase }
-    // Resolve before the expensive checkout so a typo fails in milliseconds
+    // Best effort, exactly like the default path's: a failure here leaves the
+    // cached ref in place and the session still starts, one fetch behind
+    const remote = await remoteOf(projectPath, base)
+    if (remote) await git(projectPath, ['fetch', remote, '--prune'], 120_000)
+    // Resolve *after* the fetch — the point of it is that the tip moved — but
+    // before the expensive checkout, so a typo still fails in milliseconds
     const rev = await git(projectPath, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
     if (!rev.ok) return { ok: false, error: `Base branch not found: ${base}` }
     baseBranch = base

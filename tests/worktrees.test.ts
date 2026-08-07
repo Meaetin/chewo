@@ -206,6 +206,70 @@ describe('task branches do not inherit the base branch upstream', () => {
   })
 })
 
+// A named remote base is a *cache* of somebody else's branch. Cutting from it
+// unfetched means "as of whenever this repo last heard", which is the exact
+// staleness a fresh worktree exists to avoid.
+describe('a chosen remote base is fetched before the branch is cut', () => {
+  let repo: string
+  let remote: string
+  let other: string
+
+  const at = (dir: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    remote = mkdtempSync(join(homedir(), '.chewo-wt-base-remote-'))
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote])
+    repo = mkdtempSync(join(homedir(), '.chewo-wt-base-repo-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    writeFileSync(join(repo, 'a.txt'), 'one\n')
+    at(repo, 'add', '-A')
+    at(repo, 'commit', '-m', 'initial')
+    at(repo, 'remote', 'add', 'origin', remote)
+    at(repo, 'push', '-u', 'origin', 'main')
+    at(repo, 'push', 'origin', 'main:refs/heads/feature')
+    at(repo, 'fetch', 'origin')
+
+    // Somebody else moves `feature` on the remote. Our repo has not fetched
+    // since, so `origin/feature` on disk still points at the old commit.
+    other = mkdtempSync(join(homedir(), '.chewo-wt-base-other-'))
+    execFileSync('git', ['clone', remote, other])
+    writeFileSync(join(other, 'b.txt'), 'two\n')
+    at(other, 'checkout', 'feature')
+    at(other, 'add', '-A')
+    at(other, 'commit', '-m', 'landed after our last fetch')
+    at(other, 'push', 'origin', 'feature')
+  })
+
+  afterAll(() => {
+    rmSync(join(WORKTREES_ROOT, basename(repo)), { recursive: true, force: true })
+    for (const dir of [repo, remote, other]) rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('the worktree lands on the remote tip, not the cached one', async () => {
+    const stale = at(repo, 'rev-parse', 'origin/feature').trim()
+    const res = await createWorktree(repo, 'follow-on', 'origin/feature')
+    if (!res.ok) throw new Error(res.error)
+    const tip = at(repo, 'rev-parse', res.branch).trim()
+    expect(tip).not.toBe(stale)
+    expect(tip).toBe(at(other, 'rev-parse', 'feature').trim())
+    expect(res.baseCommit).toBe(tip)
+    // The checkout itself, not just the ref: the agent opens onto that work
+    expect(existsSync(join(res.path, 'b.txt'))).toBe(true)
+  })
+
+  test('a local base is cut as it stands', async () => {
+    at(repo, 'branch', 'local-only')
+    const res = await createWorktree(repo, 'off-local', 'local-only')
+    if (!res.ok) throw new Error(res.error)
+    expect(res.baseCommit).toBe(at(repo, 'rev-parse', 'local-only').trim())
+  })
+})
+
 // The sidebar's branch list comes from git, not from our records — this is
 // what makes a worktree survive a closed pane or a wiped projects.json.
 describe('listWorktrees', () => {
