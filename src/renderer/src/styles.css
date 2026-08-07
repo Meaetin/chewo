@@ -6319,7 +6319,9 @@ body {
 }
 
 .chat-setup-chip,
-.chat-setup-branch {
+.chat-setup-branch,
+.chat-setup-branch-label,
+.chat-setup-branch-switch {
   display: flex;
   align-items: center;
   gap: var(--space-6);
@@ -6367,14 +6369,45 @@ body {
 }
 
 /* Pushed to the far end: agent and model are the identity, the checkout is
-   where the result lands */
+   where the result lands. One pill holding three controls — the label, the
+   base-branch picker and the switch — so the padding lives on the children
+   and the container only draws the outline. */
 .chat-setup-branch {
   margin-left: auto;
+  padding: 0;
+  gap: 0;
   border-color: var(--c-line-2);
+  cursor: default;
+}
+
+.chat-setup-branch-label {
+  min-width: 0;
+}
+
+.chat-setup-branch-switch {
+  padding-left: var(--space-4);
 }
 
 .chat-setup-branch-text {
   max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The picker sits inside the pill, so its own hover background would draw a
+   second shape inside the outline — it gets the row's colour change instead */
+.chat-setup-base.wt-select-trigger {
+  padding-left: 0;
+  max-width: 220px;
+}
+
+.chat-setup-base.wt-select-trigger:hover,
+.chat-setup-base.wt-select-trigger-open {
+  background: none;
+}
+
+.chat-setup-base .wt-select-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

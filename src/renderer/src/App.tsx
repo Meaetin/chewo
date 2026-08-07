@@ -126,6 +126,14 @@ export interface TerminalTab {
    */
   branchMode?: 'current' | 'separate'
   /**
+   * Start point for that branch, when the setup row named one. Absent means
+   * the default, which is deliberately *not* stored as a ref: resolving it is
+   * a fetch plus a local-vs-remote freshness check that only makes sense at
+   * the moment the worktree is cut, and pinning today's answer onto the tab
+   * would freeze a session on whatever `origin/main` was when the pane opened.
+   */
+  baseBranch?: string
+  /**
    * Model and reasoning effort for the session, also from the setup row.
    * Absent means "whatever `sessionModel`/`sessionEffort` resolve for this
    * agent" — an explicit id would go stale the moment a CLI update renames a
@@ -142,6 +150,13 @@ export interface TerminalTab {
    */
   pending?: boolean
   exited: boolean
+}
+
+/** A repo's branches, as the setup row's "branch from" picker needs them */
+interface ProjectBranches {
+  current: string
+  local: string[]
+  remote: string[]
 }
 
 type MainView =
@@ -208,6 +223,8 @@ export function App(): React.JSX.Element {
   const [cuttingBranch, setCuttingBranch] = useState<Set<number>>(new Set())
   /** `origin/main` per project path — what an isolated session will be cut from */
   const [defaultBases, setDefaultBases] = useState<Map<string, string | null>>(new Map())
+  /** Every other branch a session could be cut from, per project path */
+  const [branchLists, setBranchLists] = useState<Map<string, ProjectBranches>>(new Map())
   /**
    * Each agent's model catalog, for the composer's picker. Claude's is the
    * static alias list; Codex's is read from `codex debug models`, which is why
@@ -678,7 +695,7 @@ export function App(): React.JSX.Element {
    */
   const pendingBase =
     activeTab && activeTab.pending && activeTab.branchMode === 'separate' && selectedProject
-      ? (defaultBases.get(selectedProject.path) ?? 'the default branch')
+      ? (activeTab.baseBranch ?? defaultBases.get(selectedProject.path) ?? 'the default branch')
       : null
 
   // ---------- git panel ----------
@@ -1549,7 +1566,10 @@ export function App(): React.JSX.Element {
           // short sentence the slug's five words would otherwise start eating
           // the wrapper tag ("fix-this-pasted-label-text")
           const taskName = branchNameFor(splitComposed(text).display || text, taken)
-          const cut = await cutWorktree(owner, taskName)
+          // Undefined is not "no base" — it is the default, which main resolves
+          // by fetching and taking whichever of origin/<default> and its local
+          // twin is ahead. Only a start point the user named is passed through.
+          const cut = await cutWorktree(owner, taskName, tab.baseBranch)
           if (!cut.ok) {
             showToast(`Kept this session in ${owner.name}: ${cut.error}`)
             await replacePane(tab.termId, inPlace())
@@ -1672,17 +1692,57 @@ export function App(): React.JSX.Element {
    * fire-and-forget because nothing on screen is waiting for it.
    */
   const fetchedAt = useRef(new Map<string, number>())
-  const prefetchProject = useCallback((project: Project) => {
-    // `origin/main` names the base an isolated session will be cut from. Read
-    // from the local symref, so it costs nothing and is worth keeping current.
-    void window.api.gitDefaultBase(project.path).then((base) =>
-      setDefaultBases((m) => (m.get(project.path) === base ? m : new Map(m).set(project.path, base)))
-    )
-    const last = fetchedAt.current.get(project.path) ?? 0
-    if (Date.now() - last < 5 * 60_000) return
-    fetchedAt.current.set(project.path, Date.now())
-    void window.api.gitFetch(project.path)
+
+  /**
+   * The branches a session can be cut from, for the setup row's picker.
+   *
+   * One `for-each-ref` and no network, so it is re-read whenever a project is
+   * selected — a branch created in a terminal a minute ago has to be offerable
+   * without restarting the app. `asked` only guards the on-demand path below,
+   * where a repeat read would buy nothing.
+   */
+  const askedBranches = useRef(new Set<string>())
+  const loadBranches = useCallback((path: string, force = false) => {
+    if (!force && askedBranches.current.has(path)) return
+    askedBranches.current.add(path)
+    void window.api.worktreeBranches(path).then((res) => {
+      // A repo git cannot read is not an error to surface here: the picker
+      // falls back to the default row, which is what it would have used anyway
+      if (!res.ok) return
+      setBranchLists((m) =>
+        new Map(m).set(path, { current: res.current, local: res.local, remote: res.remote })
+      )
+    })
   }, [])
+
+  const prefetchProject = useCallback(
+    (project: Project) => {
+      // `origin/main` names the base an isolated session will be cut from. Read
+      // from the local symref, so it costs nothing and is worth keeping current.
+      void window.api.gitDefaultBase(project.path).then((base) =>
+        setDefaultBases((m) =>
+          m.get(project.path) === base ? m : new Map(m).set(project.path, base)
+        )
+      )
+      loadBranches(project.path, true)
+      const last = fetchedAt.current.get(project.path) ?? 0
+      if (Date.now() - last < 5 * 60_000) return
+      fetchedAt.current.set(project.path, Date.now())
+      void window.api.gitFetch(project.path)
+    },
+    [loadBranches]
+  )
+
+  // A pending pane can belong to a project that is not the selected one, and
+  // its setup row offers the same picker — so the list is fetched for whatever
+  // project actually has one open, not only for whatever is on screen.
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (!tab.pending) continue
+      const project = projects.find((p) => p.id === tab.projectId)
+      if (project) loadBranches(project.path)
+    }
+  }, [tabs, projects, loadBranches])
 
   /**
    * Select a project (or Home) in the sidebar.
@@ -1723,13 +1783,23 @@ export function App(): React.JSX.Element {
       next: {
         source?: Source
         branchMode?: 'current' | 'separate'
+        /** `''` picks the default back — the one answer that is stored as absent */
+        base?: string
         model?: string
         effort?: EffortLevel
       }
     ) => {
       // Only the keys actually present: the row sends one answer at a time, and
       // spreading the rest as `undefined` would wipe the others
-      const patch = Object.fromEntries(Object.entries(next).filter(([, v]) => v !== undefined))
+      const patch: Partial<TerminalTab> = {}
+      if (next.source !== undefined) patch.source = next.source
+      if (next.branchMode !== undefined) patch.branchMode = next.branchMode
+      if (next.model !== undefined) patch.model = next.model
+      if (next.effort !== undefined) patch.effort = next.effort
+      // The one answer whose absence is meaningful: the picker's default row
+      // has no ref of its own, so choosing it clears the field rather than
+      // writing today's `origin/main` onto the tab.
+      if (next.base !== undefined) patch.baseBranch = next.base || undefined
       setTabs((ts) =>
         ts.map((t) => {
           if (t.termId !== termId) return t
@@ -2804,6 +2874,8 @@ export function App(): React.JSX.Element {
                             effort: choice.effort,
                             projectName: tabProject?.name,
                             base: tabProject ? (defaultBases.get(tabProject.path) ?? null) : null,
+                            baseChoice: tab.baseBranch,
+                            branches: tabProject ? branchLists.get(tabProject.path) : undefined,
                             // Only meaningful for the visible pane: `repoStatus`
                             // follows the *active* tab's root, and an unstarted
                             // pane's root is its project's checkout
@@ -2820,6 +2892,7 @@ export function App(): React.JSX.Element {
                                     : patch.isolate
                                       ? 'separate'
                                       : 'current',
+                                base: patch.base,
                                 model: patch.model,
                                 effort: patch.effort
                               })
