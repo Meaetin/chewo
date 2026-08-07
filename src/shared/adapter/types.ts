@@ -1,3 +1,4 @@
+import type { AgentTask } from '../tool-tasks'
 import type { ToolPatch } from '../diff'
 import type { ToolImage } from '../tool-images'
 
@@ -58,6 +59,11 @@ export interface ParseResult {
    * transcript that never recorded one.
    */
   contextTokens?: number
+  /**
+   * The agent's plan as the transcript last left it. Resuming replays nothing,
+   * so a pane that had a plan going would otherwise come back without one.
+   */
+  tasks?: AgentTask[]
   messages: NormalizedMessage[]
   stats: ParseStats
 }

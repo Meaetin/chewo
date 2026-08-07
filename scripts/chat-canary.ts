@@ -19,12 +19,15 @@
  *   tool_result image parts          `{type:'image',source:{type:'base64',…}}`
  *                                    inside a result's content array — what a
  *                                    Read of a PNG paints in the chat
+ *   TaskCreate/TaskUpdate/TaskList   the plan panel. `updatedFields` names a
+ *                                    change without carrying its value, so the
+ *                                    result must be joined to the call's input
  *
  * Any of those can change without breaking a build or a unit test, because the
  * fixtures are recordings. This drives the real binary and fails loudly.
  *
- * Costs one cheap haiku turn. Denies the tool it is offered, so it writes
- * nothing outside its temp directory.
+ * Costs four cheap haiku turns. The first denies the tool it is offered; the
+ * rest write nothing outside their temp directories.
  */
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,6 +36,7 @@ import { join } from 'node:path'
 import { createClaudeNormalizer, claudeChatArgs } from '../src/main/claude-chat'
 import { emptyChatState, reduceChat, type ChatState } from '../src/shared/agent-chat'
 import { composeAnswers, parseAskQuestions } from '../src/shared/ask-user-question'
+import { applyTaskResult, type AgentTask } from '../src/shared/tool-tasks'
 
 const TIMEOUT_MS = 120_000
 
@@ -48,6 +52,8 @@ interface Findings {
   answersReachedModel: boolean
   sawPatch: boolean
   sawResultImage: boolean
+  sawTasks: boolean
+  tasksTrackedStatus: boolean
   controlErrors: string[]
 }
 
@@ -65,6 +71,8 @@ async function probe(): Promise<Findings> {
     answersReachedModel: false,
     sawPatch: false,
     sawResultImage: false,
+    sawTasks: false,
+    tasksTrackedStatus: false,
     controlErrors: []
   }
 
@@ -354,6 +362,103 @@ async function probeImage(found: Findings): Promise<void> {
   rmSync(dir, { recursive: true, force: true })
 }
 
+/**
+ * The fourth turn: the plan tools. Two things make this worth a live probe.
+ * `TodoWrite` is *gone* as of 2.1.221 — the replacement is a create/update/list
+ * family, and nothing in a build or a unit test would have noticed. And the
+ * results are only half the story: `updatedFields` names what changed without
+ * carrying the new value, so the fold joins each result to its call's input.
+ */
+async function probeTasks(found: Findings): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'chewo-chat-canary-task-'))
+  const args = claudeChatArgs({ model: 'haiku' })
+  const proc = spawn('/bin/zsh', ['-ilc', 'claude "$@"', 'chewo', ...args], { cwd: dir })
+
+  const normalize = createClaudeNormalizer()
+  const inputs = new Map<string, unknown>()
+  let tasks: AgentTask[] = []
+  let buffer = ''
+
+  await new Promise<void>((resolve) => {
+    const finish = (): void => {
+      proc.kill()
+      resolve()
+    }
+    const timer = setTimeout(finish, TIMEOUT_MS)
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString()
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        if (!line.trim()) continue
+
+        let raw: Record<string, unknown>
+        try {
+          raw = JSON.parse(line) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        for (const event of normalize(raw)) {
+          if (event.type === 'tool_start') inputs.set(event.call.toolUseId, event.call.input)
+          if (event.type === 'tool_input') inputs.set(event.toolUseId, event.input)
+          if (event.type === 'tool_approval') {
+            if (event.input !== undefined) inputs.set(event.toolUseId, event.input)
+            proc.stdin.write(
+              JSON.stringify({
+                type: 'control_response',
+                response: {
+                  subtype: 'success',
+                  request_id: event.requestId,
+                  response: { behavior: 'allow', updatedInput: event.input ?? {} }
+                }
+              }) + '\n'
+            )
+          }
+          // The same fold the reducer runs, so this asserts the shipped path
+          // rather than a re-reading of it.
+          if (event.type === 'tool_result' && event.task) {
+            tasks = applyTaskResult(tasks, event.task, inputs.get(event.toolUseId))
+          }
+          if (event.type === 'turn_end') {
+            clearTimeout(timer)
+            finish()
+          }
+        }
+      }
+    })
+
+    proc.on('error', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    proc.on('close', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+
+    proc.stdin.write(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          role: 'user',
+          content:
+            'Do exactly this and nothing else: use TaskCreate to add two tasks, ' +
+            '"alpha" and "beta", then use TaskUpdate to set alpha to in_progress.'
+        }
+      }) + '\n'
+    )
+  })
+
+  found.sawTasks = tasks.length >= 2
+  found.tasksTrackedStatus = tasks.some((t) => t.status === 'in_progress')
+  if (!found.sawTasks) console.log(`  note  plan fold ended with ${tasks.length} task(s)`)
+
+  rmSync(dir, { recursive: true, force: true })
+}
+
 const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
   { key: 'sawSession', label: 'system/init → session id + slash commands', fatal: true },
   { key: 'sawToolStart', label: 'tool_use blocks → tool chips', fatal: true },
@@ -381,12 +486,23 @@ const CHECKS: Array<{ key: keyof Findings; label: string; fatal: boolean }> = [
     key: 'sawResultImage',
     label: 'tool_result image parts → the picture under a Read chip',
     fatal: false
+  },
+  {
+    key: 'sawTasks',
+    label: 'TaskCreate results → rows in the plan panel',
+    fatal: false
+  },
+  {
+    key: 'tasksTrackedStatus',
+    label: 'TaskUpdate statusChange → the running row moves',
+    fatal: false
   }
 ]
 
 const found = await probe()
 await probeInteractive(found)
 await probeImage(found)
+await probeTasks(found)
 
 let failed = false
 for (const { key, label, fatal } of CHECKS) {

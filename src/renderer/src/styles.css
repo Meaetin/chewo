@@ -5586,6 +5586,155 @@ body {
   cursor: zoom-out;
 }
 
+/* ---- the agent's own plan ----
+   One list that updates in place, not one chip per Task call. Collapsed past a
+   few rows: the header alone carries what is running and how far along, which
+   is the reading you want while a turn is in flight. */
+
+.chat-tasks {
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.chat-tasks-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-8) var(--space-12);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.chat-tasks-head:hover {
+  background: var(--bg-hover);
+}
+
+.chat-tasks-chevron {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.chat-tasks-label {
+  flex-shrink: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.chat-tasks-now {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-tasks-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A hairline, not a widget — it reads at a glance and costs no height, which
+   is what lets a collapsed plan stay a single row. */
+.chat-tasks-bar {
+  height: 2px;
+  background: var(--bg-hover);
+}
+
+.chat-tasks-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--c-accent);
+  opacity: 0.7;
+  transition: width var(--dur-base) ease;
+}
+
+.chat-tasks-body {
+  margin: 0;
+  padding: var(--space-6) var(--space-12) var(--space-8);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chat-task {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  color: var(--text-secondary);
+}
+
+.chat-task-mark {
+  flex-shrink: 0;
+  /* Baseline alignment lifts the glyph; nudge it onto the first line of a row
+     that wraps. */
+  transform: translateY(2px);
+  color: var(--text-faint);
+}
+
+.chat-task-subject {
+  flex: 1 1 auto;
+}
+
+/* Done is past, so it recedes rather than earning a colour. Emerald is
+   reserved for "you are here / do this" (design/06), and a column of green
+   ticks would spend the accent on the rows needing attention least — here it
+   is spent only on the progress hairline. */
+.chat-task--completed {
+  color: var(--text-faint);
+}
+
+.chat-task--completed .chat-task-subject {
+  text-decoration: line-through;
+  text-decoration-color: var(--c-rim);
+}
+
+/* The running row is the one thing worth finding in a list of twelve, and
+   `--c-live` is this system's existing "in flight" tone. */
+.chat-task--in_progress {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.chat-task--in_progress .chat-task-mark {
+  color: var(--c-live);
+}
+
+.chat-task--blocked {
+  color: var(--text-tertiary);
+}
+
+.chat-task-tag {
+  flex-shrink: 0;
+  padding: 0 var(--space-4);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+.chat-task-tag--blocked {
+  border-color: var(--c-warning);
+  color: var(--c-warning);
+}
+
+.chat-task-tag--owner {
+  border-color: var(--c-project);
+  color: var(--c-project);
+}
+
 .chat-tool-output {
   margin-top: var(--space-4);
   max-height: 320px;
@@ -5794,6 +5943,42 @@ body {
   gap: var(--space-8);
 }
 
+/* Skip is the way out, not a peer of Next — it sits at the far end so the
+   forward path is the one your eye lands on. */
+.chat-question-skip {
+  margin-left: auto;
+}
+
+/* ---- the stepper ----
+   One dot per question, filled once it has an answer, so a page that advanced
+   under a click still leaves visible proof the answer registered. */
+.chat-question-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+.chat-question-step {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 1px solid var(--c-project);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.chat-question-step--done {
+  background: var(--c-project);
+}
+
+.chat-question-step--on {
+  opacity: 1;
+  transform: scale(1.35);
+}
+
 /* ---- approval card ----
    Amber, not emerald: this is "you must decide", and emerald is reserved for
    "you are here / do this" (design/06 accent rule). */
@@ -5868,6 +6053,17 @@ body {
 
 .chat-working {
   font-size: var(--fs-xs);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+}
+
+/* Tabular so a ticking clock does not jitter the text beside it. */
+.chat-elapsed {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
 }
 
 /* ---- composer ---- */

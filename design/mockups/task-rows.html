@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chewo — Task rows mockup (Graphite + Emerald)</title>
+<style>
+  /* ── 06-chosen-direction tokens ─────────────────────────────── */
+  :root {
+    --c-surface-0: #141414;
+    --c-surface-1: #181818;
+    --c-surface-2: #1E1E1E;
+    --c-surface-3: #252525;
+    --c-surface-4: #2C2C2C;
+    --c-line-1:    #3A3A3A;
+    --c-line-2:    #484848;
+    --c-text-primary:   #E9E7E4;
+    --c-text-secondary: #ADAAA6;
+    --c-text-tertiary:  #807D78;
+    --c-text-faint:     #5A5854;
+
+    --accent:       hsl(158 52% 48%);
+    --accent-text:  hsl(158 52% 58%);
+    --accent-wash:  hsla(158 52% 48% / 0.12);
+
+    --c-project: #948ada;
+    --c-project-wash: rgba(148,138,218,.10);
+    --c-live:   #34C9D6;
+    --c-live-wash: rgba(52,201,214,.12);
+    --c-warn:   #DFA94E;
+    --c-danger: #E2574B;
+    --c-cc:     #D97757;
+
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-ui);
+    background: #0B0B0B;
+    color: var(--c-text-primary);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 24px 80px; gap: 10px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--c-text-tertiary); font-size: 12px; max-width: 720px; text-align: center; line-height: 1.65; }
+
+  .section { width: 100%; max-width: 720px; margin-top: 34px; }
+  .section-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--c-text-faint); margin-bottom: 4px; font-weight: 600;
+  }
+  .section-note { color: var(--c-text-tertiary); font-size: 12px; line-height: 1.65; margin-bottom: 14px; }
+  .section-note b { color: var(--c-text-secondary); font-weight: 600; }
+  .verdict { color: var(--accent-text); }
+
+  /* ── the chat thread frame ──────────────────────────────────── */
+  .thread {
+    background: var(--c-surface-0);
+    border: 1px solid var(--c-line-1);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .msg { font-size: 13.5px; line-height: 1.6; color: var(--c-text-secondary); }
+
+  /* ── existing tool chip, for reference ──────────────────────── */
+  .chip {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--c-text-secondary);
+    padding: 1px 0;
+  }
+  .chip .ico { width: 13px; flex: 0 0 13px; text-align: center; color: var(--c-text-faint); font-size: 11px; }
+  .chip .name { color: var(--c-text-secondary); }
+  .chip .arg {
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--c-text-tertiary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chip .count {
+    margin-left: auto; font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--c-text-faint); font-variant-numeric: tabular-nums;
+  }
+  .chev { color: var(--c-text-faint); font-size: 9px; width: 9px; }
+
+  /* ── the accumulated panel ──────────────────────────────────── */
+  .tasks {
+    border: 1px solid var(--c-line-1);
+    border-radius: 8px;
+    background: var(--c-surface-1);
+    overflow: hidden;
+  }
+  .tasks-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 11px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .tasks-head .label { color: var(--c-text-secondary); font-weight: 600; }
+  .tasks-head .now {
+    color: var(--c-text-tertiary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tasks-head .count {
+    margin-left: auto; flex-shrink: 0;
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--c-text-faint); font-variant-numeric: tabular-nums;
+  }
+  /* Progress as a hairline under the header, not a widget — it reads at a
+     glance and costs no height. */
+  .tasks-bar { height: 2px; background: var(--c-surface-3); }
+  .tasks-bar > i { display: block; height: 100%; background: var(--accent); opacity: .7; }
+
+  .tasks-body { padding: 4px 11px 9px; display: flex; flex-direction: column; gap: 1px; }
+
+  .task {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 12.5px; line-height: 1.75;
+    color: var(--c-text-secondary);
+  }
+  .task .mark { flex: 0 0 13px; text-align: center; font-size: 10px; color: var(--c-text-faint); }
+  .task .subject { flex: 1 1 auto; }
+
+  .task--completed { color: var(--c-text-faint); }
+  .task--completed .subject { text-decoration: line-through; text-decoration-color: var(--c-line-2); }
+  .task--in_progress { color: var(--c-text-primary); font-weight: 600; }
+  .task--in_progress .mark { color: var(--c-live); }
+  .task--blocked { color: var(--c-text-tertiary); }
+
+  .tag {
+    flex-shrink: 0;
+    font-size: 10px; letter-spacing: .02em;
+    padding: 0 5px; border-radius: 3px;
+    border: 1px solid var(--c-line-1);
+    color: var(--c-text-faint);
+    font-weight: 500;
+  }
+  .tag--blocked { border-color: rgba(223,169,78,.35); color: var(--c-warn); }
+  .tag--owner   { border-color: rgba(148,138,218,.35); color: var(--c-project); }
+
+  .working { display: flex; align-items: baseline; gap: 8px; font-size: 12px; margin-top: 2px; }
+  .working .txt { font-family: var(--font-mono); color: var(--c-text-tertiary); }
+  .working .clock {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--c-text-faint); font-variant-numeric: tabular-nums;
+  }
+
+  .caption {
+    color: var(--c-text-faint); font-size: 11.5px; line-height: 1.6;
+    margin-top: 9px; padding-left: 2px;
+  }
+
+  /* ── states reference ───────────────────────────────────────── */
+  .states { display: flex; flex-direction: column; gap: 2px; padding: 13px 14px;
+            border: 1px solid var(--c-line-1); border-radius: 8px; background: var(--c-surface-1); }
+  .states .task { line-height: 2; }
+  .states .why { color: var(--c-text-faint); font-size: 11px; flex-shrink: 0; }
+
+  .two { display: grid; grid-template-columns: 1fr; gap: 20px; }
+</style>
+</head>
+<body>
+
+<h1>Task rows — what the CLI's <span style="font-family:var(--font-mono);font-size:13px">TaskCreate</span> / <span style="font-family:var(--font-mono);font-size:13px">TaskUpdate</span> / <span style="font-family:var(--font-mono);font-size:13px">TaskList</span> could look like in a chat pane</h1>
+<p class="sub">
+  Shapes captured live from Claude Code 2.1.221. There is no <span style="font-family:var(--font-mono)">TodoWrite</span> any more —
+  a plan arrives as N separate <span style="font-family:var(--font-mono)">TaskCreate</span> calls, each returning
+  <span style="font-family:var(--font-mono)">{task:{id,subject}}</span>, and statuses move by
+  <span style="font-family:var(--font-mono)">TaskUpdate</span>. Tasks also carry an <b>owner</b> and
+  <b>blockedBy</b> edges, which the old todo list never had.
+</p>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Today</div>
+  <div class="section-note">
+    Every Task call renders as its own generic chip, and the plan is never visible as a plan.
+  </div>
+  <div class="thread">
+    <div class="msg">I'll work through the chat UI gaps. Let me set up a plan first.</div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskCreate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskCreate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskCreate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskCreate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskUpdate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">Read</span><span class="arg">src/renderer/src/components/chat/ChatItems.tsx</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskUpdate</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">TaskUpdate</span></div>
+    <div class="working"><span class="txt">Working…</span></div>
+  </div>
+  <div class="caption">Eight rows, no information. "TaskUpdate" doesn't say which task or to what.</div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Option A — per-call chips</div>
+  <div class="section-note">
+    Each call says what it did, read off its own result. <b>No new state</b> — the parser sits beside
+    <span style="font-family:var(--font-mono)">parseToolPatch</span> and nothing else changes.
+  </div>
+  <div class="thread">
+    <div class="msg">I'll work through the chat UI gaps. Let me set up a plan first.</div>
+    <div class="chip"><span class="ico">＋</span><span class="name">Task #1</span><span class="arg">Render the agent's task list as rows</span></div>
+    <div class="chip"><span class="ico">＋</span><span class="name">Task #2</span><span class="arg">Add elapsed time to the working line</span></div>
+    <div class="chip"><span class="ico">＋</span><span class="name">Task #3</span><span class="arg">Paginate the AskUserQuestion card</span></div>
+    <div class="chip"><span class="ico">＋</span><span class="name">Task #4</span><span class="arg">Pin the task shape in the chat canary</span></div>
+    <div class="chip"><span class="ico">▸</span><span class="name">Task #3</span><span class="arg">pending → in_progress</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">Read</span><span class="arg">src/renderer/src/components/chat/ChatItems.tsx</span></div>
+    <div class="chip"><span class="ico">✓</span><span class="name">Task #3</span><span class="arg">in_progress → completed</span></div>
+    <div class="chip"><span class="ico">▸</span><span class="name">Task #2</span><span class="arg">pending → in_progress</span></div>
+    <div class="working"><span class="txt">Working…</span><span class="clock">1:24</span></div>
+  </div>
+  <div class="caption">
+    Readable, but still eight rows — and to know where the plan stands you have to replay them in your head.
+    Agents call <span style="font-family:var(--font-mono)">TaskList</span> rarely, so the list itself may never appear.
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Option B — one accumulated panel <span class="verdict">← recommended</span></div>
+  <div class="section-note">
+    The same calls fold into <b>one panel that updates in place</b>: create appends a row, update moves it,
+    <span style="font-family:var(--font-mono)">TaskList</span> reconciles the whole set. Costs new state in
+    <span style="font-family:var(--font-mono)">reduceChat</span>, and resumed panes need seeding from the session file.
+  </div>
+  <div class="thread">
+    <div class="msg">I'll work through the chat UI gaps. Let me set up a plan first.</div>
+
+    <div class="tasks">
+      <div class="tasks-head">
+        <span class="chev">▾</span>
+        <span class="label">Plan</span>
+        <span class="now">Adding elapsed time to the working line</span>
+        <span class="count">1 of 4</span>
+      </div>
+      <div class="tasks-bar"><i style="width:25%"></i></div>
+      <div class="tasks-body">
+        <div class="task task--completed"><span class="mark">✓</span><span class="subject">Paginate the AskUserQuestion card</span></div>
+        <div class="task task--in_progress"><span class="mark">◗</span><span class="subject">Adding elapsed time to the working line</span></div>
+        <div class="task"><span class="mark">○</span><span class="subject">Render the agent's task list as rows</span></div>
+        <div class="task task--blocked"><span class="mark">○</span><span class="subject">Pin the task shape in the chat canary</span><span class="tag tag--blocked">blocked by #1</span></div>
+      </div>
+    </div>
+
+    <div class="chip"><span class="ico">✓</span><span class="name">Read</span><span class="arg">src/renderer/src/components/chat/ChatItems.tsx</span></div>
+    <div class="chip"><span class="chev">›</span><span class="ico">✓</span><span class="name">Edit</span><span class="arg">src/renderer/src/components/chat/ChatPane.tsx</span><span class="count" style="color:hsl(135 42% 58%)">+6</span></div>
+    <div class="working"><span class="txt">Working…</span><span class="clock">1:24</span></div>
+  </div>
+  <div class="caption">
+    Four rows instead of eight, and the reading is current rather than reconstructed. The running row shows
+    <span style="font-family:var(--font-mono)">activeForm</span> — the present-tense phrasing the CLI supplies for exactly this.
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Option B, collapsed — what you see most of the time</div>
+  <div class="section-note">
+    The panel folds to its header once the plan is longer than a few rows, or on click. <b>The header alone is the
+    reading</b>: what it's doing now, and how far along.
+  </div>
+  <div class="thread">
+    <div class="tasks">
+      <div class="tasks-head">
+        <span class="chev">›</span>
+        <span class="label">Plan</span>
+        <span class="now">Adding elapsed time to the working line</span>
+        <span class="count">1 of 4</span>
+      </div>
+      <div class="tasks-bar"><i style="width:25%"></i></div>
+    </div>
+    <div class="chip"><span class="ico">✓</span><span class="name">Read</span><span class="arg">src/renderer/src/components/chat/ChatItems.tsx</span></div>
+    <div class="working"><span class="txt">Working…</span><span class="clock">1:24</span></div>
+  </div>
+  <div class="caption">One line, and it is the line you actually wanted.</div>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-label">Every state</div>
+  <div class="section-note">
+    Statuses are <span style="font-family:var(--font-mono)">pending</span> /
+    <span style="font-family:var(--font-mono)">in_progress</span> /
+    <span style="font-family:var(--font-mono)">completed</span> /
+    <span style="font-family:var(--font-mono)">deleted</span> (per the tool schema), plus the
+    <b>owner</b> and <b>blockedBy</b> fields.
+  </div>
+  <div class="states">
+    <div class="task"><span class="mark">○</span><span class="subject">Pin the task shape in the chat canary</span><span class="why">pending</span></div>
+    <div class="task task--in_progress"><span class="mark">◗</span><span class="subject">Adding elapsed time to the working line</span><span class="why">in_progress — shows activeForm</span></div>
+    <div class="task task--completed"><span class="mark">✓</span><span class="subject">Paginate the AskUserQuestion card</span><span class="why">completed</span></div>
+    <div class="task task--blocked"><span class="mark">○</span><span class="subject">Update AGENTS.md with the task shape</span><span class="tag tag--blocked">blocked by #1</span><span class="why">blockedBy</span></div>
+    <div class="task"><span class="mark">○</span><span class="subject">Audit the git panel for the same bug</span><span class="tag tag--owner">explore</span><span class="why">owner — a subagent claimed it</span></div>
+  </div>
+  <div class="caption">
+    <b>deleted</b> has no row: the schema says it permanently removes the task, so it leaves the list
+    rather than rendering as a tombstone. Emerald is spent only on the progress hairline — the running row uses
+    <span style="font-family:var(--font-mono)">--c-live</span>, and completed rows recede rather than turning green,
+    so colour marks what needs attention instead of what doesn't.
+  </div>
+</div>
+
+</body>
+</html>

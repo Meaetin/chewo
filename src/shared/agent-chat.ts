@@ -17,6 +17,7 @@ import type { NormalizedMessage } from './adapter/types'
 import type { AttachmentChip } from './attachments'
 import type { ToolPatch } from './diff'
 import type { ToolImage } from './tool-images'
+import { applyTaskResult, type AgentTask, type TaskResult } from './tool-tasks'
 
 export type ChatAgent = 'claude' | 'codex'
 
@@ -188,6 +189,10 @@ export type AgentChatEvent =
       isError: boolean
       patch?: ToolPatch
       images?: ToolImage[]
+      /** What this result said about the plan, when it was a `Task*` call. The
+       *  values it omits live on the originating call's input, so the reducer
+       *  joins the two — see `tool-tasks.ts`. */
+      task?: TaskResult
     }
   /** The agent is working — drives the composer's stop button and the spinner */
   | { type: 'busy'; busy: boolean }
@@ -211,6 +216,10 @@ export type ChatItem =
 
 export interface ChatState {
   items: ChatItem[]
+  /** The agent's own plan, folded across every `Task*` call in the session.
+   *  Not a `ChatItem`: it is one live list that updates in place, rather than
+   *  a thing that happened at a point in the thread. */
+  tasks: AgentTask[]
   info: ChatSessionInfo | null
   busy: boolean
   /** Empty until the first turn reports something; never partially reset */
@@ -221,6 +230,7 @@ export interface ChatState {
 
 export const emptyChatState = (): ChatState => ({
   items: [],
+  tasks: [],
   info: null,
   busy: false,
   usage: {},
@@ -232,6 +242,13 @@ function replaceAt(items: ChatItem[], index: number, next: ChatItem): ChatItem[]
   const out = items.slice()
   out[index] = next
   return out
+}
+
+/** The arguments the call was made with — half of what applying a task result
+ *  needs, since `updatedFields` names a change without carrying its value. */
+function callInput(state: ChatState, toolUseId: string): unknown {
+  const item = state.items.find((i) => i.kind === 'tool' && i.call.toolUseId === toolUseId)
+  return item?.kind === 'tool' ? item.call.input : undefined
 }
 
 /** Update the tool item carrying `toolUseId`; a no-op if we never saw it start. */
@@ -340,8 +357,11 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
         suggestions: undefined
       }))
 
-    case 'tool_result':
-      return patchTool(state, event.toolUseId, (call) => ({
+    case 'tool_result': {
+      const withTasks = event.task
+        ? { ...state, tasks: applyTaskResult(state.tasks, event.task, callInput(state, event.toolUseId)) }
+        : state
+      return patchTool(withTasks, event.toolUseId, (call) => ({
         ...call,
         // A denial comes back as an error result; keep the distinction so the
         // chip can say "denied" rather than implying the tool failed
@@ -352,6 +372,7 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
         patch: event.patch ?? call.patch,
         images: event.images?.length ? event.images : call.images
       }))
+    }
 
     case 'busy':
       return { ...state, busy: event.busy }
