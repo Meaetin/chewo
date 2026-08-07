@@ -89,12 +89,14 @@ import { closeHud, disposeTodoVoice, initTodoVoice, updateTodoHotkey } from './t
 import { structureTranscript, type StructureArgs } from './structure'
 import {
   cloneNodeModules,
+  copyLocalFiles,
   createWorktree,
   listBranches,
   listWorktrees,
   removeWorktree,
   worktreeState
 } from './worktrees'
+import { parseLocalFilePatterns } from '../shared/local-files'
 import {
   disposeAllGitWatches,
   gitCommitDetail,
@@ -107,7 +109,13 @@ import {
   type GitDiffSpec
 } from './git'
 import { gitDefaultBase, gitFetchRemote, gitUpdateFromBase } from './git-ops'
-import { mergedBranches, shipPreview, shipPullRequest, type ShipArgs } from './git-ship'
+import {
+  mergedBranches,
+  shipCompare,
+  shipPreview,
+  shipPullRequest,
+  type ShipArgs
+} from './git-ship'
 import {
   disposeVersionWatch,
   getVersionStatus,
@@ -285,8 +293,20 @@ function registerIpc(): void {
   )
   ipcMain.handle(
     'worktree:create',
-    async (_e, a: { projectPath: string; taskName: string; base?: string }) => {
+    async (_e, a: { projectPath: string; taskName: string; base?: string; localFiles?: string }) => {
       const res = await createWorktree(a.projectPath, a.taskName, a.base)
+      // Awaited, unlike the dependency clone below: an agent that starts
+      // against a missing `.env` reads a broken config once and then reasons
+      // from it all session. A handful of small files is worth the wait.
+      if (res.ok) {
+        const copy = await copyLocalFiles(
+          a.projectPath,
+          res.path,
+          parseLocalFilePatterns(a.localFiles)
+        )
+        if (copy.error)
+          safeSend(mainWindow, 'app:toast', `Local files not copied to ${a.taskName}: ${copy.error}`)
+      }
       // Deliberately not awaited: the pane opens the moment the checkout
       // exists, and the dependency clone lands ~8s later while the agent is
       // still reading code. Only a failure is worth interrupting for.
@@ -324,7 +344,8 @@ function registerIpc(): void {
   ipcMain.handle('git:fetch', (_e, root: string) => gitFetchRemote(root))
   ipcMain.handle('git:default-base', (_e, root: string) => gitDefaultBase(root))
   ipcMain.handle('git:ship', (_e, a: ShipArgs) => shipPullRequest(a))
-  ipcMain.handle('git:ship-preview', (_e, a: { root: string }) => shipPreview(a))
+  ipcMain.handle('git:ship-preview', (_e, a: { root: string; base?: string }) => shipPreview(a))
+  ipcMain.handle('git:ship-compare', (_e, a: { root: string; base: string }) => shipCompare(a))
   ipcMain.handle('git:merged-branches', (_e, root: string) => mergedBranches(root))
   // Only ever a web URL: this hands a string to the OS opener, and a file://
   // or custom scheme would launch an application of the string's choosing

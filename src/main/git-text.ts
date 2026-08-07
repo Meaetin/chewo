@@ -68,6 +68,35 @@ async function ask<T>(
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
+/** A line that carries its own newline: list item, quote, heading, fence, indented code. */
+const STRUCTURAL = /^(\s{4,}|\t|[-*+]\s|\d+[.)]\s|>|#{1,6}\s|```)/
+
+/**
+ * Undo hard wrapping, keeping the paragraph breaks.
+ *
+ * A 72-column commit body is a `git log` convention that predates editing one
+ * in a text box: mid-sentence newlines mean the field soft-wraps text that is
+ * already hard-wrapped, so it reads ragged, and changing a word leaves the
+ * paragraph re-flowed by hand or not at all. Blank lines are real structure
+ * and survive; so does anything a newline is load-bearing for (bullets, code,
+ * quotes), which is why blocks are inspected rather than blindly joined.
+ *
+ * The prompt asks for unwrapped prose too — this is the belt to that braces,
+ * because "wrapped at 72 columns" is what a model has seen in ten million
+ * commits and it will sometimes do it whatever it was told.
+ */
+export function unwrapBody(text: string): string {
+  return text
+    .split(/\n\s*\n/)
+    .map((block) => {
+      const lines = block.split('\n').map((l) => l.trimEnd())
+      if (lines.some((l) => STRUCTURAL.test(l))) return lines.join('\n')
+      return lines.map((l) => l.trim()).filter(Boolean).join(' ')
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 // ---------- commit messages ----------
 
 export interface CommitMessage {
@@ -84,7 +113,8 @@ const COMMIT_SCHEMA = JSON.stringify({
     },
     body: {
       type: ['string', 'null'],
-      description: 'Optional body explaining why, wrapped at 72 columns. Empty when the subject says it all.'
+      description:
+        'Optional body explaining why, as unwrapped paragraphs separated by blank lines. Empty when the subject says it all.'
     }
   },
   required: ['subject']
@@ -102,7 +132,9 @@ export async function suggestCommitMessage(
   }
   const answer = await ask('Commit message', commitPrompt(diffStat, diffText), COMMIT_SCHEMA, (o) => {
     const subject = str(o.subject)
-    return subject ? { subject: subject.split('\n')[0].slice(0, 72), body: str(o.body) } : null
+    return subject
+      ? { subject: subject.split('\n')[0].slice(0, 72), body: unwrapBody(str(o.body)) }
+      : null
   })
   return answer ?? fallback
 }
@@ -114,6 +146,8 @@ function commitPrompt(diffStat: string, diffText: string): string {
     'Subject: conventional commits (feat/fix/refactor/chore/docs/test/perf),',
     'imperative mood, max 72 characters, no trailing period.',
     'Body: only if the subject leaves something worth saying — say why, not what.',
+    'Write it as whole paragraphs separated by blank lines. Do not hard-wrap',
+    'lines at 72 columns or any other width — it is edited in a text box, not vi.',
     'Do not mention being an AI, and do not add a trailer or signature.',
     '',
     '--- diffstat ---',

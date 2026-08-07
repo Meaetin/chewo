@@ -66,3 +66,27 @@ export function uniqueBranchName(base: string, taken: Iterable<string>): string 
 export function branchNameFor(task: string, taken: Iterable<string> = []): string {
   return uniqueBranchName(slugifyBranch(task) || 'task', taken)
 }
+
+/** `feat(api): add oauth callback` → type `feat`, rest `add oauth callback`. */
+const CONVENTIONAL = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|revert)(\([^)]*\))?!?:\s*(.+)$/i
+
+/**
+ * A branch name for work that has already been described — Ship's commit
+ * subject, which a model wrote from the actual diff.
+ *
+ * This is why Ship can suggest a *good* name where a session start cannot: at
+ * session start all that exists is the task you typed, but by the time you
+ * ship, the change itself has been read and summarised. So the name comes off
+ * that summary rather than costing a second call to re-derive it.
+ *
+ * A conventional-commit type becomes the branch prefix (`feat: add oauth` →
+ * `feat/add-oauth`), which is the convention the subject is already written in
+ * — anything else is slugged flat. The scope is dropped: `feat(api)` would
+ * give `feat/api/…`, and a three-level branch name reads as a directory.
+ */
+export function branchNameFromSubject(subject: string): string {
+  const match = CONVENTIONAL.exec(subject.trim())
+  if (!match) return slugifyBranch(subject)
+  const slug = slugifyBranch(match[3])
+  return slug ? `${match[1].toLowerCase()}/${slug}` : slugifyBranch(subject)
+}

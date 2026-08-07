@@ -8,7 +8,7 @@ let answer: () => Promise<unknown>
 vi.mock('../src/main/settings', () => ({ agentFor: () => ({ agent: 'claude' }) }))
 vi.mock('../src/main/agent-runner', () => ({ runAgentJson: () => answer() }))
 
-const { suggestCommitMessage, suggestPrText } = await import('../src/main/git-text')
+const { suggestCommitMessage, suggestPrText, unwrapBody } = await import('../src/main/git-text')
 
 const answers = (value: unknown): void => {
   answer = async () => value
@@ -67,5 +67,38 @@ describe('suggestPrText', () => {
     answers({ title: 'Stop the drag regression', body: '## why' })
     const out = await suggestPrText('fix-drag', ['aaaaaaa one'], 'stat')
     expect(out).toEqual({ title: 'Stop the drag regression', body: '## why' })
+  })
+})
+
+// A 72-column commit body is a `git log` convention that fights the text box
+// it is now edited in: the field soft-wraps text that is already hard-wrapped,
+// and changing a word leaves the paragraph re-flowed by hand or not at all.
+describe('unwrapBody', () => {
+  test('joins hard-wrapped lines back into paragraphs', () => {
+    expect(
+      unwrapBody('Ship previously forced both ends of its route: the branch\nname came from the task slug.')
+    ).toBe('Ship previously forced both ends of its route: the branch name came from the task slug.')
+  })
+
+  test('blank lines are real structure and survive', () => {
+    expect(unwrapBody('One wrapped\nparagraph.\n\nAnd a\nsecond.')).toBe(
+      'One wrapped paragraph.\n\nAnd a second.'
+    )
+  })
+
+  test('leaves blocks where the newline is load-bearing', () => {
+    expect(unwrapBody('- first item\n- second item')).toBe('- first item\n- second item')
+    expect(unwrapBody('1. one\n2. two')).toBe('1. one\n2. two')
+    expect(unwrapBody('> quoted\n> lines')).toBe('> quoted\n> lines')
+    expect(unwrapBody('    const x = 1\n    const y = 2')).toBe('    const x = 1\n    const y = 2')
+  })
+
+  test('a body that was never wrapped is unchanged', () => {
+    expect(unwrapBody('One line, already fine.')).toBe('One line, already fine.')
+    expect(unwrapBody('')).toBe('')
+  })
+
+  test('runs of blank lines collapse to one break', () => {
+    expect(unwrapBody('one\n\n\n\ntwo')).toBe('one\n\ntwo')
   })
 })

@@ -178,14 +178,15 @@ export function WorktreeCreateModal({
           id="wt-setup"
           variant="textarea"
           mono
-          placeholder={`cp ${project.path}/.env . && npm install`}
+          placeholder="direnv allow"
           value={setup}
           rows={2}
           onChange={(e) => setSetup(e.target.value)}
         />
         <div className="wt-field-hint">
-          Runs visibly before the agent starts — gitignored files (.env, node_modules) don’t exist
-          in a fresh worktree
+          Runs visibly before the agent starts. For side effects a copy can’t produce — a venv, a
+          per-branch database, a trust decision. <code>.env</code> and <code>node_modules</code>{' '}
+          arrive on their own.
         </div>
       </div>
 

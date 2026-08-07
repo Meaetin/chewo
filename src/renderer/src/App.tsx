@@ -28,6 +28,7 @@ import {
   sessionInProject,
   type AgentSettings,
   type Project,
+  type ProjectSettings,
   type ProjectsFile,
   type SavedTerminal,
   type Workflow,
@@ -1374,7 +1375,12 @@ export function App(): React.JSX.Element {
       taskName: string,
       base?: string
     ): Promise<{ ok: true; worktree: Worktree } | { ok: false; error: string }> => {
-      const res = await window.api.createWorktree({ projectPath: project.path, taskName, base })
+      const res = await window.api.createWorktree({
+        projectPath: project.path,
+        taskName,
+        base,
+        localFiles: project.worktreeCopy
+      })
       if (!res.ok) return { ok: false, error: res.error }
       const worktree: Worktree = {
         id: crypto.randomUUID(),
@@ -1869,6 +1875,15 @@ export function App(): React.JSX.Element {
    */
   const onShipped = useCallback(
     (res: ShipSuccess, shipped?: Worktree) => {
+      // Ship may have renamed the branch on the way out. The record is what the
+      // sidebar polls state with and what the merged-PR reaper matches on, so a
+      // stale name here leaves the row reporting on a branch that no longer
+      // exists. The folder keeps its task name — it lives under ~/.chewo and
+      // nothing reads it as the branch.
+      if (shipped && res.branch !== shipped.branch)
+        setWorktrees((ws) =>
+          ws.map((w) => (w.id === shipped.id ? { ...w, branch: res.branch } : w))
+        )
       if (shipped) setWorktreeDone(shipped, true)
       const opened = res.created ? 'PR opened' : 'Pushed to the open PR'
       const cut = res.branchedFrom ? `, cut from ${res.branchedFrom}` : ''
@@ -1956,14 +1971,14 @@ export function App(): React.JSX.Element {
   )
 
   const saveSectionSettings = useCallback(
-    (id: string | null, settings: AgentSettings, worktreeSetup?: string, runCommand?: string) => {
+    (id: string | null, settings: AgentSettings, project?: ProjectSettings) => {
       if (id === null) {
         setHomeSettings(settings)
         return
       }
-      setProjects((ps) =>
-        ps.map((p) => (p.id === id ? { ...p, ...settings, worktreeSetup, runCommand } : p))
-      )
+      // `project` always carries every key for a project, so a cleared field
+      // spreads its `undefined` over the old value rather than keeping it
+      setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, ...settings, ...project } : p)))
     },
     []
   )
@@ -2926,11 +2941,17 @@ export function App(): React.JSX.Element {
                 name={target?.name ?? 'Home'}
                 path={target?.path ?? window.api.homeDir}
                 settings={settingsForSection(settingsFor.id)}
-                worktreeSetup={target?.worktreeSetup}
-                runCommand={target?.runCommand}
-                showWorktreeSetup={!!target}
+                project={
+                  target
+                    ? {
+                        worktreeSetup: target.worktreeSetup,
+                        runCommand: target.runCommand,
+                        worktreeCopy: target.worktreeCopy
+                      }
+                    : undefined
+                }
                 onClose={() => setSettingsFor(null)}
-                onSave={(s, setup, run) => saveSectionSettings(settingsFor.id, s, setup, run)}
+                onSave={(s, p) => saveSectionSettings(settingsFor.id, s, p)}
                 onRemove={
                   target
                     ? (deleteBoard) => deleteProject(target.id, deleteBoard, target)

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { branchNameFor, slugifyBranch, uniqueBranchName } from '../src/shared/branch-names'
+import {
+  branchNameFor,
+  branchNameFromSubject,
+  slugifyBranch,
+  uniqueBranchName
+} from '../src/shared/branch-names'
 
 describe('slugifyBranch', () => {
   test('kebabs a sentence and drops filler', () => {
@@ -55,5 +60,31 @@ describe('branchNameFor', () => {
 
   test('dodges names the project already uses', () => {
     expect(branchNameFor('fix drag', ['fix-drag'])).toBe('fix-drag-2')
+  })
+})
+
+// Ship names a branch from a subject a model wrote off the real diff, which is
+// why it can do better than the task text a session start has to work from.
+describe('branchNameFromSubject', () => {
+  test('a conventional-commit type becomes the branch prefix', () => {
+    expect(branchNameFromSubject('feat: add oauth callback')).toBe('feat/add-oauth-callback')
+    expect(branchNameFromSubject('fix: handle empty diff')).toBe('fix/handle-empty-diff')
+    expect(branchNameFromSubject('refactor!: drop the merge modal')).toBe('refactor/drop-merge-modal')
+  })
+
+  test('a scope is dropped — three levels reads as a directory', () => {
+    expect(branchNameFromSubject('feat(api): add oauth callback')).toBe('feat/add-oauth-callback')
+  })
+
+  test('anything else slugs flat', () => {
+    expect(branchNameFromSubject('Add the oauth callback')).toBe('add-oauth-callback')
+    expect(branchNameFromSubject('wip')).toBe('wip')
+  })
+
+  // `feat/` is not a branch name — a type with nothing sluggable after it
+  // falls back to slugging the whole subject
+  test('never emits a bare prefix with an empty name', () => {
+    expect(branchNameFromSubject('chore: ---')).toBe('chore')
+    expect(branchNameFromSubject('')).toBe('')
   })
 })

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { GitPullRequestArrow } from 'lucide-react'
 import type { ShipPreview, ShipSuccess } from '../../../main/git-ship'
+import { branchNameFromSubject } from '../../../shared/branch-names'
 import { ModalShell } from './ModalShell'
+import { Select, type SelectOption } from './Select'
 import { Button } from './ui'
 
 interface ShipModalProps {
@@ -67,6 +69,27 @@ export function ShipModal({
   const [subject, setSubject] = useState(preview.subject)
   const [body, setBody] = useState(preview.body)
   const [prTitle, setPrTitle] = useState(preview.prTitle)
+  const [base, setBase] = useState(preview.base)
+  // A branch that exists keeps its name; one about to be cut starts from the
+  // commit subject, which a model already wrote from the diff
+  const [branch, setBranch] = useState(
+    preview.willBranch ? branchNameFromSubject(preview.subject) : preview.branch
+  )
+  const [commits, setCommits] = useState(preview.commits)
+
+  /**
+   * Retargeting pulls in every commit the new base is missing, so the count has
+   * to move with the picker — but it is a local `git log`, not another read of
+   * the whole change. The commit message describes the working tree and doesn't
+   * depend on the base at all, so nothing regenerates and nothing you typed is
+   * thrown away.
+   */
+  const retarget = (next: string): void => {
+    setBase(next)
+    void window.api.gitShipCompare({ root, base: next }).then((res) => {
+      if (res.ok) setCommits(res.commits)
+    })
+  }
 
   const ship = async (): Promise<void> => {
     if (busy) return
@@ -74,6 +97,8 @@ export function ShipModal({
     setError(null)
     const res = await window.api.gitShip({
       root,
+      base,
+      renameBranch: branch.trim() || undefined,
       message: { subject: subject.trim(), body: body.trim() },
       pr: { title: prTitle.trim() || subject.trim(), body: preview.prBody }
     })
@@ -89,6 +114,31 @@ export function ShipModal({
   const files = preview.files
   const canShip = !preview.nothingToDo && !busy && (subject.trim().length > 0 || files.length === 0)
 
+  /**
+   * A name is only editable while the branch is still local: once it is pushed
+   * the remote holds that name and any PR hangs off it, so renaming would mean
+   * deleting a remote branch, which Ship refuses.
+   *
+   * `willBranch` overrides that, and must — it means HEAD is `main`, which is
+   * of course pushed, but nothing is being *renamed*; the field names the
+   * branch about to be cut, which is the case where naming matters most.
+   */
+  const canName = preview.willBranch || (!preview.pushed && !preview.existingPr)
+
+  /**
+   * Derived from the subject as it stands, not as it was generated — editing
+   * the message and then asking for a name should follow what you wrote. It is
+   * offered rather than applied, because a branch that already exists has a
+   * name someone may be depending on.
+   */
+  const suggestion = branchNameFromSubject(subject)
+
+  const baseOptions: SelectOption<string>[] = preview.bases.map((b) => ({
+    value: b,
+    label: b,
+    ...(b === preview.repoDefault && { detail: 'default' })
+  }))
+
   return (
     <ModalShell
       title={
@@ -100,9 +150,9 @@ export function ShipModal({
       subtitle={
         (
           <span className="ship-route">
-            <code>{preview.willBranch ? 'a new branch' : preview.branch}</code>
+            <code>{branch.trim() || (preview.willBranch ? 'a new branch' : preview.branch)}</code>
             <span aria-hidden="true"> → </span>
-            <code>{preview.base}</code>
+            <code>{base}</code>
             {preview.existingPr && <span className="ship-route-note"> · updates the open PR</span>}
             {preview.willBranch && (
               <span className="ship-route-note"> · cut from {preview.branch}, which stays clean</span>
@@ -148,6 +198,51 @@ export function ShipModal({
 
       {!preview.nothingToDo && (
         <>
+          <section className="ship-section">
+            <h3 className="ship-section-title">Branch</h3>
+            <div className="ship-route-fields">
+              <label className="ship-field">
+                <span className="ship-field-label">
+                  {preview.willBranch ? 'New branch' : 'From'}
+                  {canName && suggestion && suggestion !== branch.trim() && (
+                    <button
+                      type="button"
+                      className="ship-suggest"
+                      title={`Name it ${suggestion}, from the commit message`}
+                      onClick={() => setBranch(suggestion)}
+                    >
+                      use {suggestion}
+                    </button>
+                  )}
+                </span>
+                {canName ? (
+                  <input
+                    type="text"
+                    className="ship-input"
+                    aria-label="Branch name"
+                    placeholder={preview.willBranch ? 'named from the commit' : preview.branch}
+                    value={branch}
+                    onChange={(e) => setBranch(e.currentTarget.value)}
+                  />
+                ) : (
+                  <div className="ship-static" title="Already on the remote — rename it there">
+                    {preview.branch}
+                  </div>
+                )}
+              </label>
+              <label className="ship-field">
+                <span className="ship-field-label">Into</span>
+                <Select value={base} options={baseOptions} onChange={retarget} />
+              </label>
+            </div>
+            {base !== preview.repoDefault && (
+              <div className="ship-note">
+                Not the default branch — this PR shows everything <code>{base}</code> is missing,
+                not just this session&rsquo;s work.
+              </div>
+            )}
+          </section>
+
           {files.length > 0 && (
             <section className="ship-section">
               <h3 className="ship-section-title">
@@ -167,13 +262,13 @@ export function ShipModal({
             </section>
           )}
 
-          {preview.commits.length > 0 && (
+          {commits.length > 0 && (
             <section className="ship-section">
               <h3 className="ship-section-title">
-                {preview.commits.length} already committed, waiting to push
+                {commits.length} already committed, waiting to push
               </h3>
               <ul className="ship-commits">
-                {preview.commits.map((c) => (
+                {commits.map((c) => (
                   <li key={c} className="ship-commit">
                     {c}
                   </li>

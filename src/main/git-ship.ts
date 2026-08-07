@@ -124,6 +124,60 @@ async function localBranches(cwd: string): Promise<string[]> {
   return res.ok ? res.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : []
 }
 
+/**
+ * Branches a PR could target. Remote-tracking refs only: a base has to exist
+ * on the remote for GitHub to compare against, and a local-only `develop` that
+ * was never pushed would be offered as a target `gh` then rejects.
+ *
+ * Read from refs rather than the API — offline, instant, and current as of the
+ * fetch that cutting the session already did.
+ */
+async function remoteBases(cwd: string): Promise<string[]> {
+  const res = await runGit(cwd, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    '--sort=-committerdate',
+    'refs/remotes'
+  ])
+  if (!res.ok) return []
+  const names = res.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    // `origin/HEAD` is a symref alias for the default branch, not a branch
+    .filter((n) => !n.endsWith('/HEAD'))
+    // `origin/release/2.1` → `release/2.1`; the remote is chosen at push time
+    .map((n) => n.slice(n.indexOf('/') + 1))
+  return [...new Set(names)]
+}
+
+/** Whether the branch already exists on the remote — i.e. renaming it is too late. */
+async function isPushed(cwd: string, branch: string): Promise<boolean> {
+  const remote = await pushRemote(cwd)
+  const res = await runGit(cwd, [
+    'show-ref',
+    '--verify',
+    '--quiet',
+    `refs/remotes/${remote}/${branch}`
+  ])
+  return res.ok
+}
+
+/**
+ * git's own answer, because the rules are more than a character class
+ * (no `..`, no trailing `.lock`, no `@{`, no control characters). The two
+ * hand-written guards in front of it cover what `--branch` would otherwise
+ * *accept by expanding*: `-x` reads as a flag, and `@{-1}` is a valid ref
+ * expression naming the previously checked-out branch rather than a new name.
+ */
+export async function invalidBranchName(cwd: string, name: string): Promise<string | null> {
+  if (!name.trim()) return 'Branch name is required'
+  if (name.startsWith('-') || name.includes('@{'))
+    return `Not a valid branch name: ${name}`
+  const res = await runGit(cwd, ['check-ref-format', '--branch', name])
+  return res.ok ? null : `Not a valid branch name: ${name}`
+}
+
 /** `origin/main` when it has been fetched, else `main` — the diff base for PR text. */
 async function comparisonRef(cwd: string, base: string): Promise<string> {
   const remote = await runGit(cwd, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${base}`])
@@ -136,7 +190,13 @@ export interface ShipPreview {
   ok: true
   branch: string
   base: string
-  /** HEAD is the base branch, so shipping cuts a branch first */
+  /** The repo's own default — the branch that is protected from commits whatever the base is */
+  repoDefault: string
+  /** Every branch a PR could target, base first */
+  bases: string[]
+  /** Already on the remote, so the branch name is fixed — renaming it now would orphan it */
+  pushed: boolean
+  /** HEAD is a protected branch, so shipping cuts a branch first */
   willBranch: boolean
   /** Paths that would be committed — `git add -A`, so everything not ignored */
   files: Array<{ path: string; status: string }>
@@ -165,7 +225,11 @@ export type ShipPreviewResult = ShipPreview | { ok: false; error: string }
  * costs nothing in the end, since Ship commits the message you confirmed here
  * rather than generating a second one.
  */
-export async function shipPreview(args: { root: string }): Promise<ShipPreviewResult> {
+export async function shipPreview(args: {
+  root: string
+  /** Re-read against a different PR target; omitted means the repo's default */
+  base?: string
+}): Promise<ShipPreviewResult> {
   const cwd = resolveInsideRoots(args.root)
   if (!cwd) return { ok: false, error: `not readable: ${basename(args.root)}` }
 
@@ -188,12 +252,20 @@ export async function shipPreview(args: { root: string }): Promise<ShipPreviewRe
   // `-uall` lists files inside an untracked directory rather than the directory
   // alone — this is a review surface, and "packages/foo/" hides how much is
   // actually about to be committed.
-  const [base, existingPr, status] = await Promise.all([
+  const [repoDefault, existingPr, status, remotes, pushed] = await Promise.all([
     defaultBranch(cwd),
     openPrUrl(cwd, branch),
-    runGit(cwd, ['status', '--porcelain', '-uall'])
+    runGit(cwd, ['status', '--porcelain', '-uall']),
+    remoteBases(cwd),
+    isPushed(cwd, branch)
   ])
+  const base = args.base?.trim() || repoDefault
+  // The branch being shipped is never a target for itself
+  const bases = [...new Set([base, repoDefault, ...remotes])].filter((b) => b !== branch)
   const compare = await comparisonRef(cwd, base)
+  // Committing onto the repo's default is refused whatever the chosen target
+  // is, and a PR from a branch into itself is not a thing either
+  const willBranch = branch === base || branch === repoDefault
 
   const files = status.stdout
     .split('\n')
@@ -209,6 +281,9 @@ export async function shipPreview(args: { root: string }): Promise<ShipPreviewRe
       ok: true,
       branch,
       base,
+      repoDefault,
+      bases,
+      pushed,
       willBranch: false,
       files,
       commits,
@@ -258,7 +333,10 @@ export async function shipPreview(args: { root: string }): Promise<ShipPreviewRe
     ok: true,
     branch,
     base,
-    willBranch: branch === base,
+    repoDefault,
+    bases,
+    pushed,
+    willBranch,
     files,
     commits,
     subject,
@@ -270,6 +348,26 @@ export async function shipPreview(args: { root: string }): Promise<ShipPreviewRe
   }
 }
 
+/**
+ * What moving the PR target does to the change, without re-reading anything
+ * else. Retargeting a branch cut from `main` at `develop` pulls in every
+ * commit `develop` is missing, which is the one number worth seeing *before*
+ * you agree — but it is a local `git log`, so it must not cost the model call
+ * the full preview pays for. The commit message describes the working tree and
+ * doesn't move with the base at all.
+ */
+export async function shipCompare(args: {
+  root: string
+  base: string
+}): Promise<{ ok: true; commits: string[] } | { ok: false; error: string }> {
+  const cwd = resolveInsideRoots(args.root)
+  if (!cwd) return { ok: false, error: `not readable: ${basename(args.root)}` }
+  const compare = await comparisonRef(cwd, args.base)
+  const log = await runGit(cwd, ['log', '--oneline', `${compare}..HEAD`])
+  if (!log.ok) return { ok: false, error: gitErrorOf(log) }
+  return { ok: true, commits: log.stdout.split('\n').filter(Boolean) }
+}
+
 // ---------- the pipeline ----------
 
 export interface ShipArgs {
@@ -277,6 +375,14 @@ export interface ShipArgs {
   /** Confirmed in the review modal — skips asking the agent a second time */
   message?: { subject: string; body: string }
   pr?: { title: string; body: string }
+  /** PR target; omitted means the repo's default branch */
+  base?: string
+  /**
+   * Rename the branch before shipping it. Refused once the branch is on the
+   * remote — the old ref would be left behind with the PR still pointing at
+   * it, and cleaning that up means deleting a remote branch.
+   */
+  renameBranch?: string
 }
 
 export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
@@ -299,7 +405,40 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
   if (branch === 'HEAD')
     return { ok: false, error: 'Detached HEAD — check out a branch before shipping.' }
 
-  const base = await defaultBranch(cwd)
+  const repoDefault = await defaultBranch(cwd)
+  const base = args.base?.trim() || repoDefault
+  // A commit never lands on the repo's default, nor on the branch this is a PR
+  // *into* — either way the work moves onto a branch of its own first
+  const protectedHead = branch === base || branch === repoDefault
+
+  const wanted = args.renameBranch?.trim()
+  if (wanted && wanted !== branch) {
+    const bad = await invalidBranchName(cwd, wanted)
+    if (bad) return { ok: false, error: bad }
+    if ((await localBranches(cwd)).includes(wanted))
+      return { ok: false, error: `A branch named ${wanted} already exists.` }
+  }
+
+  // ---- rename ----
+  //
+  // Before anything else, so the commit, the push and the PR all see one name.
+  // Renaming is a local ref move (`branch -m`) and is only safe while the
+  // branch *is* local: once it is pushed, the remote keeps the old name and any
+  // PR stays attached to it, so "renaming" would mean deleting a remote branch
+  // — the --force/-D territory this file exists to stay out of.
+  //
+  // A protected head is not renamed but *branched from*, so the same field
+  // names the branch the stage below cuts rather than moving `main`.
+  if (wanted && wanted !== branch && !protectedHead) {
+    if (await isPushed(cwd, branch))
+      return {
+        ok: false,
+        error: `${branch} is already on the remote — rename it there, or ship it under this name.`
+      }
+    const moved = await runGit(cwd, ['branch', '-m', wanted])
+    if (!moved.ok) return { ok: false, error: gitErrorOf(moved) }
+    branch = wanted
+  }
 
   // ---- stage ----
   //
@@ -325,15 +464,14 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
       message = await suggestCommitMessage(stat.stdout.trimEnd(), text.stdout, stagedFiles.length)
     }
 
-    // Never commit onto the default branch — cut one and take the index along
-    if (branch === base) {
-      const name = uniqueBranchName(
-        slugifyBranch(message.subject) || 'changes',
-        await localBranches(cwd)
-      )
+    if (protectedHead) {
+      // The typed name wins; the slug is the fallback for a one-click ship
+      const name =
+        wanted ||
+        uniqueBranchName(slugifyBranch(message.subject) || 'changes', await localBranches(cwd))
       const cut = await runGit(cwd, ['switch', '-c', name])
       if (!cut.ok) return { ok: false, error: gitErrorOf(cut) }
-      branchedFrom = base
+      branchedFrom = branch
       branch = name
     }
 
@@ -342,10 +480,10 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
     const commit = await runGit(cwd, argv)
     if (!commit.ok) return { ok: false, error: gitErrorOf(commit) }
     committed = true
-  } else if (branch === base) {
+  } else if (protectedHead) {
     return {
       ok: false,
-      error: `Nothing to ship — no changes, and ${base} is the branch PRs land on.`
+      error: `Nothing to ship — no changes, and ${branch} is a branch PRs land on.`
     }
   }
 

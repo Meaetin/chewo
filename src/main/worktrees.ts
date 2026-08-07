@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { matchesLocalFile } from '../shared/local-files'
 import { gitErrorOf as gitError, runGit as git } from './git'
 import { defaultRemoteRef } from './git-ops'
 
@@ -325,6 +326,18 @@ export async function createWorktree(
  * is what npm strips from node-pty's `spawn-helper` and what the root
  * `postinstall` exists to repair. Cloning sidesteps that entirely.
  *
+ * Being fire and forget is what makes the copy **atomic** rather than
+ * incremental. For those 8 seconds the pane is already open, so anything the
+ * session runs — a `npm install` in the setup command, the agent reaching for
+ * one itself — would otherwise be writing into a `node_modules` that `cp` is
+ * still filling in, and two writers on one tree is a corrupt install nobody
+ * can explain afterwards. So the clone lands in a **sibling of the worktree**
+ * (same volume, so the rename is atomic; outside the checkout, so `git status`
+ * and Ship never see a half-copied folder) and is renamed into place at the
+ * end. Whoever finishes first wins and the loser is discarded — the race is
+ * still a race, but its window is the microseconds between the check and the
+ * rename rather than the whole copy.
+ *
  * Non-fatal by definition. A project with no `node_modules`, a non-APFS
  * volume, or a destination that somehow exists all just mean the agent runs
  * `npm install` like it would have anyway.
@@ -336,12 +349,106 @@ export function cloneNodeModules(
   const source = join(projectPath, 'node_modules')
   const dest = join(worktreePath, 'node_modules')
   if (!existsSync(source) || existsSync(dest)) return Promise.resolve(null)
+  const staged = join(dirname(worktreePath), `.${basename(worktreePath)}.node_modules.staged`)
+  rmSync(staged, { recursive: true, force: true })
   return new Promise((resolve) => {
-    execFile('/bin/cp', ['-cRp', source, dest], { timeout: 300_000 }, (err, _out, stderr) => {
-      if (!err) return resolve(null)
+    execFile('/bin/cp', ['-cRp', source, staged], { timeout: 300_000 }, (err, _out, stderr) => {
+      if (!err) {
+        try {
+          // Something already installed while we copied — its tree is the live
+          // one the session has been using, so ours is the one to throw away
+          if (existsSync(dest)) rmSync(staged, { recursive: true, force: true })
+          else renameSync(staged, dest)
+          return resolve(null)
+        } catch (e) {
+          rmSync(staged, { recursive: true, force: true })
+          return resolve(e instanceof Error ? e.message : String(e))
+        }
+      }
+      rmSync(staged, { recursive: true, force: true })
       resolve(String(stderr).trim().split('\n')[0] || err.message)
     })
   })
+}
+
+export interface CopyLocalFilesResult {
+  /** Repo-relative paths that landed in the worktree */
+  copied: string[]
+  /** Non-fatal by definition — the checkout is fine, a file didn't make it */
+  error?: string
+}
+
+/** An insane pattern (`*`) must not turn a session start into a disk copy. */
+const MAX_LOCAL_FILES = 100
+
+/**
+ * Carry the project's machine-local files — `.env` and whatever else the user
+ * named — into a fresh worktree. See `shared/local-files.ts` for why the
+ * checkout arrives without them and how the patterns read.
+ *
+ * Candidates are the main checkout's **ignored** files, read from git rather
+ * than from a directory walk, so git's own rules decide what counts as
+ * machine-local and this never has to learn where a project hides its build
+ * output. `--directory` collapses a wholly-ignored folder into a single entry,
+ * which is the difference between one row for `node_modules` and thirty
+ * thousand.
+ *
+ * Ignored is the whole safety argument, and why SPEC §10.4 rejected this
+ * before: a file git ignores in the main checkout is ignored in the worktree
+ * too (`.gitignore` is tracked, so it comes with the checkout), which means
+ * Ship's `git add -A` cannot stage a secret this put there. A file git does
+ * *not* ignore is deliberately not a candidate however the patterns are
+ * written — copying one would hand Ship an untracked file to commit that the
+ * agent never wrote.
+ *
+ * Unlike `cloneNodeModules` this is **awaited** before the pane opens. It is a
+ * handful of small files, and an agent that starts against a missing `.env`
+ * reads a broken config once and then reasons from it for the rest of the
+ * session. Failure is still non-fatal: the setup command and `cp` by hand both
+ * still work, exactly as they did before this existed.
+ */
+export async function copyLocalFiles(
+  projectPath: string,
+  worktreePath: string,
+  patterns: string[]
+): Promise<CopyLocalFilesResult> {
+  const listed = await git(projectPath, [
+    'ls-files',
+    '-z',
+    '--others',
+    '--ignored',
+    '--exclude-standard',
+    '--directory'
+  ])
+  if (!listed.ok) return { copied: [], error: gitError(listed) }
+  const entries = listed.stdout.split('\0').filter(Boolean)
+
+  const copied: string[] = []
+  let error: string | undefined
+  for (const entry of entries) {
+    if (copied.length >= MAX_LOCAL_FILES) {
+      error = `stopped after ${MAX_LOCAL_FILES} files — narrow the copy patterns`
+      break
+    }
+    // `node_modules` is `cloneNodeModules`' job (an APFS clone, not a byte
+    // copy) and `.git` is shared with the main checkout — never either here,
+    // however broad the pattern.
+    const top = entry.split('/')[0]
+    if (top === 'node_modules' || top === '.git') continue
+    if (!matchesLocalFile(entry, patterns)) continue
+
+    const dest = join(worktreePath, entry.replace(/\/$/, ''))
+    // Something tracked already occupies the path — the checkout wins
+    if (existsSync(dest)) continue
+    try {
+      mkdirSync(dirname(dest), { recursive: true })
+      cpSync(join(projectPath, entry), dest, { recursive: true, preserveTimestamps: true })
+      copied.push(entry)
+    } catch (err) {
+      error ??= `${entry}: ${err instanceof Error ? err.message : String(err)}`
+    }
+  }
+  return { copied, error }
 }
 
 export type RemoveWorktreeResult =

@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import type {
   AgentSettings,
   ClaudePermissionMode,
-  CodexApprovalPolicy
+  CodexApprovalPolicy,
+  ProjectSettings
 } from '../../../shared/projects'
+import { DEFAULT_LOCAL_FILES } from '../../../shared/local-files'
 import { projectScopeDir } from '../../../shared/todos'
 import { ModalShell } from './ModalShell'
 import { Select, type SelectOption } from './Select'
@@ -39,13 +41,10 @@ interface SectionSettingsModalProps {
   name: string
   path: string
   settings: AgentSettings
-  /** Projects only — Home has no worktrees */
-  worktreeSetup?: string
-  /** Projects only — commands the tab-bar play button launches */
-  runCommand?: string
-  showWorktreeSetup: boolean
+  /** Absent for Home, which has no worktrees and no play button */
+  project?: ProjectSettings
   onClose: () => void
-  onSave: (settings: AgentSettings, worktreeSetup?: string, runCommand?: string) => void
+  onSave: (settings: AgentSettings, project?: ProjectSettings) => void
   /** Projects only — Home can't be removed */
   onRemove?: (deleteBoard: boolean) => void
 }
@@ -55,9 +54,7 @@ export function SectionSettingsModal({
   name,
   path,
   settings,
-  worktreeSetup,
-  runCommand,
-  showWorktreeSetup,
+  project,
   onClose,
   onSave,
   onRemove
@@ -66,16 +63,23 @@ export function SectionSettingsModal({
   const [codexApproval, setCodexApproval] = useState<CodexApprovalPolicy | ''>(
     settings.codexApproval ?? ''
   )
-  const [setup, setSetup] = useState(worktreeSetup ?? '')
-  const [run, setRun] = useState(runCommand ?? '')
+  const [setup, setSetup] = useState(project?.worktreeSetup ?? '')
+  const [run, setRun] = useState(project?.runCommand ?? '')
+  const [copy, setCopy] = useState(project?.worktreeCopy ?? '')
+  const isProject = !!project
 
   const risky = claudeMode === 'bypassPermissions' || codexApproval === 'never'
 
   const save = (): void => {
     onSave(
       { claudeMode: claudeMode || undefined, codexApproval: codexApproval || undefined },
-      showWorktreeSetup ? setup.trim() || undefined : undefined,
-      showWorktreeSetup ? run.trim() || undefined : undefined
+      isProject
+        ? {
+            worktreeSetup: setup.trim() || undefined,
+            runCommand: run.trim() || undefined,
+            worktreeCopy: copy.trim() || undefined
+          }
+        : undefined
     )
     onClose()
   }
@@ -154,7 +158,7 @@ export function SectionSettingsModal({
         </div>
       </div>
 
-      {showWorktreeSetup && (
+      {isProject && (
         <div className="wt-field">
           <label className="wt-field-label" htmlFor="set-run">
             Start command <span className="wt-field-optional">optional</span>
@@ -175,7 +179,31 @@ export function SectionSettingsModal({
         </div>
       )}
 
-      {showWorktreeSetup && (
+      {isProject && (
+        <div className="wt-field">
+          <label className="wt-field-label" htmlFor="set-copy">
+            Copy into new worktrees <span className="wt-field-optional">optional</span>
+          </label>
+          <Input
+            id="set-copy"
+            variant="textarea"
+            mono
+            placeholder={DEFAULT_LOCAL_FILES.join('\n')}
+            value={copy}
+            rows={3}
+            onChange={(e) => setCopy(e.target.value)}
+          />
+          <div className="wt-field-hint">
+            A worktree checks out tracked files only, so git-ignored ones like <code>.env</code>{' '}
+            are missing. These are copied in before the agent starts — one gitignore-style pattern
+            per line, <code>!</code> to exclude. Empty uses the defaults shown. Only files git
+            already ignores travel, so Ship can never commit one;{' '}
+            <code>node_modules</code> is cloned separately.
+          </div>
+        </div>
+      )}
+
+      {isProject && (
         <div className="wt-field">
           <label className="wt-field-label" htmlFor="set-setup">
             Worktree setup command <span className="wt-field-optional">optional</span>
@@ -184,7 +212,7 @@ export function SectionSettingsModal({
             id="set-setup"
             variant="textarea"
             mono
-            placeholder={`cp ${path}/.env . && npm install`}
+            placeholder="npm run codegen"
             value={setup}
             rows={2}
             onChange={(e) => setSetup(e.target.value)}
