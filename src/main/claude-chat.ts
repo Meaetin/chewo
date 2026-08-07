@@ -35,6 +35,7 @@ import {
 } from '../shared/agent-chat'
 import { parseToolPatch } from '../shared/diff'
 import { splitToolResult } from '../shared/tool-images'
+import { parseTaskResult } from '../shared/tool-tasks'
 
 /** Argv for one chat session. `sessionId` resumes an existing conversation. */
 export function claudeChatArgs(opts: {
@@ -279,7 +280,11 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
       const message = ev.message as { content?: ContentBlock[] | string } | undefined
       if (!Array.isArray(message?.content)) return []
       const blocks = message.content.filter((b) => b.type === 'tool_result' && b.tool_use_id)
-      const patch = blocks.length === 1 ? parseToolPatch(ev.tool_use_result) : undefined
+      const single = blocks.length === 1
+      const patch = single ? parseToolPatch(ev.tool_use_result) : undefined
+      // Same seam, same one-result rule: a `Task*` result names an id, and
+      // pairing it with the wrong call would move the wrong row.
+      const task = single ? parseTaskResult(ev.tool_use_result) : null
       for (const block of blocks) {
         // Images ride in the same content array as the prose — a Read of a PNG
         // has no text at all, so flattening them to "[image]" left the chip
@@ -291,7 +296,8 @@ export function createClaudeNormalizer(): (raw: unknown) => AgentChatEvent[] {
           result: text,
           isError: Boolean(block.is_error),
           patch,
-          ...(images.length ? { images } : {})
+          ...(images.length ? { images } : {}),
+          ...(task ? { task } : {})
         })
       }
       return out

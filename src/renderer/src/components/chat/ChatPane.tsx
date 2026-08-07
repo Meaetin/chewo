@@ -11,6 +11,7 @@ import {
   type ChatState
 } from '../../../../shared/agent-chat'
 import type { NormalizedMessage } from '../../../../shared/adapter/types'
+import type { AgentTask } from '../../../../shared/tool-tasks'
 import {
   chipOf,
   chipsForPaths,
@@ -23,6 +24,8 @@ import { WorkingText } from '../ui'
 import { ChatComposer, type SessionSetup } from './ChatComposer'
 import { FindBar } from './FindBar'
 import { ChatItemView } from './ChatItems'
+import { TaskPanel } from './TaskPanel'
+import { useElapsed } from './useElapsed'
 
 /**
  * A chat pane: the same agent CLI a terminal pane runs, rendered as a
@@ -84,7 +87,7 @@ interface ChatPaneProps {
 type Action =
   | { kind: 'event'; event: AgentChatEvent }
   | { kind: 'sent'; text: string; attachments: AttachmentChip[] }
-  | { kind: 'seed'; items: ChatItem[] }
+  | { kind: 'seed'; items: ChatItem[]; tasks?: AgentTask[] }
 
 function chatReducer(state: ChatState, action: Action): ChatState {
   switch (action.kind) {
@@ -94,8 +97,14 @@ function chatReducer(state: ChatState, action: Action): ChatState {
       return appendUserMessage(state, action.text, action.attachments)
     case 'seed':
       // Prepended, not replaced: the read is async, so a fast first turn may
-      // already have produced live items that must stay after the history
-      return { ...state, items: [...action.items, ...state.items] }
+      // already have produced live items that must stay after the history.
+      // The plan is the opposite — it is one list, and a live turn that has
+      // already moved it knows better than the file does.
+      return {
+        ...state,
+        items: [...action.items, ...state.items],
+        tasks: state.tasks.length ? state.tasks : (action.tasks ?? [])
+      }
   }
 }
 
@@ -282,10 +291,17 @@ export function ChatPane({
     let cancelled = false
     window.api
       .getSession({ source: resumeFrom.source, filePath: resumeFrom.filePath })
-      .then((result: { messages: NormalizedMessage[]; contextTokens?: number }) => {
+      .then(
+        (result: {
+          messages: NormalizedMessage[]
+          contextTokens?: number
+          tasks?: AgentTask[]
+        }) => {
         if (cancelled) return
         const items = seedItems(result.messages)
-        dispatch({ kind: 'seed', items })
+        // Resuming replays nothing, so a pane that had a plan going would come
+        // back without one — it is folded out of the transcript instead.
+        dispatch({ kind: 'seed', items, tasks: result.tasks })
         // The transcript knows how full the window was when the conversation
         // stopped; the CLI will not say so again until the next turn ends. The
         // window's *size* is not in the file, so this reads as a token count
@@ -298,7 +314,8 @@ export function ChatPane({
         // Open on the most recent page; the rest loads as the user scrolls up
         setHidden(Math.max(0, items.length - PAGE))
         setLoadingHistory(false)
-      })
+      }
+      )
       .catch(() => {
         // A missing or unreadable transcript is not fatal — the conversation
         // still resumes, it just opens without its history
@@ -339,6 +356,7 @@ export function ChatPane({
   const shown = hidden > 0 ? state.items.slice(hidden) : state.items
   const awaiting = pendingApprovals(state)
   const exited = state.exitCode !== null
+  const elapsed = useElapsed(state.busy, active)
 
   return (
     <div className="chat-pane" style={{ display: active ? 'flex' : 'none' }}>
@@ -385,6 +403,11 @@ export function ChatPane({
               onDecide={decide}
             />
           ))}
+          {/* At the end of the thread rather than where the plan was created:
+              it is the current state of one list, not a thing that happened at
+              a point in the conversation — and the bottom is where a streaming
+              pane is already pinned, so it stays in view while it matters. */}
+          <TaskPanel tasks={state.tasks} />
           {notice && (
             <div className="chat-working">
               <WorkingText>{notice}</WorkingText>
@@ -393,6 +416,7 @@ export function ChatPane({
           {state.busy && awaiting.length === 0 && (
             <div className="chat-working">
               <WorkingText>Working…</WorkingText>
+              {elapsed && <span className="chat-elapsed">{elapsed}</span>}
             </div>
           )}
           {exited && (

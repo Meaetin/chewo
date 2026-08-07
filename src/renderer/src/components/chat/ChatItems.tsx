@@ -21,6 +21,7 @@ import {
 } from '../../../../shared/ask-user-question'
 import { patchStats, patchToUnified, type ToolPatch } from '../../../../shared/diff'
 import { imageDataUrl, type ToolImage } from '../../../../shared/tool-images'
+import { isPlanTool } from '../../../../shared/tool-tasks'
 import { DiffBody } from '../DiffBody'
 import { Button, WorkingText } from '../ui'
 import { useSmoothText } from './useSmoothText'
@@ -185,6 +186,12 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
  * `AskUserQuestion`. There is no Allow/Deny here on purpose: allowing was never
  * the question, and answering *is* the permission (see `ask-user-question.ts`
  * for the wire contract this depends on).
+ *
+ * One question per page. The tool takes up to four questions of up to four
+ * options each, and every option can carry a description — stacked, that is a
+ * card taller than the window, which reads as a wall rather than as a question.
+ * Paging is purely presentational: `composeAnswers` still receives every pick
+ * at once, so the wire contract is untouched.
  */
 function QuestionCard({
   call,
@@ -199,7 +206,9 @@ function QuestionCard({
   const [picks, setPicks] = useState<string[][]>(() => questions.map(() => []))
   /** Which questions have the free-text field open, and what is in it */
   const [other, setOther] = useState<Record<number, string>>({})
+  const [page, setPage] = useState(0)
   const requestId = call.requestId ?? ''
+  const last = questions.length - 1
 
   const toggle = (index: number, label: string): void => {
     setPicks((prev) =>
@@ -209,6 +218,13 @@ function QuestionCard({
         return chosen.includes(label) ? chosen.filter((l) => l !== label) : [...chosen, label]
       })
     )
+    // Picking the single answer a question accepts *is* moving on, so a
+    // one-of-four question costs one click rather than two. Multi-select can't
+    // do this (there is no way to know you are finished), and the last page
+    // never auto-advances into a send: the tool result is always an explicit act.
+    if (!questions[index].multiSelect && index < last && !picks[index].includes(label)) {
+      setPage(index + 1)
+    }
   }
 
   // The tool's own description tells the model not to offer an "Other" option
@@ -220,7 +236,9 @@ function QuestionCard({
       return typed ? [...chosen, typed] : chosen
     })
 
-  const answered = answersFor().every((a) => a.length > 0)
+  const filled = answersFor()
+  const answered = filled.every((a) => a.length > 0)
+  const q = questions[page]
 
   const send = (): void =>
     onDecide(requestId, {
@@ -238,52 +256,97 @@ function QuestionCard({
       <div className="chat-question-head">
         <MessageCircleQuestion size={14} strokeWidth={1.75} />
         <span>{questions.length > 1 ? 'A few questions for you' : 'A question for you'}</span>
+        {questions.length > 1 && (
+          <span className="chat-question-steps">
+            {questions.map((step, i) => (
+              // Jumping straight to a question is what makes the dots worth
+              // drawing — going back to change an answer should not mean
+              // walking back through every page between here and there.
+              <button
+                key={step.question}
+                className={`chat-question-step${i === page ? ' chat-question-step--on' : ''}${
+                  filled[i].length ? ' chat-question-step--done' : ''
+                }`}
+                onClick={() => setPage(i)}
+                title={step.header || step.question}
+                aria-label={`Question ${i + 1} of ${questions.length}`}
+                aria-current={i === page}
+              />
+            ))}
+          </span>
+        )}
       </div>
 
-      {questions.map((q, i) => (
-        <div key={q.question} className="chat-question-block">
-          <div className="chat-question-text">
-            {q.header && <span className="chat-question-chip">{q.header}</span>}
-            {q.question}
-          </div>
-          <div className="chat-question-options">
-            {q.options.map((opt) => {
-              const on = picks[i].includes(opt.label)
-              return (
-                <button
-                  key={opt.label}
-                  className={`chat-question-option${on ? ' chat-question-option--on' : ''}`}
-                  onClick={() => toggle(i, opt.label)}
-                  title={opt.preview}
-                >
-                  <span className="chat-question-option-label">{opt.label}</span>
-                  {opt.description && (
-                    <span className="chat-question-option-desc">{opt.description}</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-          <input
-            className="chat-question-other"
-            placeholder="Something else…"
-            value={other[i] ?? ''}
-            onChange={(e) => setOther((prev) => ({ ...prev, [i]: e.target.value }))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && answered) send()
-            }}
-          />
-          {q.multiSelect && <div className="chat-question-hint">Pick as many as apply</div>}
+      {/* Keyed on the question so React rebuilds the block rather than
+          reconciling one question's options onto another's. */}
+      <div key={q.question} className="chat-question-block">
+        <div className="chat-question-text">
+          {q.header && <span className="chat-question-chip">{q.header}</span>}
+          {q.question}
         </div>
-      ))}
+        <div className="chat-question-options">
+          {q.options.map((opt) => {
+            const on = picks[page].includes(opt.label)
+            return (
+              <button
+                key={opt.label}
+                className={`chat-question-option${on ? ' chat-question-option--on' : ''}`}
+                onClick={() => toggle(page, opt.label)}
+                title={opt.preview}
+              >
+                <span className="chat-question-option-label">{opt.label}</span>
+                {opt.description && (
+                  <span className="chat-question-option-desc">{opt.description}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <input
+          className="chat-question-other"
+          placeholder="Something else…"
+          value={other[page] ?? ''}
+          onChange={(e) => setOther((prev) => ({ ...prev, [page]: e.target.value }))}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            // Enter finishes the question you are on; it only sends from the
+            // last one, and only once every question has an answer.
+            if (page < last) setPage(page + 1)
+            else if (answered) send()
+          }}
+        />
+        {q.multiSelect && <div className="chat-question-hint">Pick as many as apply</div>}
+      </div>
 
       <div className="chat-question-actions">
-        <Button intent="primary" size="compact" disabled={!answered} onClick={send}>
-          {questions.length > 1 ? 'Send answers' : 'Send answer'}
-        </Button>
+        {page > 0 && (
+          <Button size="compact" onClick={() => setPage(page - 1)}>
+            Back
+          </Button>
+        )}
+        {page < last ? (
+          <Button intent="primary" size="compact" onClick={() => setPage(page + 1)}>
+            Next
+          </Button>
+        ) : (
+          <Button intent="primary" size="compact" disabled={!answered} onClick={send}>
+            {questions.length > 1 ? 'Send answers' : 'Send answer'}
+          </Button>
+        )}
+        {/* An unanswered question is the reason Send is disabled, and on the
+            last page the one at fault can be several pages back — so say which. */}
+        {page === last && !answered && (
+          <span className="chat-question-hint">
+            {(() => {
+              const missing = questions[filled.findIndex((a) => a.length === 0)]
+              return `Still needs an answer: ${missing.header || missing.question}`
+            })()}
+          </span>
+        )}
         {/* Walking away has to reach the model as *something*, or the turn sits
             here forever waiting on a card the user is done with. */}
         <Button
+          className="chat-question-skip"
           size="compact"
           onClick={() =>
             onDecide(requestId, {
@@ -478,6 +541,10 @@ export function ChatItemView({
       return <ThinkingBlock text={item.text} done={item.done} />
 
     case 'tool': {
+      // The plan panel renders these calls as one list; their own chips would
+      // repeat it a row at a time. An approval still shows — a suppressed chip
+      // that is waiting on you is a turn that appears to have stalled.
+      if (isPlanTool(item.call.name) && item.call.status !== 'awaiting') return null
       if (item.call.status !== 'awaiting') return <ToolChip call={item.call} home={home} />
       // A tool that answers on its own card gets that card — but only when its
       // arguments really are a question set, so an unrecognised interactive

@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { promptTokens } from '../agent-chat'
 import { parseToolPatch, type ToolPatch } from '../diff'
 import { splitToolResult, type ToolImage } from '../tool-images'
+import { applyTaskResult, parseTaskResult, type AgentTask } from '../tool-tasks'
 import { extractCommand, isInjectedNoise, untitledFallback } from './noise'
 import type { NormalizedMessage, ParseResult, ParseStats } from './types'
 
@@ -159,6 +160,40 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, ToolOutcome>):
     // tool_result blocks surface via the results map; thinking blocks are dropped
   }
   return out
+}
+
+/**
+ * The plan as it stood when the conversation was last written.
+ *
+ * Folded forward rather than read off the newest `TaskList`, because a plan is
+ * usually built with `TaskCreate`/`TaskUpdate` and listed rarely or never — a
+ * snapshot-only read would leave most resumed panes with no plan at all. A
+ * `tool_use` always precedes its result in the file, so one forward pass can
+ * both collect the inputs and apply the results that need them.
+ */
+function collectTasks(records: ClaudeRecord[]): AgentTask[] {
+  const inputs = new Map<string, unknown>()
+  let tasks: AgentTask[] = []
+
+  for (const rec of records) {
+    if (!Array.isArray(rec.message?.content)) continue
+    const blocks = rec.message.content as ContentBlock[]
+
+    if (rec.type === 'assistant') {
+      for (const b of blocks) if (b.type === 'tool_use' && b.id) inputs.set(b.id, b.input)
+      continue
+    }
+    if (rec.type !== 'user') continue
+
+    // Same one-result rule as the patch above: `toolUseResult` is per record,
+    // so a record with two results cannot say which call this one describes.
+    const results = blocks.filter((b) => b.type === 'tool_result' && b.tool_use_id)
+    if (results.length !== 1) continue
+    const parsed = parseTaskResult(rec.toolUseResult)
+    if (parsed) tasks = applyTaskResult(tasks, parsed, inputs.get(results[0].tool_use_id as string))
+  }
+
+  return tasks
 }
 
 /**
@@ -336,6 +371,9 @@ export function parseClaudeSession(
       preview
     },
     contextTokens,
+    // Read from every record, not just the linearized chain: a plan built
+    // before a compaction boundary is still the plan.
+    tasks: collectTasks(mainRecs),
     messages,
     stats
   }
