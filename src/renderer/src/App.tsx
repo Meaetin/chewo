@@ -3092,14 +3092,6 @@ export function App(): React.JSX.Element {
               setShipReview(null)
               onShipped(res, shipWorktree)
             }}
-            onMarkDone={
-              shipWorktree
-                ? () => {
-                    setWorktreeDone(shipWorktree, true)
-                    setShipReview(null)
-                  }
-                : undefined
-            }
             onRemoveWorktree={
               shipWorktree
                 ? () => {

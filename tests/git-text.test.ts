@@ -8,7 +8,9 @@ let answer: () => Promise<unknown>
 vi.mock('../src/main/settings', () => ({ agentFor: () => ({ agent: 'claude' }) }))
 vi.mock('../src/main/agent-runner', () => ({ runAgentJson: () => answer() }))
 
-const { suggestCommitMessage, suggestPrText, unwrapBody } = await import('../src/main/git-text')
+const { budgetDiff, suggestCommitMessage, suggestPrText, unwrapBody } = await import(
+  '../src/main/git-text'
+)
 
 const answers = (value: unknown): void => {
   answer = async () => value
@@ -100,5 +102,48 @@ describe('unwrapBody', () => {
 
   test('runs of blank lines collapse to one break', () => {
     expect(unwrapBody('one\n\n\n\ntwo')).toBe('one\n\ntwo')
+  })
+})
+
+/**
+ * `git diff` emits files in path order, so slicing the whole diff is a lottery
+ * held on filenames — the real bug was a four-file change whose `AGENTS.md`
+ * hunk sorted first and consumed the entire budget, leaving the model to write
+ * a confident subject about code it had never been shown.
+ */
+describe('budgetDiff', () => {
+  const file = (name: string, lines: number): string =>
+    [`diff --git a/${name} b/${name}`, '--- a/' + name, '+++ b/' + name]
+      .concat(Array.from({ length: lines }, (_, i) => `+line ${i} of ${name}`))
+      .join('\n')
+
+  const named = (out: string): string[] =>
+    (out.match(/^diff --git a\/(\S+)/gm) ?? []).map((l) => l.split('a/')[1])
+
+  test('a diff inside the budget is passed through untouched', () => {
+    const diff = [file('a.ts', 3), file('b.ts', 3)].join('\n')
+    expect(budgetDiff(diff, 10_000)).toBe(diff)
+  })
+
+  test('every changed file survives, however the first one sorts', () => {
+    const diff = [file('AGENTS.md', 400), file('src/app.tsx', 5), file('src/styles.css', 5)].join(
+      '\n'
+    )
+    const out = budgetDiff(diff, 800)
+    expect(named(out)).toEqual(['AGENTS.md', 'src/app.tsx', 'src/styles.css'])
+    // The small files are whole — only the hog gets cut
+    expect(out).toContain('+line 4 of src/styles.css')
+    expect(out.length).toBeLessThanOrEqual(800)
+  })
+
+  test('what was dropped is announced, never silently cut', () => {
+    const out = budgetDiff([file('big.ts', 300), file('small.ts', 2)].join('\n'), 600)
+    expect(out).toMatch(/more lines of this file's diff not shown/)
+  })
+
+  test('a single-file diff still truncates rather than blowing the budget', () => {
+    const out = budgetDiff(file('only.ts', 500), 400)
+    expect(out.length).toBeLessThanOrEqual(500)
+    expect(out).toContain('diff truncated')
   })
 })
