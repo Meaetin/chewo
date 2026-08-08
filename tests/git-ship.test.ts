@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { invalidBranchName, shipCompare } from '../src/main/git-ship'
+import { invalidBranchName, resolveBase, shipCompare } from '../src/main/git-ship'
 
 /**
  * Only the parts of Ship that are pure git. `shipPreview` and
@@ -102,5 +102,67 @@ describe('shipCompare', () => {
   test('a base that does not exist is an error, not an empty list', async () => {
     const res = await shipCompare({ root: repo, base: 'no-such-branch' })
     expect(res.ok).toBe(false)
+  })
+})
+
+// A worktree records its start point as git named it, and Ship has to turn
+// that into a branch name GitHub will accept as a PR base.
+describe('resolveBase', () => {
+  let remote: string
+  let repo: string
+
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-C', repo, '-c', 'user.name=T', '-c', 'user.email=t@t', ...args], {
+      encoding: 'utf8'
+    })
+
+  beforeAll(() => {
+    remote = mkdtempSync(join(homedir(), '.chewo-ship-base-remote-'))
+    const seed = mkdtempSync(join(homedir(), '.chewo-ship-base-seed-'))
+    execFileSync('git', ['init', '--bare', '-b', 'main', remote])
+    execFileSync('git', ['init', '-b', 'main', seed])
+    const at = (dir: string, ...args: string[]): string =>
+      execFileSync('git', ['-C', dir, '-c', 'user.name=T', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8'
+      })
+    writeFileSync(join(seed, 'a.txt'), 'one\n')
+    at(seed, 'add', '-A')
+    at(seed, 'commit', '-m', 'initial')
+    // A slashed branch on the remote — the case a naive `origin/` split gets
+    // wrong by stopping at the first separator
+    at(seed, 'branch', 'dev/updates')
+    at(seed, 'remote', 'add', 'origin', remote)
+    at(seed, 'push', 'origin', 'main', 'dev/updates')
+    rmSync(seed, { recursive: true, force: true })
+
+    repo = mkdtempSync(join(homedir(), '.chewo-ship-base-repo-'))
+    rmSync(repo, { recursive: true, force: true })
+    execFileSync('git', ['clone', remote, repo])
+    // Local-only, never pushed — no use to `gh pr create`
+    git('branch', 'local/scratch')
+  })
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(remote, { recursive: true, force: true })
+  })
+
+  test('strips the remote from a remote-tracking start point', async () => {
+    expect(await resolveBase(repo, 'origin/dev/updates', 'main')).toBe('dev/updates')
+    expect(await resolveBase(repo, 'origin/main', 'main')).toBe('main')
+  })
+
+  test('leaves a local branch name alone when the remote has it too', async () => {
+    expect(await resolveBase(repo, 'dev/updates', 'main')).toBe('dev/updates')
+  })
+
+  test('falls back to the default rather than naming a base GitHub cannot see', async () => {
+    expect(await resolveBase(repo, 'local/scratch', 'main')).toBe('main')
+    expect(await resolveBase(repo, 'no-such-branch', 'main')).toBe('main')
+  })
+
+  test('no recorded base means the repo default', async () => {
+    expect(await resolveBase(repo, undefined, 'main')).toBe('main')
+    expect(await resolveBase(repo, '   ', 'main')).toBe('main')
   })
 })

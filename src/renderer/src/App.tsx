@@ -67,6 +67,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
+import type { ChangedFile } from '../../main/git'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
 import { UpdateButton } from './components/UpdateButton'
@@ -1929,6 +1930,60 @@ export function App(): React.JSX.Element {
    * removal the dialog promised. Rather than leave a dead button, the refusal
    * is re-asked as the discard question it should have been.
    */
+  /**
+   * Throw one file's changes away, after saying exactly what goes.
+   *
+   * There is no undo and there is no reflog for a working tree, so the
+   * confirmation is the entire safety mechanism — the same standing rule as
+   * abandoning a worktree: forcing is allowed, but only after a person was
+   * shown the loss. It names the line counts rather than saying "changes",
+   * because "discard 4 lines" and "discard 900 lines" deserve different
+   * amounts of hesitation and the panel already knows which this is.
+   *
+   * Nothing warns about an agent working in the same checkout. It would fire on
+   * nearly every discard here — the panel is usually open *because* an agent
+   * just wrote these files — so it would be noise, and the diff the row opens
+   * is the honest way to check before throwing it away.
+   */
+  const confirmDiscard = useCallback(
+    (file: ChangedFile, count?: number) => {
+      const untracked = file.status === '?'
+      const lines = [
+        file.additions ? `${file.additions} added` : '',
+        file.deletions ? `${file.deletions} deleted` : ''
+      ].filter(Boolean)
+
+      const question = file.isDir
+        ? `Delete the ${file.path} folder${count ? ` and the ${count} file${count === 1 ? '' : 's'} in it` : ''}?` +
+          '\n\nNone of it has ever been committed, so this cannot be undone.'
+        : untracked
+          ? `Delete ${file.path}?\n\nIt has never been committed, so this cannot be undone.`
+          : `Discard changes to ${file.path}?` +
+            (lines.length ? `\n\n${lines.join(', ')} — ` : '\n\n') +
+            'this cannot be undone.'
+      if (!window.confirm(question)) return
+
+      void window.api.gitDiscard({ root: treeRoot, paths: [file.path] }).then((res) => {
+        if (!res.ok) {
+          showToast(res.error ?? 'Could not discard')
+          return
+        }
+        // Nothing was thrown away because git no longer saw a change there —
+        // an agent had already reverted it, or it was committed a moment ago.
+        // Silence would read as a button that did nothing.
+        if (res.discarded.length === 0) {
+          showToast(`${file.path} has no changes to discard any more.`)
+          return
+        }
+        // The diff layer is showing a file that no longer differs from HEAD
+        setGitSel((sel) => (sel?.kind === 'file' && sel.file.path === file.path ? null : sel))
+      })
+      // The status refresh is the fs watcher's — `useGitStatus` re-reads on
+      // every working-tree change, and a discard is one
+    },
+    [treeRoot, showToast]
+  )
+
   const confirmRemoveWorktree = useCallback(
     (wt: Worktree, state: WorktreeState | null) => {
       const what = wt.branch ? `and delete branch ${wt.branch}` : '(it has no branch)'
@@ -1992,13 +2047,23 @@ export function App(): React.JSX.Element {
         setWorktrees((ws) =>
           ws.map((w) => (w.id === shipped.id ? { ...w, branch: res.branch } : w))
         )
+      // Either route ends the session's work — the direct push especially, since
+      // no PR will ever exist for `reapMerged` to notice. Marking it done is what
+      // puts the row in the state whose trash button is the way out.
       if (shipped) setWorktreeDone(shipped, true)
-      const opened = res.created ? 'PR opened' : 'Pushed to the open PR'
       const cut = res.branchedFrom ? `, cut from ${res.branchedFrom}` : ''
-      showToast(`${opened}: ${res.branch} → ${res.base}${cut}.`, {
-        label: 'Open PR',
-        onClick: () => void window.api.openExternal(res.url)
-      })
+      const what =
+        res.route === 'push'
+          ? `Pushed onto ${res.base}${cut}.`
+          : `${res.created ? 'PR opened' : 'Pushed to the open PR'}: ${res.branch} → ${res.base}${cut}.`
+      // The push route has a PR only when the base already had one open; with
+      // no url there is nothing for the action to open
+      showToast(
+        what,
+        res.url
+          ? { label: 'Open PR', onClick: () => void window.api.openExternal(res.url) }
+          : undefined
+      )
     },
     [setWorktreeDone, showToast]
   )
@@ -2007,7 +2072,13 @@ export function App(): React.JSX.Element {
   const openShip = useCallback(
     async (root: string) => {
       setShipReading(root)
-      const res = await window.api.gitShipPreview({ root })
+      // The PR goes back where the branch was cut from. `baseBranch` is the
+      // start point recorded at cut time, handed over as git wrote it —
+      // main strips the remote and falls back to the repo default if that ref
+      // was never pushed. Without it every session PR'd into the repo default,
+      // so work started on an integration branch quietly targeted `main`.
+      const base = worktrees.find((w) => w.path === root)?.baseBranch
+      const res = await window.api.gitShipPreview({ root, ...(base && { base }) })
       setShipReading(null)
       if (!res.ok) {
         showToast(res.error)
@@ -2015,7 +2086,7 @@ export function App(): React.JSX.Element {
       }
       setShipReview({ root, preview: res })
     },
-    [showToast]
+    [showToast, worktrees]
   )
 
   /** Which checkout the open Ship review belongs to — a worktree, or the project */
@@ -2778,6 +2849,7 @@ export function App(): React.JSX.Element {
             activateFile(null)
             setGitSel({ kind: 'commit', hash })
           }}
+          onDiscard={confirmDiscard}
           onClose={() => setGitOpen(false)}
         />
         <div className="main-content">

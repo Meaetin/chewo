@@ -1469,6 +1469,29 @@ body {
 .git-stat-add { color: var(--c-diff-add); }
 .git-stat-del { color: var(--c-diff-del); }
 
+/* Discarding is unrecoverable, so it is never sitting under the cursor on a
+   row you only meant to read: revealed on hover or keyboard focus, the same
+   rule the sidebar's trailing controls use. It keeps its space in the layout
+   either way, so rows don't reflow as the pointer crosses the list. */
+.git-file-discard {
+  flex: none;
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.git-file-row:hover .git-file-discard,
+.git-file-discard:focus-within {
+  opacity: 1;
+}
+.git-file-discard button:hover {
+  color: var(--danger);
+}
+@media (prefers-reduced-motion: reduce) {
+  .git-file-discard {
+    transition: none;
+  }
+}
+
 /* History — rail-and-dot commit timeline */
 .git-commit-row {
   display: flex;
@@ -6319,9 +6342,7 @@ body {
 }
 
 .chat-setup-chip,
-.chat-setup-branch,
-.chat-setup-branch-label,
-.chat-setup-branch-switch {
+.chat-setup-branch {
   display: flex;
   align-items: center;
   gap: var(--space-6);
@@ -6369,30 +6390,15 @@ body {
 }
 
 /* Pushed to the far end: agent and model are the identity, the checkout is
-   where the result lands. One pill holding three controls — the label, the
-   base-branch picker and the switch — so the padding lives on the children
-   and the container only draws the outline. */
+   where the result lands. An icon and the picker, so the padding lives on the
+   children and the container only draws the outline. */
 .chat-setup-branch {
   margin-left: auto;
-  padding: 0;
-  gap: 0;
+  min-width: 0;
+  padding: var(--space-4) 0 var(--space-4) var(--space-8);
+  gap: var(--space-4);
   border-color: var(--c-line-2);
   cursor: default;
-}
-
-.chat-setup-branch-label {
-  min-width: 0;
-}
-
-.chat-setup-branch-switch {
-  padding-left: var(--space-4);
-}
-
-.chat-setup-branch-text {
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The picker sits inside the pill, so its own hover background would draw a
@@ -6411,34 +6417,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-setup-switch {
-  flex: none;
-  width: 26px;
-  height: 15px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  border: var(--border-hair);
-  position: relative;
-}
-.chat-setup-switch[data-on='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.chat-setup-switch::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  transition: transform 120ms ease;
-}
-.chat-setup-switch[data-on='true']::after {
-  transform: translateX(11px);
 }
 
 /* ---- slash palette ---- */
@@ -6561,6 +6539,47 @@ body {
   font-weight: 600;
 }
 
+/* The two ways work leaves a checkout. Side by side and equal width because
+   they are alternatives, not a primary action with an escape hatch — but only
+   one of them is ever pre-selected. Each carries its consequence as a second
+   line: "opens a PR" and "lands on main now" are the same size of click and
+   very different acts. */
+.ship-routes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-8);
+  margin-bottom: var(--space-10);
+}
+.ship-route-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-8) var(--space-10);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.ship-route-chip:hover {
+  border-color: color-mix(in srgb, var(--text-tertiary) 45%, transparent);
+}
+.ship-route-chip--on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--c-accent-wash);
+}
+.ship-route-chip-title {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.ship-route-chip--on .ship-route-chip-title {
+  color: var(--text-primary);
+}
+.ship-route-chip-sub {
+  color: var(--text-tertiary);
+  font-size: var(--fs-2xs);
+}
+
 /* Source and target side by side — the route is one thought, and reading it
    as `branch → base` matches the subtitle it drives. */
 .ship-route-fields {
@@ -6620,6 +6639,18 @@ body {
 .ship-note code {
   font-family: var(--font-mono);
   color: var(--text-secondary);
+}
+/* Pushing onto the branch every PR lands in — the one combination that gets a
+   colour, because it is the only one that skips the review shipping is for */
+.ship-note--warn {
+  margin-bottom: var(--space-10);
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-1);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.ship-note--warn code {
+  color: inherit;
 }
 
 .ship-files,

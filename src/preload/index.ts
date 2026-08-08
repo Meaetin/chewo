@@ -22,6 +22,7 @@ import type {
   RepoStatus,
   UntrackedFilesResult
 } from '../main/git'
+import type { DiscardResult } from '../main/git-discard'
 import type { GitOpResult } from '../main/git-ops'
 import type { ShipArgs, ShipPreviewResult, ShipResult } from '../main/git-ship'
 import type {
@@ -221,6 +222,9 @@ const api = {
     ipcRenderer.invoke('git:diff', args) as Promise<DiffResult>,
   gitUntrackedFiles: (args: { root: string; dir: string }) =>
     ipcRenderer.invoke('git:untracked-files', args) as Promise<UntrackedFilesResult>,
+  /** Throw away working-tree changes. Unrecoverable — the caller confirms first. */
+  gitDiscard: (args: { root: string; paths: string[] }) =>
+    ipcRenderer.invoke('git:discard', args) as Promise<DiscardResult>,
   /** Fetch, then fast-forward the base branch or merge it into a task branch */
   gitUpdate: (root: string) => ipcRenderer.invoke('git:update', root) as Promise<GitOpResult>,
   /** Refresh remote-tracking refs only — nothing any checkout stands on moves */
