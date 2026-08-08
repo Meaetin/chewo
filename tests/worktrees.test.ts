@@ -158,6 +158,54 @@ describe('base branch selection', () => {
   })
 })
 
+// A cloned repo is where the picker's two mislabelling bugs lived, and a
+// `git init` fixture cannot reach either: it has no `origin/HEAD`, and its
+// branch names have no slashes.
+describe('listBranches on a clone', () => {
+  let origin: string
+  let repo: string
+
+  const git = (dir: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    origin = mkdtempSync(join(homedir(), '.chewo-lb-origin-'))
+    execFileSync('git', ['init', '-b', 'main', origin])
+    writeFileSync(join(origin, 'a.txt'), 'one\n')
+    git(origin, 'add', '-A')
+    git(origin, 'commit', '-m', 'initial')
+
+    repo = mkdtempSync(join(homedir(), '.chewo-lb-clone-'))
+    rmSync(repo, { recursive: true, force: true })
+    execFileSync('git', ['clone', '-q', origin, repo])
+    git(repo, 'branch', 'agent/some-task')
+  })
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(origin, { recursive: true, force: true })
+  })
+
+  test('a local branch with a slash is local, not remote', async () => {
+    const res = await listBranches(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.local.sort()).toEqual(['agent/some-task', 'main'])
+    expect(res.remote).toEqual(['origin/main'])
+  })
+
+  test('the origin/HEAD symref is not offered as a base', async () => {
+    const res = await listBranches(repo)
+    if (!res.ok) throw new Error(res.error)
+    // git renders `refs/remotes/origin/HEAD` as bare `origin`, so it looks like
+    // a local branch to anything matching on the short name
+    expect([...res.local, ...res.remote]).not.toContain('origin')
+  })
+})
+
 // A branch cut from `origin/<default>` inherits that remote branch as its
 // upstream unless we say otherwise, which makes Ship's `git push` refuse with
 // "the upstream branch of your current branch does not match the name of your

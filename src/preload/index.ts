@@ -20,6 +20,7 @@ import type {
   GitDiffSpec,
   LogResult,
   RepoStatus,
+  StaleCheckout,
   UntrackedFilesResult
 } from '../main/git'
 import type { DiscardResult } from '../main/git-discard'
@@ -232,6 +233,12 @@ const api = {
   /** `origin/main` — the base a new isolated session will be cut from */
   gitDefaultBase: (root: string) =>
     ipcRenderer.invoke('git:default-base', root) as Promise<string | null>,
+  /** A checkout parked on a branch that already merged, or null */
+  gitStaleCheckout: (root: string) =>
+    ipcRenderer.invoke('git:stale-checkout', root) as Promise<StaleCheckout | null>,
+  /** Move a checkout onto an existing branch — no create, no force, no stash */
+  gitSwitchBranch: (root: string, branch: string) =>
+    ipcRenderer.invoke('git:switch', { root, branch }) as Promise<GitOpResult>,
   gitShip: (args: ShipArgs) => ipcRenderer.invoke('git:ship', args) as Promise<ShipResult>,
   gitShipCompare: (args: { root: string; base: string }) =>
     ipcRenderer.invoke('git:ship-compare', args) as Promise<

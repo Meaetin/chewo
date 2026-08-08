@@ -106,12 +106,13 @@ import {
   gitLog,
   gitStatus,
   gitUntrackedFiles,
+  staleCheckout,
   startGitWatch,
   stopGitWatch,
   type GitDiffSpec
 } from './git'
 import { discardChanges } from './git-discard'
-import { gitDefaultBase, gitFetchRemote, gitUpdateFromBase } from './git-ops'
+import { gitDefaultBase, gitFetchRemote, gitSwitchBranch, gitUpdateFromBase } from './git-ops'
 import {
   mergedBranches,
   shipCompare,
@@ -355,6 +356,10 @@ function registerIpc(): void {
   ipcMain.handle('git:update', (_e, root: string) => gitUpdateFromBase(root))
   ipcMain.handle('git:fetch', (_e, root: string) => gitFetchRemote(root))
   ipcMain.handle('git:default-base', (_e, root: string) => gitDefaultBase(root))
+  ipcMain.handle('git:stale-checkout', (_e, root: string) => staleCheckout(root))
+  ipcMain.handle('git:switch', (_e, a: { root: string; branch: string }) =>
+    gitSwitchBranch(a.root, a.branch)
+  )
   ipcMain.handle('git:ship', (_e, a: ShipArgs) => shipPullRequest(a))
   ipcMain.handle('git:ship-preview', (_e, a: { root: string; base?: string }) => shipPreview(a))
   ipcMain.handle('git:ship-compare', (_e, a: { root: string; base: string }) => shipCompare(a))

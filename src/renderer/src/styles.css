@@ -356,6 +356,30 @@ body {
   color: var(--text-dim);
 }
 
+/* A project checkout left standing on a branch whose PR already merged */
+.stale-checkout {
+  margin: var(--space-4) var(--space-8) var(--space-2) 17px;
+  padding: var(--space-8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.stale-checkout__text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.stale-checkout__text strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 /* Anchors the agent menu a branch with nothing to resume opens */
 .worktree-row {
   position: relative;

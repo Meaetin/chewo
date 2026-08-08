@@ -76,6 +76,27 @@ export async function gitDefaultBase(root: string): Promise<string | null> {
 }
 
 /**
+ * Move a checkout onto an existing branch.
+ *
+ * The one piece of the old branch menu worth having back, and only for the
+ * case `staleCheckout` finds: a checkout parked on a branch that already
+ * merged. Deliberately narrow — a plain `git switch`, no `-c`, no `--force`,
+ * no stash, so it creates nothing and can lose nothing. If work appeared
+ * between the check and the click, git refuses and says why, and the refusal
+ * is passed through rather than escalated into anything that would carry the
+ * changes across.
+ */
+export async function gitSwitchBranch(root: string, branch: string): Promise<GitOpResult> {
+  const cwd = resolveInsideRoots(root)
+  if (!cwd) return { ok: false, error: `not readable: ${basename(root)}` }
+  // Reaches git as an argv element, and `--detach` or `-c` here would mean
+  // something else entirely
+  if (!branch.trim() || branch.startsWith('-')) return { ok: false, error: 'Not a valid branch name' }
+  const res = await runGit(cwd, ['switch', branch])
+  return res.ok ? okWith(res, `On ${branch}`) : { ok: false, error: gitErrorOf(res) }
+}
+
+/**
  * Bring the default branch's new commits into this checkout, whichever kind it
  * is. One button, two honest meanings:
  *

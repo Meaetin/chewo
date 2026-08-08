@@ -67,7 +67,7 @@ import { TerminalPane } from './components/TerminalPane'
 import { CapabilitiesView } from './components/CapabilitiesView'
 import { FileTreePanel } from './components/FileTreePanel'
 import { FileEditor } from './components/FileEditor'
-import type { ChangedFile } from '../../main/git'
+import type { ChangedFile, StaleCheckout } from '../../main/git'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
 import { UpdateButton } from './components/UpdateButton'
@@ -226,6 +226,8 @@ export function App(): React.JSX.Element {
   const [defaultBases, setDefaultBases] = useState<Map<string, string | null>>(new Map())
   /** Every other branch a session could be cut from, per project path */
   const [branchLists, setBranchLists] = useState<Map<string, ProjectBranches>>(new Map())
+  /** Projects whose own checkout is parked on an already-merged branch */
+  const [staleCheckouts, setStaleCheckouts] = useState<Map<string, StaleCheckout>>(new Map())
   /**
    * Each agent's model catalog, for the composer's picker. Claude's is the
    * static alias list; Codex's is read from `codex debug models`, which is why
@@ -1635,6 +1637,67 @@ export function App(): React.JSX.Element {
   )
 
   /**
+   * Is this project's own checkout standing on work that already landed?
+   *
+   * Read on selection and after a ship rather than polled: it is two local git
+   * spawns, but the answer only moves when somebody switches a branch or a PR
+   * merges, and the row it feeds is inside the expanded section anyway.
+   */
+  const loadStaleCheckout = useCallback((project: Project) => {
+    void window.api.gitStaleCheckout(project.path).then((stale) =>
+      setStaleCheckouts((m) => {
+        const had = m.get(project.id)
+        if (had?.branch === stale?.branch && had?.target === stale?.target) return m
+        const next = new Map(m)
+        if (stale) next.set(project.id, stale)
+        else next.delete(project.id)
+        return next
+      })
+    )
+  }, [])
+
+  /**
+   * Put the project's own checkout back on its default branch, if it is
+   * sitting on work that already landed.
+   *
+   * Runs when a session is created, which is the one moment the branch it is
+   * standing on is provably finished with — Ship deliberately leaves HEAD on
+   * the branch it cut so a follow-up ship adds to the same PR, and this is
+   * where that gets cleaned up.
+   *
+   * Two conditions make it safe to do without asking, both re-read here rather
+   * than taken from the sidebar's cached reading (a photograph of whenever the
+   * project was last selected): the branch must be **merged** into
+   * `origin/<default>`, and the tree must be **clean**. If either fails it
+   * declines and the sidebar row offers the switch by hand instead.
+   *
+   * Deliberately **not** guarded on live panes, unlike `reapMerged`. That rule
+   * exists because removing a worktree deletes files under a running agent —
+   * here the opposite is true: any pane open in this checkout is standing on
+   * the same finished branch, so moving it to the default branch is the favour,
+   * and the clean-tree check has already ruled out losing anyone's work. With
+   * `branchMode: 'current'` the default, a live-pane guard would also mean this
+   * almost never fires, since the shared checkout is where sessions normally
+   * are.
+   */
+  const tidyCheckout = useCallback(
+    async (project: Project) => {
+      const stale = await window.api.gitStaleCheckout(project.path)
+      if (!stale) return
+      const res = await window.api.gitSwitchBranch(project.path, stale.target)
+      // Said out loud either way: a branch moving under you is not something to
+      // discover later, and a refusal is why the session did not start on main
+      showToast(
+        res.ok
+          ? `${project.name} was on ${stale.branch} (already merged) — now on ${stale.target}.`
+          : `Kept ${project.name} on ${stale.branch}: ${res.error}`
+      )
+      loadStaleCheckout(project)
+    },
+    [showToast, loadStaleCheckout]
+  )
+
+  /**
    * Open an **unstarted** agent session in a section: a pane with a composer
    * and nothing behind it yet. The sidebar's "New session" button is the only
    * way in — selecting a project navigates, it does not create.
@@ -1654,6 +1717,10 @@ export function App(): React.JSX.Element {
   const newAgent = useCallback(
     (project: Project | null) => {
       void (async () => {
+        // Starting new work is the one moment the old work is provably
+        // finished, so it is where the checkout gets tidied — not at ship
+        // time, which would make a follow-up ship open a second PR.
+        if (project) await tidyCheckout(project)
         // A tab with no process behind it, so the id comes from main's counter
         // rather than from a spawn. Nothing here is committed to yet: agent,
         // model, effort and checkout are all still the setup row's to change,
@@ -1679,7 +1746,7 @@ export function App(): React.JSX.Element {
         setView({ kind: 'terminal', termId })
       })()
     },
-    []
+    [tidyCheckout]
   )
 
   /**
@@ -1726,12 +1793,13 @@ export function App(): React.JSX.Element {
         )
       )
       loadBranches(project.path, true)
+      loadStaleCheckout(project)
       const last = fetchedAt.current.get(project.path) ?? 0
       if (Date.now() - last < 5 * 60_000) return
       fetchedAt.current.set(project.path, Date.now())
       void window.api.gitFetch(project.path)
     },
-    [loadBranches]
+    [loadBranches, loadStaleCheckout]
   )
 
   // A pending pane can belong to a project that is not the selected one, and
@@ -2051,6 +2119,10 @@ export function App(): React.JSX.Element {
       // no PR will ever exist for `reapMerged` to notice. Marking it done is what
       // puts the row in the state whose trash button is the way out.
       if (shipped) setWorktreeDone(shipped, true)
+      // Ship is the one thing in the app that moves HEAD in a shared checkout,
+      // so the sidebar's reading of it is stale the moment this returns
+      const owner = projects.find((p) => p.id === (shipped?.projectId ?? selectedProjectId))
+      if (owner) loadStaleCheckout(owner)
       const cut = res.branchedFrom ? `, cut from ${res.branchedFrom}` : ''
       const what =
         res.route === 'push'
@@ -2065,7 +2137,24 @@ export function App(): React.JSX.Element {
           : undefined
       )
     },
-    [setWorktreeDone, showToast]
+    [setWorktreeDone, showToast, projects, selectedProjectId, loadStaleCheckout]
+  )
+
+  /**
+   * Put a project's checkout back on its default branch.
+   *
+   * Offered, never assumed: `staleCheckout` refused to report a dirty checkout,
+   * but that was a photograph — several agents write this checkout, so the
+   * click can land after one of them has. A plain `git switch` is the guard;
+   * git's refusal is shown verbatim and nothing escalates to carry work across.
+   */
+  const switchCheckout = useCallback(
+    async (project: Project, to: StaleCheckout) => {
+      const res = await window.api.gitSwitchBranch(project.path, to.target)
+      showToast(res.ok ? `${project.name} is on ${to.target}.` : res.error)
+      loadStaleCheckout(project)
+    },
+    [showToast, loadStaleCheckout]
   )
 
   /** Read the change, then open the review on it. Errors never open a dialog. */
@@ -2623,6 +2712,8 @@ export function App(): React.JSX.Element {
             ? { projectId: activeTab.projectId, taskName: activeWorktree.taskName }
             : null
         }
+        staleCheckouts={staleCheckouts}
+        onSwitchCheckout={(project, to) => void switchCheckout(project, to)}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
         )}
