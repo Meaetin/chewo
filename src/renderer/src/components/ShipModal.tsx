@@ -24,7 +24,6 @@ interface ShipModalProps {
   onShipped: (result: ShipSuccess) => void
   /** Offered only for a worktree — the checkout it would delete */
   onRemoveWorktree?: () => void
-  onMarkDone?: () => void
 }
 
 /** `git status --porcelain` codes, in the words a person would use. */
@@ -67,8 +66,7 @@ export function ShipModal({
   onRefresh,
   onClose,
   onShipped,
-  onRemoveWorktree,
-  onMarkDone
+  onRemoveWorktree
 }: ShipModalProps): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -205,11 +203,6 @@ export function ShipModal({
             </button>
           )}
           <div className="ship-footer-right">
-            {onMarkDone && (
-              <Button intent="secondary" disabled={busy} onClick={onMarkDone}>
-                Mark as done
-              </Button>
-            )}
             <Button disabled={!canShip} onClick={() => void ship()}>
               {busy
                 ? route === 'push'
@@ -314,6 +307,25 @@ export function ShipModal({
             )}
           </section>
 
+          {/* Sits with the route because it is part of the same decision, and
+              stays on screen when the push route makes it moot: dimmed rather
+              than removed, so switching route doesn't reflow the dialog under
+              the pointer. */}
+          {!preview.existingPr && (
+            <section className={`ship-section${route === 'push' ? ' ship-section--off' : ''}`}>
+              <h3 className="ship-section-title">Pull request title</h3>
+              <input
+                type="text"
+                className="ship-input"
+                aria-label="Pull request title"
+                disabled={route === 'push'}
+                title={route === 'push' ? 'The push route opens no pull request' : undefined}
+                value={prTitle}
+                onChange={(e) => setPrTitle(e.currentTarget.value)}
+              />
+            </section>
+          )}
+
           {files.length > 0 && (
             <section className="ship-section">
               <h3 className="ship-section-title">
@@ -365,19 +377,6 @@ export function ShipModal({
                 placeholder="Body (optional)"
                 value={body}
                 onChange={(e) => setBody(e.currentTarget.value)}
-              />
-            </section>
-          )}
-
-          {!preview.existingPr && (
-            <section className="ship-section">
-              <h3 className="ship-section-title">Pull request title</h3>
-              <input
-                type="text"
-                className="ship-input"
-                aria-label="Pull request title"
-                value={prTitle}
-                onChange={(e) => setPrTitle(e.currentTarget.value)}
               />
             </section>
           )}

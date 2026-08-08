@@ -6562,6 +6562,14 @@ body {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+/* A section the chosen route makes moot — the push one opens no PR. Dimmed and
+   inert rather than hidden, so the route buttons don't move under the pointer. */
+.ship-section--off {
+  opacity: 0.45;
+}
+.ship-section--off .ship-input {
+  cursor: not-allowed;
+}
 
 /* The two ways work leaves a checkout. Side by side and equal width because
    they are alternatives, not a primary action with an escape hatch — but only
@@ -6572,13 +6580,12 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-8);
-  margin-bottom: var(--space-10);
 }
 .ship-route-chip {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--space-8) var(--space-10);
+  padding: var(--space-8) var(--space-12);
   border: var(--border-hair);
   border-radius: var(--radius-1);
   background: none;
@@ -6595,6 +6602,7 @@ body {
 .ship-route-chip-title {
   color: var(--text-secondary);
   font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
 }
 .ship-route-chip--on .ship-route-chip-title {
   color: var(--text-primary);
@@ -6602,6 +6610,7 @@ body {
 .ship-route-chip-sub {
   color: var(--text-tertiary);
   font-size: var(--fs-2xs);
+  line-height: var(--lh-2xs);
 }
 
 /* Source and target side by side — the route is one thought, and reading it
@@ -6667,7 +6676,6 @@ body {
 /* Pushing onto the branch every PR lands in — the one combination that gets a
    colour, because it is the only one that skips the review shipping is for */
 .ship-note--warn {
-  margin-bottom: var(--space-10);
   padding: var(--space-6) var(--space-8);
   border-radius: var(--radius-1);
   background: var(--warning-bg);
