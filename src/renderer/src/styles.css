@@ -6634,23 +6634,16 @@ body {
   color: var(--text-tertiary);
   font-size: var(--fs-xs);
 }
-/* Offered, never applied — a branch that exists has a name someone may be
-   depending on, so the suggestion is a click rather than a default. */
-.ship-suggest {
+/* The name is taken from the commit subject rather than offered, so what the
+   label carries is the old name — the rename, stated once, quietly. */
+.ship-field-note {
   min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font-family: var(--font-mono);
+  color: var(--text-faint);
   font-size: var(--fs-2xs);
-  cursor: pointer;
+  line-height: var(--lh-2xs);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.ship-suggest:hover {
-  text-decoration: underline;
 }
 /* The name of a branch that is already pushed — shown, not editable */
 .ship-static {

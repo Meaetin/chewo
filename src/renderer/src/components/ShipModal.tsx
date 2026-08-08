@@ -81,11 +81,15 @@ export function ShipModal({
    * branch where a PR per change is noise, are both real; it is not a default.
    */
   const [route, setRoute] = useState<ShipRoute>('pr')
-  // A branch that exists keeps its name; one about to be cut starts from the
-  // commit subject, which a model already wrote from the diff
-  const [branch, setBranch] = useState(
-    preview.willBranch ? branchNameFromSubject(preview.subject) : preview.branch
-  )
+  /**
+   * `null` means "follow the commit subject". The name a session cut for itself
+   * is a slug of the first sentence typed at it — `agent/fix-the-thing` — which
+   * says less than the subject a model wrote after reading the diff, so the
+   * better name is applied rather than offered. Nothing can be depending on the
+   * old one: `canName` is false the moment the branch is pushed or has a PR.
+   * Typing in the field pins it and the suggestion stops following.
+   */
+  const [branchOverride, setBranchOverride] = useState<string | null>(null)
   const [commits, setCommits] = useState(preview.commits)
 
   /**
@@ -153,11 +157,15 @@ export function ShipModal({
 
   /**
    * Derived from the subject as it stands, not as it was generated — editing
-   * the message and then asking for a name should follow what you wrote. It is
-   * offered rather than applied, because a branch that already exists has a
-   * name someone may be depending on.
+   * the message renames the branch with it, until you type a name of your own.
+   *
+   * A subject that slugs away to nothing leaves the name alone: renaming keeps
+   * the branch it has, and a branch about to be cut falls through empty so main
+   * names it from the commit it is about to make.
    */
   const suggestion = branchNameFromSubject(subject)
+  const branch =
+    branchOverride ?? (canName ? suggestion || (willBranch ? '' : preview.branch) : preview.branch)
 
   const baseOptions: SelectOption<string>[] = preview.bases.map((b) => ({
     value: b,
@@ -261,16 +269,9 @@ export function ShipModal({
             <div className="ship-route-fields">
               <label className="ship-field" hidden={route === 'push'}>
                 <span className="ship-field-label">
-                  {willBranch ? 'New branch' : 'From'}
-                  {canName && suggestion && suggestion !== branch.trim() && (
-                    <button
-                      type="button"
-                      className="ship-suggest"
-                      title={`Name it ${suggestion}, from the commit message`}
-                      onClick={() => setBranch(suggestion)}
-                    >
-                      use {suggestion}
-                    </button>
+                  {willBranch ? 'New branch' : 'Branch'}
+                  {canName && !willBranch && branch.trim() !== preview.branch && (
+                    <span className="ship-field-note">renamed from {preview.branch}</span>
                   )}
                 </span>
                 {canName ? (
@@ -280,7 +281,7 @@ export function ShipModal({
                     aria-label="Branch name"
                     placeholder={willBranch ? 'named from the commit' : preview.branch}
                     value={branch}
-                    onChange={(e) => setBranch(e.currentTarget.value)}
+                    onChange={(e) => setBranchOverride(e.currentTarget.value)}
                   />
                 ) : (
                   <div className="ship-static" title="Already on the remote — rename it there">
