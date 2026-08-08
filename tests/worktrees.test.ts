@@ -193,7 +193,8 @@ describe('listBranches on a clone', () => {
   test('a local branch with a slash is local, not remote', async () => {
     const res = await listBranches(repo)
     if (!res.ok) throw new Error(res.error)
-    expect(res.local.sort()).toEqual(['agent/some-task', 'main'])
+    // `main` is absent by design — see the local-twin test below
+    expect(res.local.sort()).toEqual(['agent/some-task'])
     expect(res.remote).toEqual(['origin/main'])
   })
 
@@ -203,6 +204,56 @@ describe('listBranches on a clone', () => {
     // git renders `refs/remotes/origin/HEAD` as bare `origin`, so it looks like
     // a local branch to anything matching on the short name
     expect([...res.local, ...res.remote]).not.toContain('origin')
+  })
+})
+
+// The picker offers `origin/main` as its default row, so an unmoved local
+// `main` beside it is one start point wearing two names. It is dropped on
+// commit equality only — this fixture mutates, hence its own clone.
+describe('listBranches drops the default base local twin', () => {
+  let origin: string
+  let repo: string
+
+  const git = (dir: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    origin = mkdtempSync(join(homedir(), '.chewo-twin-origin-'))
+    execFileSync('git', ['init', '-b', 'main', origin])
+    writeFileSync(join(origin, 'a.txt'), 'one\n')
+    git(origin, 'add', '-A')
+    git(origin, 'commit', '-m', 'initial')
+
+    repo = mkdtempSync(join(homedir(), '.chewo-twin-clone-'))
+    rmSync(repo, { recursive: true, force: true })
+    execFileSync('git', ['clone', '-q', origin, repo])
+  })
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(origin, { recursive: true, force: true })
+  })
+
+  test('a local main that has not moved is not offered', async () => {
+    const res = await listBranches(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.local).not.toContain('main')
+    expect(res.remote).toContain('origin/main')
+    // Dropping it from the list must not lose what the checkout is standing on
+    expect(res.current).toBe('main')
+  })
+
+  test('a local main holding unpushed commits is a real start point again', async () => {
+    writeFileSync(join(repo, 'b.txt'), 'two\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-m', 'local only')
+    const res = await listBranches(repo)
+    if (!res.ok) throw new Error(res.error)
+    expect(res.local).toContain('main')
   })
 })
 

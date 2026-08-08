@@ -69,6 +69,14 @@ const title = (s: string): string => s[0].toUpperCase() + s.slice(1)
  */
 const HERE = ':current'
 
+/**
+ * The heading over every row but the first. It carries the verb the rows
+ * themselves cannot: `main` in this list does not mean "check out main", it
+ * means "cut this session's scratch branch from main" — which is the one thing
+ * about this control nobody could work out by reading it.
+ */
+const NEW_BRANCH = 'New branch from…'
+
 function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element {
   const {
     source,
@@ -124,16 +132,22 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   const workOptions: SelectOption<string>[] = [
     {
       value: HERE,
+      group: 'In this checkout',
       label: `${projectName ?? 'This checkout'}${currentBranch ? ` · ${currentBranch}` : ''}`,
-      detail: 'this checkout'
+      detail: 'shared — other agents write here too'
     },
-    { value: '', label: base ?? 'the default branch', detail: 'default' },
+    { value: '', group: NEW_BRANCH, label: base ?? 'the default branch', detail: 'default' },
     ...(branches?.local ?? [])
       .filter((b) => b !== base)
-      .map((b) => ({ value: b, label: b, ...(b === branches?.current && { detail: 'checked out' }) })),
+      .map((b) => ({
+        value: b,
+        group: NEW_BRANCH,
+        label: b,
+        ...(b === branches?.current && { detail: 'checked out' })
+      })),
     ...(branches?.remote ?? [])
       .filter((b) => b !== base)
-      .map((b) => ({ value: b, label: b, detail: 'remote' }))
+      .map((b) => ({ value: b, group: NEW_BRANCH, label: b, detail: 'remote' }))
   ]
   // A pick made before the list arrived — or one whose ref has since been
   // deleted — still has to show as itself, and stay reachable in the menu so
@@ -142,6 +156,8 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   if (baseChoice && !workOptions.some((o) => o.value === baseChoice))
     workOptions.splice(2, 0, {
       value: baseChoice,
+      // Same group as its neighbours, or the heading would draw again below it
+      group: NEW_BRANCH,
       label: baseChoice,
       ...(branches && { detail: 'not found' })
     })

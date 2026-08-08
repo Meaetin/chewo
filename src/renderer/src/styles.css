@@ -899,6 +899,21 @@ body {
   color: var(--text-tertiary);
 }
 
+/* Heading over a run of options. Indented to the options' text column so the
+   rows read as belonging to it rather than sitting beside it. */
+.wt-select-group {
+  padding: var(--space-8) var(--space-8) var(--space-4);
+  padding-left: calc(var(--space-8) + 14px + var(--space-8));
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  color: var(--text-faint);
+}
+
+/* …except the first, which would otherwise push the list off its own top edge */
+.wt-select-group:first-child {
+  padding-top: var(--space-4);
+}
+
 .wt-select-option {
   display: flex;
   gap: var(--space-8);
