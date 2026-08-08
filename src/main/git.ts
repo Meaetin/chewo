@@ -147,6 +147,54 @@ export async function defaultRemoteRef(cwd: string): Promise<string | null> {
   return null
 }
 
+/** A checkout parked on work that already landed, and where it should go back to. */
+export interface StaleCheckout {
+  /** The branch the checkout is standing on */
+  branch: string
+  /** The local branch to return to — `main`, not `origin/main` */
+  target: string
+}
+
+/**
+ * Whether a checkout is sitting on a branch whose commits are already in
+ * `origin/<default>`.
+ *
+ * This is the state Ship used to leave the shared checkout in, and it is
+ * invisible from inside: the branch looks like ordinary work, so every session
+ * that opts out of isolation quietly starts on top of merged code. Ship no
+ * longer strands it, but a branch switched by hand — or by an agent in a
+ * terminal — reaches the same place, so the check is on the state rather than
+ * on how it was reached.
+ *
+ * Entirely local: `merge-base --is-ancestor` against the remote-tracking ref
+ * we already have, no network, so it is safe on every project selection.
+ * **Squash and rebase merges are invisible here** for the same reason they are
+ * to `worktreeState` — they rewrite SHAs, so git cannot see the branch as
+ * merged and this reports nothing rather than guessing.
+ */
+export async function staleCheckout(root: string): Promise<StaleCheckout | null> {
+  const cwd = resolveInsideRoots(root)
+  if (!cwd) return null
+
+  const head = await runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (!head.ok) return null
+  const branch = head.stdout.trim()
+  if (!branch || branch === 'HEAD') return null
+
+  const remoteRef = await defaultRemoteRef(cwd)
+  if (!remoteRef) return null
+  const target = remoteRef.slice(remoteRef.indexOf('/') + 1)
+  if (branch === target) return null
+
+  // Uncommitted work is a reason to stay put: switching would carry it onto
+  // the default branch, which is not something to offer in a one-click row
+  const dirty = await runGit(cwd, ['status', '--porcelain', '-uno'])
+  if (!dirty.ok || dirty.stdout.trim()) return null
+
+  const merged = await runGit(cwd, ['merge-base', '--is-ancestor', branch, remoteRef])
+  return merged.ok ? { branch, target } : null
+}
+
 export async function gitStatus(root: string): Promise<RepoStatus> {
   const real = resolveInsideRoots(root)
   if (!real) return { ok: false, error: `not readable: ${basename(root)}` }

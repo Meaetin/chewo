@@ -430,6 +430,18 @@ export interface ShipArgs {
   renameBranch?: string
 }
 
+/**
+ * Shipping from the shared checkout cuts a branch and **leaves HEAD on it**,
+ * which is deliberate: the common next act after a ship is noticing a mistake
+ * and shipping again, and that only adds to the PR just opened while the
+ * checkout is still standing on its branch. Switching back here would make the
+ * retry cut a second branch and open a second PR for one piece of work.
+ *
+ * The cost is that the checkout stays on that branch after the PR merges, and
+ * every later session that opts out of isolation starts on it. That is cleaned
+ * up at the *next* "New session" instead — the moment the old work is provably
+ * finished — by `staleCheckout` in `git.ts` and the sidebar row it feeds.
+ */
 export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
   const cwd = resolveInsideRoots(args.root)
   if (!cwd) return { ok: false, error: `not readable: ${basename(args.root)}` }

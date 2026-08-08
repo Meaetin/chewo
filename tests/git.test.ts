@@ -9,7 +9,8 @@ import {
   gitLog,
   gitStatus,
   gitUntrackedFiles,
-  gitWatchIgnored
+  gitWatchIgnored,
+  staleCheckout
 } from '../src/main/git'
 import { parseDiff } from '../src/renderer/src/components/DiffBody'
 import { unwrapCommitBody } from '../src/renderer/src/components/GitDiffView'
@@ -399,5 +400,72 @@ describe('gitStatus behind-the-base', () => {
     expect(s.upstream).toBe('origin/main')
     expect(s.behind).toBe(2)
     expect(s.baseRef).toBeNull()
+  })
+})
+
+/**
+ * The state Ship used to leave a shared checkout in: standing on a branch
+ * whose commits are already on the remote's default. Needs a real clone —
+ * `origin/main` has to exist for `merge-base --is-ancestor` to be asked at all.
+ */
+describe('staleCheckout', () => {
+  let origin: string
+  let clone: string
+
+  const at = (dir: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      ['-C', dir, '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=t@t', ...args],
+      { encoding: 'utf8' }
+    )
+
+  beforeAll(() => {
+    origin = mkdtempSync(join(homedir(), '.chewo-stale-origin-'))
+    execFileSync('git', ['init', '-b', 'main', origin])
+    writeFileSync(join(origin, 'a.txt'), 'one\n')
+    at(origin, 'add', '-A')
+    at(origin, 'commit', '-m', 'initial')
+
+    clone = mkdtempSync(join(homedir(), '.chewo-stale-clone-'))
+    rmSync(clone, { recursive: true, force: true })
+    execFileSync('git', ['clone', '-q', origin, clone])
+  })
+
+  afterAll(() => {
+    rmSync(clone, { recursive: true, force: true })
+    rmSync(origin, { recursive: true, force: true })
+  })
+
+  test('on the default branch there is nothing to report', async () => {
+    expect(await staleCheckout(clone)).toBeNull()
+  })
+
+  test('a branch whose commits are all on origin/main is reported with a way back', async () => {
+    // What Ship's `switch -c` leaves behind once the PR merges: the branch
+    // still exists locally, and origin/main already contains it
+    at(clone, 'switch', '-q', '-c', 'shipped')
+    expect(await staleCheckout(clone)).toEqual({ branch: 'shipped', target: 'main' })
+  })
+
+  test('unmerged work on the branch is not stale', async () => {
+    at(clone, 'switch', '-q', '-c', 'live')
+    writeFileSync(join(clone, 'b.txt'), 'two\n')
+    at(clone, 'add', '-A')
+    at(clone, 'commit', '-m', 'work')
+    expect(await staleCheckout(clone)).toBeNull()
+  })
+
+  test('uncommitted work keeps the checkout where it is', async () => {
+    at(clone, 'switch', '-q', 'shipped')
+    writeFileSync(join(clone, 'a.txt'), 'edited\n')
+    expect(await staleCheckout(clone)).toBeNull()
+    at(clone, 'checkout', '--', 'a.txt')
+    expect(await staleCheckout(clone)).not.toBeNull()
+  })
+
+  test('detached HEAD is not a branch to move off', async () => {
+    at(clone, 'checkout', '-q', '--detach')
+    expect(await staleCheckout(clone)).toBeNull()
+    at(clone, 'switch', '-q', 'main')
   })
 })

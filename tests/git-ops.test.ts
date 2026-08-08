@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { defaultRemoteRef, gitUpdateFromBase } from '../src/main/git-ops'
+import { defaultRemoteRef, gitSwitchBranch, gitUpdateFromBase } from '../src/main/git-ops'
 import { createWorktree, removeWorktree } from '../src/main/worktrees'
 
 /**
@@ -165,5 +165,53 @@ describe('worktree base selection', () => {
     expect(res.baseBranch).toBe('main')
     expect(run(res.path, 'log', '--oneline')).toContain('landed without pushing')
     await removeWorktree(repo, res.path, res.branch)
+  })
+})
+
+/**
+ * The narrow branch switch that puts a checkout stranded on merged work back
+ * on its default branch. Everything about it is what it *cannot* do.
+ */
+describe('gitSwitchBranch', () => {
+  let repo: string
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(homedir(), '.chewo-switch-test-'))
+    execFileSync('git', ['init', '-b', 'main', repo])
+    commit(repo, 'a.txt', 'one\n', 'initial')
+    run(repo, 'branch', 'other')
+  })
+
+  afterAll(() => {
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('moves HEAD onto an existing branch', async () => {
+    run(repo, 'switch', '-q', 'other')
+    const res = await gitSwitchBranch(repo, 'main')
+    expect(res.ok).toBe(true)
+    expect(run(repo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main')
+  })
+
+  test('never creates a branch — an unknown name is a refusal, not a new ref', async () => {
+    const res = await gitSwitchBranch(repo, 'no-such-branch')
+    expect(res.ok).toBe(false)
+    expect(run(repo, 'branch', '--format=%(refname:short)')).not.toContain('no-such-branch')
+  })
+
+  test('flag-shaped names never reach git argv', async () => {
+    expect(await gitSwitchBranch(repo, '--detach')).toEqual({
+      ok: false,
+      error: 'Not a valid branch name'
+    })
+    expect(await gitSwitchBranch(repo, '  ')).toEqual({
+      ok: false,
+      error: 'Not a valid branch name'
+    })
+    // -c would have made a branch rather than moved to one
+    expect(await gitSwitchBranch(repo, '-c')).toEqual({
+      ok: false,
+      error: 'Not a valid branch name'
+    })
   })
 })

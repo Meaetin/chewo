@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { SessionMeta, Source } from '../../../shared/adapter/types'
 import type { VersionStatus } from '../../../main/app-version'
+import type { StaleCheckout } from '../../../main/git'
 import type { WorktreeState } from '../../../main/worktrees'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
 import { useWorktreeState } from '../useGitStatus'
@@ -58,6 +59,10 @@ interface SidebarProps {
   onRunStart: (projectId: string) => void
   /** The isolated checkout ▷ would use, so the button can say where it runs */
   runTarget: { projectId: string | null; taskName: string } | null
+  /** Projects whose main checkout is parked on an already-merged branch */
+  staleCheckouts: Map<string, StaleCheckout>
+  /** Put a stale checkout back on its default branch */
+  onSwitchCheckout: (project: Project, to: StaleCheckout) => void
   onOpenCapabilities: () => void
 }
 
@@ -359,6 +364,47 @@ function WorktreeRow({
   )
 }
 
+/**
+ * The project's own checkout is parked on a branch that already merged.
+ *
+ * Worth a row of its own because the state is otherwise invisible and it
+ * silently changes where work starts: every session that opts out of isolation
+ * opens in this checkout, so it inherits the stale branch, and the composer's
+ * first row names it in a way that reads like a deliberate choice. Ship no
+ * longer strands it, but a hand switch or an agent working in a terminal
+ * reaches the same place — so this reports the state, not the cause.
+ *
+ * Offered, never applied: `staleCheckout` already refused to report a dirty
+ * checkout, but nothing here assumes that is still true a click later — the
+ * switch is a plain `git switch` and git's refusal is the guard.
+ */
+function StaleCheckoutRow({
+  project,
+  stale,
+  onSwitch
+}: {
+  project: Project
+  stale: StaleCheckout
+  onSwitch: (project: Project, to: StaleCheckout) => void
+}): React.JSX.Element {
+  return (
+    <div className="stale-checkout">
+      <span className="stale-checkout__text">
+        This checkout is on <strong>{stale.branch}</strong>, which is already merged. New sessions
+        that stay here start on it.
+      </span>
+      <Button
+        intent="ghost"
+        size="compact"
+        className="stale-checkout__action"
+        onClick={() => onSwitch(project, stale)}
+      >
+        Switch to {stale.target}
+      </Button>
+    </div>
+  )
+}
+
 /** Section header row (Home / a project) — chevron + name + live/count + run/settings. */
 function SectionRow({
   name,
@@ -513,6 +559,8 @@ export function Sidebar({
   onOpenSettings,
   onRunStart,
   runTarget,
+  staleCheckouts,
+  onSwitchCheckout,
   onOpenCapabilities
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -672,6 +720,13 @@ export function Sidebar({
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
                 />
+                {expanded && staleCheckouts.get(p.id) ? (
+                  <StaleCheckoutRow
+                    project={p}
+                    stale={staleCheckouts.get(p.id) as StaleCheckout}
+                    onSwitch={onSwitchCheckout}
+                  />
+                ) : null}
                 {expanded && projectWorktrees.get(p.id)?.length ? (
                   <div className="worktree-group">
                     <div className="worktree-group-header">Isolated branches</div>

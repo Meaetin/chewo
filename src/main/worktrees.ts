@@ -54,9 +54,15 @@ export async function listBranches(projectPath: string): Promise<ListBranchesRes
   if (!inside.ok) return { ok: false, error: `${basename(projectPath)} is not a git repository` }
 
   const head = await git(projectPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  // Full refname alongside the short one: a branch name may contain a slash
+  // (`agent/foo` is local), so only the namespace says which list a ref belongs
+  // in. `%(symref)` is non-empty exactly for `refs/remotes/<remote>/HEAD`, which
+  // is an alias for the remote's default branch rather than a base of its own —
+  // and it cannot be recognised by its short name, which git renders as bare
+  // `origin`, indistinguishable from a local branch called `origin`.
   const refs = await git(projectPath, [
     'for-each-ref',
-    '--format=%(refname:short)',
+    '--format=%(refname)%00%(refname:short)%00%(symref)',
     '--sort=-committerdate',
     'refs/heads',
     'refs/remotes'
@@ -65,11 +71,11 @@ export async function listBranches(projectPath: string): Promise<ListBranchesRes
 
   const local: string[] = []
   const remote: string[] = []
-  for (const name of refs.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
-    // `origin/HEAD` is a symref alias for the remote's default branch, not a base
-    if (name.endsWith('/HEAD')) continue
-    if (name.includes('/')) remote.push(name)
-    else local.push(name)
+  for (const line of refs.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+    const [refname, short, symref] = line.split('\0')
+    if (!short || symref) continue
+    if (refname.startsWith('refs/heads/')) local.push(short)
+    else remote.push(short)
   }
   // A remote-only ref can share a local branch's name once fetched; both are
   // still distinct start points, so neither list is filtered against the other.
