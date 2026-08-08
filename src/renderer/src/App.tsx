@@ -1667,9 +1667,10 @@ export function App(): React.JSX.Element {
    *
    * Two conditions make it safe to do without asking, both re-read here rather
    * than taken from the sidebar's cached reading (a photograph of whenever the
-   * project was last selected): the branch must be **merged** into
-   * `origin/<default>`, and the tree must be **clean**. If either fails it
-   * declines and the sidebar row offers the switch by hand instead.
+   * project was last selected): every commit on the branch must already be on a
+   * remote, and the tree must be **clean**. Between them nothing can be lost —
+   * the branch stays exactly where it is. If either fails it declines and the
+   * sidebar row offers the switch by hand instead.
    *
    * Deliberately **not** guarded on live panes, unlike `reapMerged`. That rule
    * exists because removing a worktree deletes files under a running agent —
@@ -1689,7 +1690,7 @@ export function App(): React.JSX.Element {
       // discover later, and a refusal is why the session did not start on main
       showToast(
         res.ok
-          ? `${project.name} was on ${stale.branch} (already merged) — now on ${stale.target}.`
+          ? `${project.name} was on ${stale.branch} (${stale.reason === 'merged' ? 'already merged' : 'already pushed'}) — now on ${stale.target}.`
           : `Kept ${project.name} on ${stale.branch}: ${res.error}`
       )
       loadStaleCheckout(project)

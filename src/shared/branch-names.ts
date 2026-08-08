@@ -23,23 +23,40 @@ const STOP_WORDS = new Set([
   'that', 'my', 'our', 'lets', 'let', "let's"
 ])
 
+const MAX_CHARS = 48
+
 /**
  * Non-ASCII is dropped rather than transliterated: the result is both an argv
  * element and a directory name, and half-transliterated unicode is worse than
  * a shorter English slug. Anything path-like collapses to its words, so an
  * agent-authored or pasted `../../etc/passwd` can only ever become
  * `etc-passwd`.
+ *
+ * An apostrophe is an elision, not a word boundary — dropping it rather than
+ * turning it into a space is what keeps `picker's` from becoming `picker-s`,
+ * where the orphaned `s` reads as noise *and* spends one of the word slots.
+ * The character cap packs whole words, because slicing the joined string cuts
+ * mid-word and leaves a slug that looks like a typo.
  */
 export function slugifyBranch(text: string, maxWords = 5): string {
   const words = text
     .toLowerCase()
+    .replace(/['’`]/g, '')
     .replace(/[^a-z0-9\s-]/g, ' ')
     .split(/[\s-]+/)
     .filter(Boolean)
   const meaningful = words.filter((w) => !STOP_WORDS.has(w))
   // If stripping stop words emptied it ("can you please"), keep the raw words
   const picked = (meaningful.length ? meaningful : words).slice(0, maxWords)
-  return picked.join('-').slice(0, 48).replace(/-+$/, '')
+  const kept: string[] = []
+  let len = 0
+  for (const word of picked) {
+    const next = kept.length ? len + 1 + word.length : word.length
+    if (kept.length && next > MAX_CHARS) break
+    kept.push(word)
+    len = next
+  }
+  return kept.join('-').slice(0, MAX_CHARS)
 }
 
 /**
@@ -83,10 +100,25 @@ const CONVENTIONAL = /^(feat|fix|refactor|chore|docs|test|perf|build|ci|style|re
  * `feat/add-oauth`), which is the convention the subject is already written in
  * — anything else is slugged flat. The scope is dropped: `feat(api)` would
  * give `feat/api/…`, and a three-level branch name reads as a directory.
+ *
+ * The word budget is wider than a task slug's because a subject is already a
+ * summary rather than a sentence someone typed at an agent, and the character
+ * cap is the real limit. `describeChange` handles the other half: a subject
+ * describing two changes ("…two modes, drop the local twin") is cut at the
+ * first clause, since five words spent on half a sentence names nothing.
  */
+const SUBJECT_WORDS = 8
+
+/** The first clause, when it still says something on its own. */
+function describeChange(text: string): string {
+  const clause = text.split(/\s*[,;—]\s*/)[0]
+  const slug = slugifyBranch(clause, SUBJECT_WORDS)
+  return slug.includes('-') ? slug : slugifyBranch(text, SUBJECT_WORDS)
+}
+
 export function branchNameFromSubject(subject: string): string {
   const match = CONVENTIONAL.exec(subject.trim())
-  if (!match) return slugifyBranch(subject)
-  const slug = slugifyBranch(match[3])
-  return slug ? `${match[1].toLowerCase()}/${slug}` : slugifyBranch(subject)
+  if (!match) return describeChange(subject)
+  const slug = describeChange(match[3])
+  return slug ? `${match[1].toLowerCase()}/${slug}` : describeChange(subject)
 }

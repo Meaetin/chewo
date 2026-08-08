@@ -147,30 +147,44 @@ export async function defaultRemoteRef(cwd: string): Promise<string | null> {
   return null
 }
 
-/** A checkout parked on work that already landed, and where it should go back to. */
+/** A checkout parked on work that has already been sent out, and where it should go back to. */
 export interface StaleCheckout {
   /** The branch the checkout is standing on */
   branch: string
   /** The local branch to return to — `main`, not `origin/main` */
   target: string
+  /** Whether the branch has landed on the default, or is only pushed and awaiting review */
+  reason: 'merged' | 'pushed'
 }
 
 /**
- * Whether a checkout is sitting on a branch whose commits are already in
- * `origin/<default>`.
+ * Whether a checkout is sitting on a branch whose work has all left the
+ * building — every commit on it is reachable from some remote-tracking ref.
  *
- * This is the state Ship used to leave the shared checkout in, and it is
- * invisible from inside: the branch looks like ordinary work, so every session
- * that opts out of isolation quietly starts on top of merged code. Ship no
- * longer strands it, but a branch switched by hand — or by an agent in a
- * terminal — reaches the same place, so the check is on the state rather than
- * on how it was reached.
+ * This is the state Ship leaves the shared checkout in, and it is invisible
+ * from inside: the branch looks like ordinary work, so every session that opts
+ * out of isolation quietly starts on top of it. A branch switched by hand — or
+ * by an agent in a terminal — reaches the same place, so the check is on the
+ * state rather than on how it was reached.
  *
- * Entirely local: `merge-base --is-ancestor` against the remote-tracking ref
- * we already have, no network, so it is safe on every project selection.
- * **Squash and rebase merges are invisible here** for the same reason they are
- * to `worktreeState` — they rewrite SHAs, so git cannot see the branch as
- * merged and this reports nothing rather than guessing.
+ * **The test is "all pushed", not "merged", and that distinction is the whole
+ * point.** Ship pushes and opens a PR, and a PR is unmerged for as long as
+ * review takes, so gating on `merge-base --is-ancestor` meant the checkout Ship
+ * parked on a branch stayed parked on it until somebody hit Merge and a fetch
+ * caught up — which is days after the moment a person actually wants their
+ * checkout back. `rev-list HEAD --not --remotes` covers all three ways work
+ * leaves in one reading: the PR route (the commits are on `origin/<branch>`),
+ * the direct push route (they are on `origin/<base>`), and a branch whose PR
+ * has since landed. Zero unsent commits plus a clean tree means switching away
+ * cannot cost anything — the branch itself stays right where it is.
+ *
+ * Entirely local — the remote-tracking refs are the ones we already have, so no
+ * network, which is what makes it safe on every project selection. It is also
+ * why this no longer depends on `origin/<default>` being fresh: a just-pushed
+ * branch is recognised from its own remote-tracking ref. **Squash and rebase
+ * merges are still invisible**, for the same reason they are to `worktreeState`
+ * — they rewrite SHAs, so the local commits are on no remote ref and this
+ * reports nothing rather than guessing.
  */
 export async function staleCheckout(root: string): Promise<StaleCheckout | null> {
   const cwd = resolveInsideRoots(root)
@@ -191,8 +205,14 @@ export async function staleCheckout(root: string): Promise<StaleCheckout | null>
   const dirty = await runGit(cwd, ['status', '--porcelain', '-uno'])
   if (!dirty.ok || dirty.stdout.trim()) return null
 
+  // Anything here that no remote has seen is unsent work, and unsent work is a
+  // reason to stay: the branch is still the only copy of it
+  const unsent = await runGit(cwd, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])
+  if (!unsent.ok || unsent.stdout.trim() !== '0') return null
+
+  // Only the wording depends on this, so a failure reads as the weaker claim
   const merged = await runGit(cwd, ['merge-base', '--is-ancestor', branch, remoteRef])
-  return merged.ok ? { branch, target } : null
+  return { branch, target, reason: merged.ok ? 'merged' : 'pushed' }
 }
 
 export async function gitStatus(root: string): Promise<RepoStatus> {

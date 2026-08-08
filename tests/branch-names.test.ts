@@ -29,6 +29,20 @@ describe('slugifyBranch', () => {
     expect(slugifyBranch('   !!!   ')).toBe('')
   })
 
+  // An apostrophe used to become a space, so "picker's" split into two words
+  // and the orphaned "s" both read as noise and spent a word slot
+  test('swallows an apostrophe instead of breaking the word', () => {
+    expect(slugifyBranch("label base picker's two modes")).toBe('label-base-pickers-two-modes')
+    expect(slugifyBranch("don't drop the caret")).toBe('dont-drop-caret')
+  })
+
+  // Slicing the joined string cut mid-word; the cap packs whole words now
+  test('never cuts a word in half at the character cap', () => {
+    const out = slugifyBranch('reconciliation subscription notification authorization deduplication', 5)
+    expect(out).toBe('reconciliation-subscription-notification')
+    expect(out.length).toBeLessThanOrEqual(48)
+  })
+
   // The result is both an argv element and a directory name under
   // ~/.chewo/worktrees, so traversal must not survive the slug
   test('collapses a path to its words', () => {
@@ -79,6 +93,21 @@ describe('branchNameFromSubject', () => {
   test('anything else slugs flat', () => {
     expect(branchNameFromSubject('Add the oauth callback')).toBe('add-oauth-callback')
     expect(branchNameFromSubject('wip')).toBe('wip')
+  })
+
+  // A subject describing two changes named neither: five words landed
+  // mid-clause on "…picker's two" and stopped
+  test('names the first change rather than half of both', () => {
+    expect(branchNameFromSubject("feat: label base picker's two modes, drop default's local twin"))
+      .toBe('feat/label-base-pickers-two-modes')
+    expect(branchNameFromSubject('fix: settle running chips on interrupt; stop the clock'))
+      .toBe('fix/settle-running-chips-interrupt')
+  })
+
+  // A clause that says nothing alone is worse than the whole subject
+  test('keeps the whole subject when the first clause is one word', () => {
+    expect(branchNameFromSubject('feat: nulls, empty strings and undefined'))
+      .toBe('feat/nulls-empty-strings-undefined')
   })
 
   // `feat/` is not a branch name — a type with nothing sluggable after it

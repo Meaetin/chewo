@@ -365,14 +365,17 @@ function WorktreeRow({
 }
 
 /**
- * The project's own checkout is parked on a branch that already merged.
+ * The project's own checkout is parked on a branch whose work has all been sent.
  *
  * Worth a row of its own because the state is otherwise invisible and it
  * silently changes where work starts: every session that opts out of isolation
  * opens in this checkout, so it inherits the stale branch, and the composer's
- * first row names it in a way that reads like a deliberate choice. Ship no
- * longer strands it, but a hand switch or an agent working in a terminal
- * reaches the same place — so this reports the state, not the cause.
+ * first row names it in a way that reads like a deliberate choice. Ship parks
+ * it there on purpose (so a follow-up ship adds to the same PR), and a hand
+ * switch or an agent working in a terminal reaches the same place — so this
+ * reports the state, not the cause. `newAgent` tidies it automatically; this
+ * row is for whenever that declines, and for the checkout you are looking at
+ * rather than the one you are starting a session in.
  *
  * Offered, never applied: `staleCheckout` already refused to report a dirty
  * checkout, but nothing here assumes that is still true a click later — the
@@ -390,8 +393,8 @@ function StaleCheckoutRow({
   return (
     <div className="stale-checkout">
       <span className="stale-checkout__text">
-        This checkout is on <strong>{stale.branch}</strong>, which is already merged. New sessions
-        that stay here start on it.
+        This checkout is on <strong>{stale.branch}</strong>, which is already{' '}
+        {stale.reason === 'merged' ? 'merged' : 'pushed'}. New sessions that stay here start on it.
       </span>
       <Button
         intent="ghost"

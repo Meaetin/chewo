@@ -444,7 +444,7 @@ describe('staleCheckout', () => {
     // What Ship's `switch -c` leaves behind once the PR merges: the branch
     // still exists locally, and origin/main already contains it
     at(clone, 'switch', '-q', '-c', 'shipped')
-    expect(await staleCheckout(clone)).toEqual({ branch: 'shipped', target: 'main' })
+    expect(await staleCheckout(clone)).toEqual({ branch: 'shipped', target: 'main', reason: 'merged' })
   })
 
   test('unmerged work on the branch is not stale', async () => {
@@ -453,6 +453,26 @@ describe('staleCheckout', () => {
     at(clone, 'add', '-A')
     at(clone, 'commit', '-m', 'work')
     expect(await staleCheckout(clone)).toBeNull()
+  })
+
+  /**
+   * The case the whole thing exists for, and the one a merged-only gate missed:
+   * Ship pushed the branch and opened a PR that nobody has merged yet. The
+   * commits are on `origin/live`, so nothing is lost by leaving — but they are
+   * not on `origin/main`, so `merge-base --is-ancestor` says no.
+   */
+  test('a pushed branch is stale before its PR merges', async () => {
+    at(clone, 'switch', '-q', 'live')
+    at(clone, 'push', '-q', 'origin', 'live')
+    expect(await staleCheckout(clone)).toEqual({ branch: 'live', target: 'main', reason: 'pushed' })
+  })
+
+  test('a commit made after the push holds the checkout again', async () => {
+    writeFileSync(join(clone, 'c.txt'), 'three\n')
+    at(clone, 'add', '-A')
+    at(clone, 'commit', '-m', 'more work')
+    expect(await staleCheckout(clone)).toBeNull()
+    at(clone, 'switch', '-q', 'main')
   })
 
   test('uncommitted work keeps the checkout where it is', async () => {
