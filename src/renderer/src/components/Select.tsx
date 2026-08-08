@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { filterOptions } from '../selectFilter'
@@ -8,6 +8,14 @@ export interface SelectOption<T extends string> {
   value: T
   label: string
   detail?: string
+  /**
+   * Heading this option sits under. A header is drawn whenever the group
+   * changes between two consecutive *shown* rows, so filtering never strands a
+   * heading over an empty section and never repeats one. Options are rendered
+   * in the order given — grouping is a label, not a sort, so a caller that
+   * interleaves groups gets exactly what it asked for.
+   */
+  group?: string
 }
 
 interface SelectProps<T extends string> {
@@ -209,22 +217,30 @@ export function Select<T extends string>({
 
             <div className="wt-select-options">
               {shown.map((o, i) => (
-                <div
-                  key={o.value}
-                  role="option"
-                  aria-selected={o.value === value}
-                  className={`wt-select-option ${i === activeIndex ? 'wt-select-option-active' : ''}`}
-                  onMouseEnter={() => setActiveIndex(i)}
-                  onClick={() => commit(o.value)}
-                >
-                  <span className="wt-select-check">
-                    {o.value === value && <Check size={14} strokeWidth={2} aria-hidden="true" />}
-                  </span>
-                  <span className="wt-select-option-text">
-                    <span className="wt-select-option-label">{o.label}</span>
-                    {o.detail && <span className="wt-select-option-detail">{o.detail}</span>}
-                  </span>
-                </div>
+                <Fragment key={o.value}>
+                  {o.group && o.group !== shown[i - 1]?.group && (
+                    // Presentational: keeping the rows a flat list of options is
+                    // what lets arrow-key navigation stay indexed on `shown`.
+                    <div className="wt-select-group" role="presentation">
+                      {o.group}
+                    </div>
+                  )}
+                  <div
+                    role="option"
+                    aria-selected={o.value === value}
+                    className={`wt-select-option ${i === activeIndex ? 'wt-select-option-active' : ''}`}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onClick={() => commit(o.value)}
+                  >
+                    <span className="wt-select-check">
+                      {o.value === value && <Check size={14} strokeWidth={2} aria-hidden="true" />}
+                    </span>
+                    <span className="wt-select-option-text">
+                      <span className="wt-select-option-label">{o.label}</span>
+                      {o.detail && <span className="wt-select-option-detail">{o.detail}</span>}
+                    </span>
+                  </div>
+                </Fragment>
               ))}
               {shown.length === 0 && <div className="wt-select-empty">No matches</div>}
             </div>

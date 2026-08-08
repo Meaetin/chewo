@@ -62,7 +62,7 @@ export async function listBranches(projectPath: string): Promise<ListBranchesRes
   // `origin`, indistinguishable from a local branch called `origin`.
   const refs = await git(projectPath, [
     'for-each-ref',
-    '--format=%(refname)%00%(refname:short)%00%(symref)',
+    '--format=%(refname)%00%(refname:short)%00%(symref)%00%(objectname)',
     '--sort=-committerdate',
     'refs/heads',
     'refs/remotes'
@@ -71,15 +71,52 @@ export async function listBranches(projectPath: string): Promise<ListBranchesRes
 
   const local: string[] = []
   const remote: string[] = []
+  const commits = new Map<string, string>()
   for (const line of refs.stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
-    const [refname, short, symref] = line.split('\0')
+    const [refname, short, symref, objectname] = line.split('\0')
     if (!short || symref) continue
+    commits.set(refname, objectname)
     if (refname.startsWith('refs/heads/')) local.push(short)
     else remote.push(short)
   }
+
   // A remote-only ref can share a local branch's name once fetched; both are
-  // still distinct start points, so neither list is filtered against the other.
-  return { ok: true, current: head.ok ? head.stdout.trim() : 'HEAD', local, remote }
+  // still distinct start points, so neither list is filtered against the other
+  // in general — cutting from `origin/feature` and from local `feature` gives
+  // the new branch a different PR base even when the two sit on one commit.
+  //
+  // The default base is the exception, and it is the common case: `origin/main`
+  // is offered as its own row, `resolveBase` strips the remote prefix so both
+  // target the same PR base, and when local `main` has not moved the two rows
+  // are the same act under two names. Dropped only on commit equality — a local
+  // `main` holding unpushed commits is a real, different start point.
+  const twin = await localTwinOfDefault(projectPath, commits)
+  const shown = twin ? local.filter((b) => b !== twin) : local
+
+  return { ok: true, current: head.ok ? head.stdout.trim() : 'HEAD', local: shown, remote }
+}
+
+/**
+ * The local branch that is indistinguishable from `origin/<default>` — its
+ * short name, or null when it has moved, doesn't exist, or there is no remote.
+ *
+ * The remote's name is read off the *refname* rather than assumed to be
+ * `origin`: a remote can be called anything, and matching on an `origin/`
+ * prefix would also claim a local branch genuinely named `origin/main`.
+ */
+async function localTwinOfDefault(
+  projectPath: string,
+  commits: Map<string, string>
+): Promise<string | null> {
+  const base = await defaultRemoteRef(projectPath)
+  if (!base) return null
+  // `refs/remotes/<remote>/<branch>`, where `<branch>` may itself hold slashes
+  const sha = commits.get(`refs/remotes/${base}`)
+  if (!sha) return null
+  const slash = base.indexOf('/')
+  if (slash < 0) return null
+  const name = base.slice(slash + 1)
+  return commits.get(`refs/heads/${name}`) === sha ? name : null
 }
 
 export interface DiscoveredWorktree {
