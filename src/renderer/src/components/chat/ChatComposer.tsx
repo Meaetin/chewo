@@ -61,6 +61,14 @@ const AGENTS = [
 
 const title = (s: string): string => s[0].toUpperCase() + s.slice(1)
 
+/**
+ * "Stay in the project's checkout" as a picker value. `:` is one of the
+ * characters git forbids in a ref name, so this can never collide with a
+ * branch — which the empty string, already meaning "the default start point",
+ * could not have been asked to do twice.
+ */
+const HERE = ':current'
+
 function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element {
   const {
     source,
@@ -95,15 +103,30 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   }))
 
   /**
-   * Where the new branch starts. The first row is the default and carries no
-   * ref of its own: picking `origin/main` by name and leaving the default
-   * alone are still different acts, since only the latter falls back to local
-   * `main` when it holds commits the remote has not seen. (Both fetch — a
-   * chosen remote base is refreshed at cut time too.) So the ref the default
-   * resolves to is filtered out of the lists below rather than offered twice
+   * Which branch this work is for — one question, where there used to be a
+   * toggle and a picker asking two halves of it.
+   *
+   * Every row but the first cuts a scratch branch from what you picked. That
+   * is not an implementation detail that could be traded for checking the
+   * branch out directly: `git worktree add` refuses a branch that is already
+   * checked out somewhere, so sessions would collide the moment two agents
+   * were pointed at the same branch — the normal case here. Whether the work
+   * comes back as a PR into that branch or goes straight onto it is Ship's
+   * question, asked when the diff is visible.
+   *
+   * The default row carries no ref of its own: picking `origin/main` by name
+   * and leaving the default alone are still different acts, since only the
+   * latter falls back to local `main` when it holds commits the remote has not
+   * seen. (Both fetch — a chosen base is refreshed at cut time too.) So the ref
+   * it resolves to is filtered out of the lists below rather than offered twice
    * under one name.
    */
-  const baseOptions: SelectOption<string>[] = [
+  const workOptions: SelectOption<string>[] = [
+    {
+      value: HERE,
+      label: `${projectName ?? 'This checkout'}${currentBranch ? ` · ${currentBranch}` : ''}`,
+      detail: 'this checkout'
+    },
     { value: '', label: base ?? 'the default branch', detail: 'default' },
     ...(branches?.local ?? [])
       .filter((b) => b !== base)
@@ -116,8 +139,8 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   // deleted — still has to show as itself, and stay reachable in the menu so
   // there is a way back to the default. It is only called out as missing once
   // a list has actually been read.
-  if (baseChoice && !baseOptions.some((o) => o.value === baseChoice))
-    baseOptions.splice(1, 0, {
+  if (baseChoice && !workOptions.some((o) => o.value === baseChoice))
+    workOptions.splice(2, 0, {
       value: baseChoice,
       label: baseChoice,
       ...(branches && { detail: 'not found' })
@@ -157,53 +180,30 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
       />
 
       {projectName && (
-        <div className="chat-setup-branch">
-          {/* The label toggles as well as the switch does — the chip was a
-              single button until the start point became a choice, and a
-              <button> cannot hold the picker that answers it. */}
-          <button
-            type="button"
-            className="chat-setup-branch-label"
-            title={
-              isolate
-                ? `Cut from ${baseChoice || base || 'the default branch'}, so this session starts where you want it — and Ship only ever sees its own work.`
-                : 'Sees your uncommitted changes, but Ship here stages every agent\u2019s work at once.'
+        <div
+          className="chat-setup-branch"
+          title={
+            isolate
+              ? `Work for ${baseChoice || base || 'the default branch'} — this session gets a scratch branch cut from it, and Ship decides whether that comes back as a pull request or goes straight on.`
+              : 'Runs in the project checkout. Sees your uncommitted changes, but Ship here stages every agent’s work at once.'
+          }
+        >
+          <GitBranch size={13} strokeWidth={1.75} aria-hidden="true" />
+          {/* One control, because it is one question. The switch and the base
+              picker that used to sit here asked "isolate?" and "from where?",
+              which are two halves of the same thing — the first row is the off
+              state, and picking any branch is what turns isolation on. */}
+          <Select
+            className="chat-setup-select chat-setup-base"
+            menuMinWidth={300}
+            searchable
+            searchPlaceholder="Filter branches…"
+            value={isolate ? (baseChoice ?? '') : HERE}
+            options={workOptions}
+            onChange={(next) =>
+              next === HERE ? onChange({ isolate: false }) : onChange({ isolate: true, base: next })
             }
-            onClick={() => onChange({ isolate: !isolate })}
-          >
-            <GitBranch size={13} strokeWidth={1.75} aria-hidden="true" />
-            <span className="chat-setup-branch-text">
-              {isolate
-                ? 'Its own branch, from'
-                : `${projectName}${currentBranch ? ` \u00b7 ${currentBranch}` : ''}`}
-            </span>
-          </button>
-
-          {/* The start point. A picker rather than the fixed `origin/main` the
-              label used to name: a session is often follow-on work, which has
-              to stand on a branch that has not landed yet. */}
-          {isolate && (
-            <Select
-              className="chat-setup-select chat-setup-base"
-              menuMinWidth={280}
-              searchable
-              searchPlaceholder="Filter branches…"
-              value={baseChoice ?? ''}
-              options={baseOptions}
-              onChange={(next) => onChange({ base: next })}
-            />
-          )}
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isolate}
-            aria-label="Give this session its own branch"
-            className="chat-setup-branch-switch"
-            onClick={() => onChange({ isolate: !isolate })}
-          >
-            <span className="chat-setup-switch" data-on={isolate} />
-          </button>
+          />
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, GitBranch, X } from 'lucide-react'
+import { ChevronRight, GitBranch, Trash2, Undo2, X } from 'lucide-react'
 import type {
   ChangedFile,
   CommitMeta,
@@ -72,12 +72,50 @@ const untrackedChild = (path: string): ChangedFile => ({
   deletions: null
 })
 
+/**
+ * Throw this row's change away.
+ *
+ * Two icons, because the two operations are genuinely different and a single
+ * one would misdescribe half of them: a tracked file is *reverted* to what
+ * HEAD says, an untracked file has no earlier version to go back to and is
+ * *deleted*. Revealed on hover like the sidebar's own trailing controls — an
+ * always-visible delete on every row is an invitation to a misclick.
+ */
+function DiscardButton({
+  file,
+  onDiscard
+}: {
+  file: ChangedFile
+  onDiscard: (file: ChangedFile) => void
+}): React.JSX.Element {
+  const gone = file.status === '?'
+  return (
+    <span className="git-file-discard">
+      <IconButton
+        label={gone ? `Delete ${file.path}` : `Discard changes to ${file.path}`}
+        onClick={(e) => {
+          // The row opens the diff; this must not do both
+          e.stopPropagation()
+          onDiscard(file)
+        }}
+      >
+        {gone ? (
+          <Trash2 size={12} strokeWidth={1.75} />
+        ) : (
+          <Undo2 size={12} strokeWidth={1.75} />
+        )}
+      </IconButton>
+    </span>
+  )
+}
+
 function FileRow({
   file,
   label,
   active,
   nested,
-  onClick
+  onClick,
+  onDiscard
 }: {
   file: ChangedFile
   /** Path to display — relative to the parent folder for nested rows */
@@ -85,6 +123,7 @@ function FileRow({
   active: boolean
   nested?: boolean
   onClick: () => void
+  onDiscard?: (file: ChangedFile) => void
 }): React.JSX.Element {
   const { dir, name } = splitPath(label)
   return (
@@ -99,6 +138,7 @@ function FileRow({
         {dir && <span className="git-file-dir">{dir}</span>}
       </span>
       <FileStat additions={file.additions} deletions={file.deletions} />
+      {onDiscard && <DiscardButton file={file} onDiscard={onDiscard} />}
     </div>
   )
 }
@@ -128,15 +168,26 @@ interface GitPanelProps {
   selection: GitSelection | null
   onShowFile: (file: ChangedFile) => void
   onShowCommit: (hash: string) => void
+  /**
+   * Throw a change away. Owned by App because it is unrecoverable: the
+   * confirmation that names the loss, and the call itself, belong with the
+   * other destructive actions rather than in the panel that draws the rows.
+   * `count` is the file total for a collapsed untracked directory.
+   */
+  onDiscard: (file: ChangedFile, count?: number) => void
   onClose: () => void
 }
 
 const LOG_LIMIT = 100
 
 /**
- * Read-only git sidebar: Changes (live working-tree status) and History
- * (recent commits). Clicking a row opens the diff layer over the terminal —
- * this panel never mutates the repo.
+ * Git sidebar: Changes (live working-tree status) and History (recent
+ * commits). Clicking a row opens the diff layer over the terminal.
+ *
+ * Reading is all it does on its own. The one mutation reachable from here —
+ * discarding a change — is raised to App as `onDiscard` rather than called,
+ * because it is unrecoverable and the confirmation that shows the loss belongs
+ * with the app's other destructive actions.
  */
 export function GitPanel({
   visible,
@@ -146,6 +197,7 @@ export function GitPanel({
   selection,
   onShowFile,
   onShowCommit,
+  onDiscard,
   onClose
 }: GitPanelProps): React.JSX.Element {
   const [tab, setTab] = useState<'changes' | 'history'>('changes')
@@ -279,6 +331,12 @@ export function GitPanel({
                         {loaded.total} {loaded.total === 1 ? 'file' : 'files'}
                       </span>
                     )}
+                    {/* The count is only known once the folder has been
+                        expanded — until then the confirmation says "folder" */}
+                    <DiscardButton
+                      file={f}
+                      onDiscard={() => onDiscard(f, loaded?.ok ? loaded.total : undefined)}
+                    />
                   </div>
                   {open && !loaded && <div className="git-panel-more">reading folder…</div>}
                   {open && loaded?.ok === false && (
@@ -294,6 +352,7 @@ export function GitPanel({
                         label={p.slice(f.path.length)}
                         active={selection?.kind === 'file' && selection.file.path === p}
                         onClick={() => onShowFile(untrackedChild(p))}
+                        onDiscard={onDiscard}
                       />
                     ))}
                   {open && loaded?.ok && loaded.total > loaded.paths.length && (
@@ -311,6 +370,7 @@ export function GitPanel({
                 label={f.path}
                 active={selection?.kind === 'file' && selection.file.path === f.path}
                 onClick={() => onShowFile(f)}
+                onDiscard={onDiscard}
               />
             )
           })}

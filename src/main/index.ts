@@ -110,6 +110,7 @@ import {
   stopGitWatch,
   type GitDiffSpec
 } from './git'
+import { discardChanges } from './git-discard'
 import { gitDefaultBase, gitFetchRemote, gitUpdateFromBase } from './git-ops'
 import {
   mergedBranches,
@@ -341,6 +342,9 @@ function registerIpc(): void {
   )
   ipcMain.handle('git:untracked-files', (_e, a: { root: string; dir: string }) =>
     gitUntrackedFiles(a.root, a.dir)
+  )
+  ipcMain.handle('git:discard', (_e, a: { root: string; paths: string[] }) =>
+    discardChanges(a.root, a.paths)
   )
   ipcMain.handle('git:watch', (_e, root: string) => {
     if (!mainWindow) throw new Error('no window')

@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { resolveInsideRoots } from './file-explorer'
 import { gitErrorOf, runGit } from './git'
 import { slugifyBranch, uniqueBranchName } from '../shared/branch-names'
+import { willCutBranch, type ShipRoute } from '../shared/ship-route'
 import { suggestCommitMessage, suggestPrText } from './git-text'
 import { buildPtyEnv } from './terminals'
 
@@ -30,9 +31,11 @@ import { buildPtyEnv } from './terminals'
 
 export interface ShipSuccess {
   ok: true
+  /** The PR this landed in — created, updated, or already open on the base. Empty when there is none. */
   url: string
   branch: string
   base: string
+  route: ShipRoute
   /** A commit was made (false when the tree was already clean and just needed pushing) */
   committed: boolean
   /** The PR was opened by this run; false means it already existed and was updated */
@@ -184,6 +187,46 @@ async function comparisonRef(cwd: string, base: string): Promise<string> {
   return remote.ok ? `origin/${base}` : base
 }
 
+/**
+ * The branch name a PR can target, from a base ref as it was recorded.
+ *
+ * A session's PR belongs where its branch was cut from: a worktree started
+ * from `dev/updates` that opens a PR into `main` is a PR nobody asked for, and
+ * it is invisible until someone wonders why the work never deployed. The start
+ * point is on `Worktree.baseBranch`, but stored the way git named it —
+ * `origin/dev/updates` for a remote-tracking one, `dev/updates` for a local
+ * branch — while a PR base is a branch *name*. Whether to strip a prefix is
+ * asked of git rather than matched on `origin/`, because a remote can be
+ * called anything and `feature/login` is a local branch, not a remote called
+ * `feature`.
+ *
+ * A base GitHub has never seen is no use to `gh pr create`, so a base that
+ * resolves to no remote branch falls back to the repo's default — the ship
+ * lands somewhere sensible instead of failing on its last step, and the modal
+ * shows which target it settled on before anything is pushed.
+ */
+export async function resolveBase(
+  cwd: string,
+  raw: string | undefined,
+  repoDefault: string
+): Promise<string> {
+  const base = raw?.trim()
+  if (!base) return repoDefault
+  const slash = base.indexOf('/')
+  const tracking =
+    slash > 0 &&
+    (await runGit(cwd, ['rev-parse', '--verify', '--quiet', `refs/remotes/${base}`])).ok
+  const name = tracking ? base.slice(slash + 1) : base
+  const remote = await pushRemote(cwd)
+  const onRemote = await runGit(cwd, [
+    'show-ref',
+    '--verify',
+    '--quiet',
+    `refs/remotes/${remote}/${name}`
+  ])
+  return onRemote.ok ? name : repoDefault
+}
+
 // ---------- preview ----------
 
 export interface ShipPreview {
@@ -259,7 +302,7 @@ export async function shipPreview(args: {
     remoteBases(cwd),
     isPushed(cwd, branch)
   ])
-  const base = args.base?.trim() || repoDefault
+  const base = await resolveBase(cwd, args.base, repoDefault)
   // The branch being shipped is never a target for itself
   const bases = [...new Set([base, repoDefault, ...remotes])].filter((b) => b !== branch)
   const compare = await comparisonRef(cwd, base)
@@ -377,6 +420,8 @@ export interface ShipArgs {
   pr?: { title: string; body: string }
   /** PR target; omitted means the repo's default branch */
   base?: string
+  /** Omitted means `pr` — the direct push is never the route by default */
+  route?: ShipRoute
   /**
    * Rename the branch before shipping it. Refused once the branch is on the
    * remote — the old ref would be left behind with the PR still pointing at
@@ -406,10 +451,9 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
     return { ok: false, error: 'Detached HEAD — check out a branch before shipping.' }
 
   const repoDefault = await defaultBranch(cwd)
-  const base = args.base?.trim() || repoDefault
-  // A commit never lands on the repo's default, nor on the branch this is a PR
-  // *into* — either way the work moves onto a branch of its own first
-  const protectedHead = branch === base || branch === repoDefault
+  const base = await resolveBase(cwd, args.base, repoDefault)
+  const route: ShipRoute = args.route === 'push' ? 'push' : 'pr'
+  const protectedHead = willCutBranch(route, branch, base, repoDefault)
 
   const wanted = args.renameBranch?.trim()
   if (wanted && wanted !== branch) {
@@ -489,13 +533,15 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
 
   // ---- push ----
   const compare = await comparisonRef(cwd, base)
-  const tracksSelf = await tracksOwnBranch(cwd, branch)
   const ahead = await runGit(cwd, ['rev-list', '--count', `${compare}..HEAD`])
   // A count git couldn't produce is unknown, not zero — refusing to ship on a
   // failed `rev-list` would strand real commits behind a "nothing to do"
   const commitsAhead = ahead.ok ? Number(ahead.stdout.trim()) || 0 : -1
 
-  const existing = await openPrUrl(cwd, branch)
+  // Which PR this run affects: the one on our own branch when opening one, the
+  // one already open on the base when pushing into it — that second case is
+  // how "fix a mistake on a branch under review" reports where the work went.
+  const existing = await openPrUrl(cwd, route === 'push' ? base : branch)
   if (!committed && commitsAhead === 0)
     return {
       ok: false,
@@ -504,6 +550,36 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
         : `Nothing to ship — ${branch} has no commits ${base} lacks.`
     }
 
+  /**
+   * The direct route. `HEAD:refs/heads/<base>` needs no checkout and moves no
+   * local ref, so the base can be checked out in another worktree — or be a
+   * branch this clone has never had — and nothing here disturbs it.
+   *
+   * There is no `--force` and there will not be: git refuses a push that isn't
+   * a fast-forward, which is exactly the guard wanted. If someone else moved
+   * the base, the refusal is the signal to update from it and ship again.
+   */
+  if (route === 'push') {
+    const pushed = await runGit(
+      cwd,
+      ['push', await pushRemote(cwd), `HEAD:refs/heads/${base}`],
+      NETWORK_TIMEOUT_MS
+    )
+    if (!pushed.ok) return { ok: false, error: gitErrorOf(pushed) }
+    return {
+      ok: true,
+      url: existing ?? '',
+      branch,
+      base,
+      route,
+      committed,
+      created: false,
+      ...(branchedFrom && { branchedFrom })
+    }
+  }
+
+  const tracksSelf = await tracksOwnBranch(cwd, branch)
+
   const push = tracksSelf
     ? await runGit(cwd, ['push'], NETWORK_TIMEOUT_MS)
     : await runGit(cwd, ['push', '--set-upstream', await pushRemote(cwd), branch], NETWORK_TIMEOUT_MS)
@@ -511,7 +587,7 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
 
   // ---- pull request ----
   if (existing)
-    return { ok: true, url: existing, branch, base, committed, created: false, ...(branchedFrom && { branchedFrom }) }
+    return { ok: true, url: existing, branch, base, route, committed, created: false, ...(branchedFrom && { branchedFrom }) }
 
   const log = await runGit(cwd, ['log', '--oneline', `${compare}..HEAD`])
   const diffStat = await runGit(cwd, ['diff', '--stat', `${compare}...HEAD`])
@@ -533,12 +609,12 @@ export async function shipPullRequest(args: ShipArgs): Promise<ShipResult> {
     // recover its URL rather than reporting a failure for work that shipped
     const raced = await openPrUrl(cwd, branch)
     if (raced)
-      return { ok: true, url: raced, branch, base, committed, created: false, ...(branchedFrom && { branchedFrom }) }
+      return { ok: true, url: raced, branch, base, route, committed, created: false, ...(branchedFrom && { branchedFrom }) }
     return { ok: false, error: ghErrorOf(created) }
   }
 
   const url = created.stdout.trim().split('\n').filter(Boolean).at(-1) ?? ''
-  return { ok: true, url, branch, base, committed, created: true, ...(branchedFrom && { branchedFrom }) }
+  return { ok: true, url, branch, base, route, committed, created: true, ...(branchedFrom && { branchedFrom }) }
 }
 
 /**

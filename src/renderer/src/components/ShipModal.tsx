@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { GitPullRequestArrow } from 'lucide-react'
 import type { ShipPreview, ShipSuccess } from '../../../main/git-ship'
 import { branchNameFromSubject } from '../../../shared/branch-names'
+import { willCutBranch, type ShipRoute } from '../../../shared/ship-route'
 import { ModalShell } from './ModalShell'
 import { Select, type SelectOption } from './Select'
 import { Button } from './ui'
@@ -38,6 +39,11 @@ const STATUS_WORDS: Record<string, string> = {
   U: 'conflicted'
 }
 
+const ROUTES: { route: ShipRoute; title: string; sub: (base: string) => string }[] = [
+  { route: 'pr', title: 'Open a pull request', sub: (b) => `reviewed, then merged into ${b}` },
+  { route: 'push', title: 'Push straight on', sub: (b) => `commits land on ${b} now` }
+]
+
 /**
  * Read this, then ship it.
  *
@@ -70,6 +76,13 @@ export function ShipModal({
   const [body, setBody] = useState(preview.body)
   const [prTitle, setPrTitle] = useState(preview.prTitle)
   const [base, setBase] = useState(preview.base)
+  /**
+   * The PR route is never pre-selected away from. Pushing straight onto the
+   * base skips review, which is the thing shipping exists to guarantee — it is
+   * offered because a fix to a branch already under review, or an integration
+   * branch where a PR per change is noise, are both real; it is not a default.
+   */
+  const [route, setRoute] = useState<ShipRoute>('pr')
   // A branch that exists keeps its name; one about to be cut starts from the
   // commit subject, which a model already wrote from the diff
   const [branch, setBranch] = useState(
@@ -98,9 +111,14 @@ export function ShipModal({
     const res = await window.api.gitShip({
       root,
       base,
-      renameBranch: branch.trim() || undefined,
+      route,
+      // The push route never puts this branch on the remote, so its name is
+      // nobody's business but this checkout's — renaming it would be theatre
+      ...(route === 'pr' && { renameBranch: branch.trim() || undefined }),
       message: { subject: subject.trim(), body: body.trim() },
-      pr: { title: prTitle.trim() || subject.trim(), body: preview.prBody }
+      ...(route === 'pr' && {
+        pr: { title: prTitle.trim() || subject.trim(), body: preview.prBody }
+      })
     })
     if (!res.ok) {
       setBusy(false)
@@ -114,6 +132,10 @@ export function ShipModal({
   const files = preview.files
   const canShip = !preview.nothingToDo && !busy && (subject.trim().length > 0 || files.length === 0)
 
+  // Recomputed here rather than read off the preview: the preview was taken
+  // before a route was chosen, and the rule differs between them
+  const willBranch = willCutBranch(route, preview.branch, base, preview.repoDefault)
+
   /**
    * A name is only editable while the branch is still local: once it is pushed
    * the remote holds that name and any PR hangs off it, so renaming would mean
@@ -122,8 +144,14 @@ export function ShipModal({
    * `willBranch` overrides that, and must — it means HEAD is `main`, which is
    * of course pushed, but nothing is being *renamed*; the field names the
    * branch about to be cut, which is the case where naming matters most.
+   *
+   * The push route never names anything: the commits go onto the base under
+   * its name, and this branch stays local.
    */
-  const canName = preview.willBranch || (!preview.pushed && !preview.existingPr)
+  const canName = route === 'pr' && (willBranch || (!preview.pushed && !preview.existingPr))
+
+  /** Straight onto the branch every PR lands in — the one combination worth a warning */
+  const bypassesReview = route === 'push' && base === preview.repoDefault
 
   /**
    * Derived from the subject as it stands, not as it was generated — editing
@@ -150,11 +178,18 @@ export function ShipModal({
       subtitle={
         (
           <span className="ship-route">
-            <code>{branch.trim() || (preview.willBranch ? 'a new branch' : preview.branch)}</code>
+            <code>
+              {route === 'push'
+                ? preview.branch
+                : branch.trim() || (willBranch ? 'a new branch' : preview.branch)}
+            </code>
             <span aria-hidden="true"> → </span>
             <code>{base}</code>
-            {preview.existingPr && <span className="ship-route-note"> · updates the open PR</span>}
-            {preview.willBranch && (
+            {route === 'push' && <span className="ship-route-note"> · commits go straight on</span>}
+            {route === 'pr' && preview.existingPr && (
+              <span className="ship-route-note"> · updates the open PR</span>
+            )}
+            {willBranch && (
               <span className="ship-route-note"> · cut from {preview.branch}, which stays clean</span>
             )}
           </span>
@@ -176,7 +211,15 @@ export function ShipModal({
               </Button>
             )}
             <Button disabled={!canShip} onClick={() => void ship()}>
-              {busy ? 'Shipping…' : preview.existingPr ? 'Push to PR' : 'Ship'}
+              {busy
+                ? route === 'push'
+                  ? 'Pushing…'
+                  : 'Shipping…'
+                : route === 'push'
+                  ? `Push onto ${base}`
+                  : preview.existingPr
+                    ? 'Push to PR'
+                    : 'Ship'}
             </Button>
           </div>
         </div>
@@ -199,11 +242,33 @@ export function ShipModal({
       {!preview.nothingToDo && (
         <>
           <section className="ship-section">
-            <h3 className="ship-section-title">Branch</h3>
+            <h3 className="ship-section-title">Where it goes</h3>
+            {/* The question can only be answered once the diff is visible, which
+                is why it is asked here and not when the session was created */}
+            <div className="ship-routes" role="radiogroup" aria-label="How to ship">
+              {ROUTES.map((r) => (
+                <button
+                  key={r.route}
+                  type="button"
+                  role="radio"
+                  aria-checked={route === r.route}
+                  className={`ship-route-chip${route === r.route ? ' ship-route-chip--on' : ''}`}
+                  onClick={() => setRoute(r.route)}
+                >
+                  <span className="ship-route-chip-title">{r.title}</span>
+                  <span className="ship-route-chip-sub">{r.sub(base)}</span>
+                </button>
+              ))}
+            </div>
+            {bypassesReview && (
+              <div className="ship-note ship-note--warn">
+                Straight onto <code>{base}</code> — no pull request, so nothing reviews this.
+              </div>
+            )}
             <div className="ship-route-fields">
-              <label className="ship-field">
+              <label className="ship-field" hidden={route === 'push'}>
                 <span className="ship-field-label">
-                  {preview.willBranch ? 'New branch' : 'From'}
+                  {willBranch ? 'New branch' : 'From'}
                   {canName && suggestion && suggestion !== branch.trim() && (
                     <button
                       type="button"
@@ -220,7 +285,7 @@ export function ShipModal({
                     type="text"
                     className="ship-input"
                     aria-label="Branch name"
-                    placeholder={preview.willBranch ? 'named from the commit' : preview.branch}
+                    placeholder={willBranch ? 'named from the commit' : preview.branch}
                     value={branch}
                     onChange={(e) => setBranch(e.currentTarget.value)}
                   />
@@ -231,14 +296,20 @@ export function ShipModal({
                 )}
               </label>
               <label className="ship-field">
-                <span className="ship-field-label">Into</span>
+                <span className="ship-field-label">{route === 'push' ? 'Onto' : 'Into'}</span>
                 <Select value={base} options={baseOptions} onChange={retarget} />
               </label>
             </div>
-            {base !== preview.repoDefault && (
+            {route === 'pr' && base !== preview.repoDefault && (
               <div className="ship-note">
                 Not the default branch — this PR shows everything <code>{base}</code> is missing,
                 not just this session&rsquo;s work.
+              </div>
+            )}
+            {route === 'push' && !bypassesReview && (
+              <div className="ship-note">
+                No pull request is opened. If <code>{base}</code> already has one, these commits
+                join it; the result says which.
               </div>
             )}
           </section>

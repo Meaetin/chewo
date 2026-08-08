@@ -280,9 +280,17 @@ export type UntrackedFilesResult =
 /** A collapsed directory can hold thousands of files — the panel lists a page */
 const MAX_UNTRACKED_LISTED = 500
 
-/** Repo-relative, no traversal, no pathspec magic (`:(glob)`, `:!`) */
-const safePathspec = (p: string): boolean =>
-  p !== '' && !p.startsWith('/') && !p.startsWith(':') && !p.split('/').includes('..')
+/**
+ * Repo-relative, no traversal, no pathspec magic (`:(glob)`, `:!`), and not
+ * flag-shaped. Exported because `git-discard.ts` hands the same strings to
+ * commands that delete files, where the bar is higher than for a read.
+ */
+export const safePathspec = (p: string): boolean =>
+  p !== '' &&
+  !p.startsWith('/') &&
+  !p.startsWith(':') &&
+  !p.startsWith('-') &&
+  !p.split('/').includes('..')
 
 /**
  * The files inside an untracked directory. `git status` collapses such a
