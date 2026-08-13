@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import chokidar from 'chokidar'
 import {
   CLAUDE_ROOT,
@@ -191,11 +192,50 @@ function createWindow(): void {
     disposeAllGitWatches()
   })
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  // The window is frameless with no chrome, so a navigation away from the app
+  // has no back button and no close — the UI is simply gone until ⌘R, which is
+  // what a link in a chat reply used to do. Nothing here ever navigates on
+  // purpose: the renderer is a single page and every URL in it is somebody
+  // else's. So the main frame is pinned to the app and an http(s) destination
+  // is handed to the browser instead.
+  //
+  // The one navigation that must survive is the renderer reloading *itself* —
+  // ⌘R, and Vite's HMR full reload, are renderer-initiated and so come through
+  // here. Hence a whitelist of the page we loaded rather than a blanket deny,
+  // and hence matching the dev server by origin (its URL carries HMR query
+  // strings) but the packaged page by exact file, since allowing `file://`
+  // wholesale would let `[x](file:///…)` navigate the window after all.
+  const devServer = process.env['ELECTRON_RENDERER_URL']
+  const appFile = pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  const isAppPage = (url: string): boolean =>
+    devServer ? url.startsWith(devServer) : url.split(/[?#]/)[0] === appFile
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (isAppPage(url)) return
+    e.preventDefault()
+    openInBrowser(url)
+  })
+  // Anything that would have opened a second window — target="_blank", a
+  // window.open — is a link too, and a bare Chromium popup over a frameless
+  // app is the same dead end with extra steps.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openInBrowser(url)
+    return { action: 'deny' }
+  })
+
+  if (devServer) {
+    mainWindow.loadURL(devServer)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+/** Hands a URL to the OS opener, http(s) only — any other scheme launches an
+ *  application of the string's choosing, and these strings come from model
+ *  output and arbitrary session files. */
+function openInBrowser(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) return false
+  void shell.openExternal(url)
+  return true
 }
 
 function registerIpc(): void {
@@ -364,13 +404,7 @@ function registerIpc(): void {
   ipcMain.handle('git:ship-preview', (_e, a: { root: string; base?: string }) => shipPreview(a))
   ipcMain.handle('git:ship-compare', (_e, a: { root: string; base: string }) => shipCompare(a))
   ipcMain.handle('git:merged-branches', (_e, root: string) => mergedBranches(root))
-  // Only ever a web URL: this hands a string to the OS opener, and a file://
-  // or custom scheme would launch an application of the string's choosing
-  ipcMain.handle('open-external', (_e, url: string) => {
-    if (!/^https?:\/\//i.test(url)) return false
-    void shell.openExternal(url)
-    return true
-  })
+  ipcMain.handle('open-external', (_e, url: string) => openInBrowser(url))
 
   ipcMain.handle('notes:scan', () => scanNotes())
   ipcMain.handle('notes:read', (_e, path: string) => readNote(path))

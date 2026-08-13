@@ -17,6 +17,7 @@ import { closeSearchPanel, searchPanelOpen } from '@codemirror/search'
 import { languageFor } from '../theme/langs'
 import { editorSearch } from './EditorFindPanel'
 import { IconButton } from './ui'
+import { MD_LINKS } from '../markdownLinks'
 
 interface FileEditorProps {
   visible: boolean
@@ -441,7 +442,9 @@ export function FileEditor({
           />
         ) : buffer && activePath && isMarkdown(activePath) && buffer.mdPreview ? (
           <div className="file-editor-md-preview message-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{buffer.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+              {buffer.content}
+            </ReactMarkdown>
           </div>
         ) : buffer ? (
           <CodeMirror

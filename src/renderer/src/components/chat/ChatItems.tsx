@@ -25,6 +25,7 @@ import { isPlanTool } from '../../../../shared/tool-tasks'
 import { DiffBody } from '../DiffBody'
 import { Button, WorkingText } from '../ui'
 import { useSmoothText } from './useSmoothText'
+import { MD_LINKS } from '../../markdownLinks'
 
 /**
  * The rendered forms of a chat item. Kept apart from `ChatPane` so the pane
@@ -492,7 +493,9 @@ function AssistantText({ text, done }: { text: string; done: boolean }): React.J
   const streaming = !done || smoothed.length < text.length
   return (
     <div className={`chat-assistant message-markdown${streaming ? ' chat-assistant--streaming' : ''}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{streaming ? smoothed + CARET : smoothed}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+        {streaming ? smoothed + CARET : smoothed}
+      </ReactMarkdown>
     </div>
   )
 }
