@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { KeyRound, TriangleAlert, X } from 'lucide-react'
 import { ModalShell } from './ModalShell'
 import { Badge, Button, IconButton, Row, Tooltip } from './ui'
+import { MD_LINKS } from '../markdownLinks'
 import type {
   AgentRef,
   CapabilityInventory,
@@ -428,7 +429,9 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
       {viewing && (
         <ModalShell title={viewing.title} size="wide" onClose={() => setViewing(null)}>
           <div className="memory-viewer-body message-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewing.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+              {viewing.content}
+            </ReactMarkdown>
           </div>
         </ModalShell>
       )}

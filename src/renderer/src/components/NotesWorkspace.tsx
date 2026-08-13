@@ -6,6 +6,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { ClipboardPaste, Headphones, KeyRound, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
 import { Button, Dot, IconButton, Row, WorkingText } from './ui'
+import { MD_LINKS } from '../markdownLinks'
 import type { Extension } from '@codemirror/state'
 import {
   parseNote,
@@ -162,7 +163,9 @@ function NoteEditor({
       <div className="notes-editor-body">
         {preview ? (
           <div className="notes-md-preview message-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{body || '*Empty lesson*'}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+              {body || '*Empty lesson*'}
+            </ReactMarkdown>
           </div>
         ) : (
           <CodeMirror
