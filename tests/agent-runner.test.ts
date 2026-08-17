@@ -170,7 +170,8 @@ describe('normalizeAgents', () => {
       notesStructure: { agent: 'claude' },
       notesChat: { agent: 'claude' },
       todoVoice: { agent: 'claude' },
-      gitText: { agent: 'claude' }
+      gitText: { agent: 'claude' },
+      agentBuild: { agent: 'claude' }
     })
   })
 

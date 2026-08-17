@@ -153,7 +153,7 @@ export function sessionEffort(
 // ---------- per-feature assignment ----------
 
 /** The headless features a user can point at an agent. */
-export type AgentTask = 'notesStructure' | 'notesChat' | 'todoVoice' | 'gitText'
+export type AgentTask = 'notesStructure' | 'notesChat' | 'todoVoice' | 'gitText' | 'agentBuild'
 
 export interface AgentChoice {
   agent: AgentId
@@ -169,7 +169,8 @@ export const DEFAULT_AGENTS: AgentAssignments = {
   notesStructure: { agent: 'claude' },
   notesChat: { agent: 'claude' },
   todoVoice: { agent: 'claude' },
-  gitText: { agent: 'claude' }
+  gitText: { agent: 'claude' },
+  agentBuild: { agent: 'claude' }
 }
 
 /** Drives the Agents settings tab; order and grouping are the UI's. */
@@ -202,6 +203,12 @@ export const AGENT_TASKS: Array<{
     group: 'Git',
     label: 'Branch & commit text',
     hint: 'Names isolated branches from your first message, and writes commit messages and PR text for Ship. Never blocks: a failure falls back to a plain generated string.'
+  },
+  {
+    id: 'agentBuild',
+    group: 'Capabilities',
+    label: 'Agent builder',
+    hint: 'Turns a description into a subagent draft — system prompt, model, tool policy and suggested skills — for you to review before anything is written.'
   }
 ]
 

@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFil
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { CopyDestination, CopyResult, HookRef } from '../shared/capabilities/types'
+import { agentFileName, serializeAgent, type AgentDraft } from '../shared/capabilities/agent-file'
 
 /**
  * The ONLY writer for capabilities (SPEC-CAPABILITIES.md §3). Rules:
@@ -227,4 +228,43 @@ export function copyAgent(
       }
     }
   })
+}
+
+/**
+ * Write an authored agent definition.
+ *
+ * The only writer that creates a capability rather than copying one, so it
+ * carries the two guards the copy paths get for free. The name is sanitised
+ * into the filename by `agentFileName` — it can come from a model, and a
+ * name becomes a path — and a collision returns 'exists' instead of writing,
+ * same contract as `copyAgent`.
+ *
+ * Overwriting **is** the edit path: the existing file is read first and passed
+ * to `serializeAgent`, which carries through every frontmatter key this app
+ * doesn't model (`permissionMode`, `maxTurns`, `hooks`, anything a CLI update
+ * adds). Saving an edited agent must not quietly strip what it didn't show.
+ */
+export function writeAgent(
+  draft: AgentDraft,
+  dest: CopyDestination,
+  overwrite = false,
+  roots: WriterRoots = {}
+): CopyResult {
+  let targetPath = ''
+  try {
+    targetPath = join(agentsDirFor(dest, roots), agentFileName(draft.name))
+    const present = existsSync(targetPath)
+    if (present && !overwrite) return { dest, status: 'exists', path: targetPath }
+    const existing = present ? readFileSync(targetPath, 'utf8') : undefined
+    mkdirSync(join(targetPath, '..'), { recursive: true })
+    writeFileSync(targetPath, serializeAgent(draft, existing))
+    return { dest, status: 'copied', path: targetPath }
+  } catch (err) {
+    return {
+      dest,
+      status: 'error',
+      path: targetPath,
+      error: err instanceof Error ? err.message : String(err)
+    }
+  }
 }

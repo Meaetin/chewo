@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "canary": "tsx scripts/canary.ts",
     "canary:chat": "tsx scripts/chat-canary.ts",
+    "canary:agent": "tsx scripts/agent-canary.ts",
     "preversion": "npm run typecheck && npm test",
     "version": "node scripts/sync-version.mjs && git add packages/chewo-mcp/package.json",
     "postversion": "git push origin main --follow-tags",

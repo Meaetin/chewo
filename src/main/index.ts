@@ -14,7 +14,17 @@ import {
 import { scanCapabilities } from '../shared/capabilities/scan'
 import { listInstalledPlugins } from './plugins'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
-import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
+import {
+  copyAgent,
+  copyHook,
+  copyMemoryFile,
+  copySkill,
+  readMemoryFile,
+  writeAgent
+} from './capability-writer'
+import { draftAgent } from './agent-builder'
+import type { AgentDraft } from '../shared/capabilities/agent-file'
+import type { DraftRequest } from '../shared/capabilities/agent-draft'
 import { copyMcp } from './mcp-writer'
 import { adoptLegacyMcpRoot, MCP_ROOT } from '../shared/mcp-paths'
 import { connectMcpServer, disconnectMcpServer, mcpServerStatus, reconcileMcpServer } from './mcp-server'
@@ -325,6 +335,12 @@ function registerIpc(): void {
     'capabilities:copyHook',
     (_e, args: { ref: HookRef; destinations: CopyDestination[] }) =>
       copyHook(args.ref, args.destinations)
+  )
+  ipcMain.handle('capabilities:draftAgent', (_e, req: DraftRequest) => draftAgent(req))
+  ipcMain.handle(
+    'capabilities:writeAgent',
+    (_e, args: { draft: AgentDraft; dest: CopyDestination; overwrite: boolean }) =>
+      writeAgent(args.draft, args.dest, args.overwrite)
   )
 
   ipcMain.handle('worktree:branches', (_e, projectPath: string) => listBranches(projectPath))

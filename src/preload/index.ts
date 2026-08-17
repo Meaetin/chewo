@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
+import type { AgentDraft } from '../shared/capabilities/agent-file'
+import type { DraftRequest, DraftResult } from '../shared/capabilities/agent-draft'
+import type { CopyDestination, CopyResult } from '../shared/capabilities/types'
 import type { ScanResult } from '../shared/adapter/types'
 import type { AccountUsage } from '../shared/account-usage'
 import type { AgentChatEvent, ApprovalDecision } from '../shared/agent-chat'
@@ -182,6 +185,10 @@ const api = {
     ipcRenderer.invoke('capabilities:copyMcp', args),
   copyHook: (args: { ref: unknown; destinations: unknown[] }) =>
     ipcRenderer.invoke('capabilities:copyHook', args),
+  /** NL → subagent draft. Nothing is written; the review screen decides. */
+  draftAgent: (req: DraftRequest) => ipcRenderer.invoke('capabilities:draftAgent', req) as Promise<DraftResult>,
+  writeAgent: (args: { draft: AgentDraft; dest: CopyDestination; overwrite: boolean }) =>
+    ipcRenderer.invoke('capabilities:writeAgent', args) as Promise<CopyResult>,
   worktreeBranches: (projectPath: string) =>
     ipcRenderer.invoke('worktree:branches', projectPath) as Promise<ListBranchesResult>,
   worktreeList: (projectPath: string) =>

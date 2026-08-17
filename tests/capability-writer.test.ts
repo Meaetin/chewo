@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from '../src/main/capability-writer'
+import {
+  copyAgent,
+  copyHook,
+  copyMemoryFile,
+  copySkill,
+  readMemoryFile,
+  writeAgent
+} from '../src/main/capability-writer'
+import type { AgentDraft } from '../src/shared/capabilities/agent-file'
 import { parseClaudeHooks } from '../src/shared/capabilities/scan'
 import type { CopyDestination, HookRef } from '../src/shared/capabilities/types'
 
@@ -194,5 +202,62 @@ describe('copyAgent', () => {
 
     const again = copyAgent(join(tmp, 'src-agents/db-architect.md'), target, false, roots())
     expect(again.every((r) => r.status === 'exists')).toBe(true)
+  })
+})
+
+describe('writeAgent', () => {
+  const dest = (): CopyDestination => ({
+    kind: 'project',
+    path: join(tmp, 'projA'),
+    tool: 'claude',
+    label: 'projA'
+  })
+  const draft = (over: Partial<AgentDraft> = {}): AgentDraft => ({
+    name: 'API Reviewer',
+    description: 'Use when reviewing an API diff',
+    systemPrompt: 'You review APIs.',
+    tools: [],
+    disallowedTools: [],
+    skills: [],
+    ...over
+  })
+
+  test('writes the sanitised name as the filename', () => {
+    const res = writeAgent(draft(), dest(), false, roots())
+    expect(res.status).toBe('copied')
+    expect(res.path).toBe(join(tmp, 'projA/.claude/agents/api-reviewer.md'))
+    expect(readFileSync(res.path, 'utf8')).toContain('name: api-reviewer')
+  })
+
+  test('a collision returns exists rather than writing', () => {
+    writeAgent(draft(), dest(), false, roots())
+    const again = writeAgent(draft({ systemPrompt: 'Different.' }), dest(), false, roots())
+    expect(again.status).toBe('exists')
+    expect(readFileSync(again.path, 'utf8')).toContain('You review APIs.')
+  })
+
+  test('overwriting is the edit path, and it keeps unmodelled frontmatter', () => {
+    const path = join(tmp, 'projA/.claude/agents/api-reviewer.md')
+    mkdirSync(join(tmp, 'projA/.claude/agents'), { recursive: true })
+    writeFileSync(
+      path,
+      '---\nname: api-reviewer\ndescription: old\npermissionMode: acceptEdits\n---\n\nOld.\n'
+    )
+    const res = writeAgent(draft({ systemPrompt: 'New.' }), dest(), true, roots())
+    expect(res.status).toBe('copied')
+    const out = readFileSync(path, 'utf8')
+    expect(out).toContain('permissionMode: acceptEdits')
+    expect(out).toContain('New.')
+    expect(out).not.toContain('Old.')
+  })
+
+  test('a name that cannot become a filename is an error, not a stray write', () => {
+    const res = writeAgent(draft({ name: '../../etc/passwd' }), dest(), false, roots())
+    // It sanitises rather than failing — the point is that it cannot escape.
+    expect(res.status).toBe('copied')
+    expect(res.path).toBe(join(tmp, 'projA/.claude/agents/etc-passwd.md'))
+    expect(writeAgent(draft({ name: '!!!' }), dest(), false, roots())).toMatchObject({
+      status: 'error'
+    })
   })
 })
