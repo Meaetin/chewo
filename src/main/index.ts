@@ -12,6 +12,7 @@ import {
   type Source
 } from '../shared/adapter'
 import { scanCapabilities } from '../shared/capabilities/scan'
+import { listInstalledPlugins } from './plugins'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
 import { copyAgent, copyHook, copyMemoryFile, copySkill, readMemoryFile } from './capability-writer'
 import { copyMcp } from './mcp-writer'
@@ -296,8 +297,8 @@ function registerIpc(): void {
     accountUsage(force === true)
   )
 
-  ipcMain.handle('capabilities:scan', (_e, projects: ProjectTarget[]) =>
-    scanCapabilities(projects)
+  ipcMain.handle('capabilities:scan', async (_e, projects: ProjectTarget[]) =>
+    scanCapabilities(projects, { plugins: await listInstalledPlugins() })
   )
   ipcMain.handle(
     'capabilities:copySkill',

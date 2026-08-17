@@ -17,7 +17,8 @@ both Claude Code and Codex, with copy/install across projects
 |---|---|---|---|---|
 | Instructions/memory | `~/.claude/CLAUDE.md` | `<proj>/CLAUDE.md` (+ nested) | `~/.codex/AGENTS.md` | `<proj>/AGENTS.md` |
 | Skills | `~/.claude/skills/<name>/SKILL.md` | `<proj>/.claude/skills/` | `~/.codex/skills/` | `<proj>/.codex/skills/` (also scans `.agents/skills/` cwd→repo root) |
-| Subagents | `~/.claude/agents/*.md` | `<proj>/.claude/agents/*.md` | — (no equivalent) | — |
+| Subagents | `~/.claude/agents/*.md` | `<proj>/.claude/agents/*.md` | `~/.codex/agents/*.toml` | `<proj>/.codex/agents/*.toml` |
+| Plugin-provided skills/agents | `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/{skills,agents}/` | (same cache; plugins may be project-scoped) | plugins/marketplaces | — |
 | MCP servers | `mcpServers` in `~/.claude.json` (user scope) | `<proj>/.mcp.json` (project scope) + per-project entries in `~/.claude.json` | `[mcp_servers.*]` in `~/.codex/config.toml` | **none — Codex MCP is global-only** |
 | Rules/other | plugins, hooks | `.claude/settings.json` | `~/.codex/rules/*.rules`, plugins/marketplaces | `.codex/environments/` |
 
@@ -37,14 +38,25 @@ reads an optional `openai.yaml` for Codex-specific metadata; harmless to CC.
 | View per-project inventory (both tools) | ✅ easy | All read-only file/config parsing — same pattern as the session adapter |
 | Copy skills project↔project, global→project, one/few/all | ✅ easy | `cp -r` of self-contained folders into well-known dirs we own writing to |
 | Cross-tool skill install (CC skill → Codex, vice versa) | ✅ | Shared SKILL.md standard |
-| Copy CC subagents across projects | ✅ | Single portable .md files; **CC-only** (Codex has no subagent concept) |
+| Copy CC subagents across projects | ✅ | Single portable .md files |
+| Copy a subagent CC ↔ Codex | ⚠️ lossy | **Not** a shared standard the way SKILL.md is: CC is markdown+YAML, Codex is TOML with `developer_instructions`, and tool policy does not map (CC names tools; Codex sets `sandbox_mode`). Treat as translation, label it as such |
 | View / duplicate CLAUDE.md / AGENTS.md | ✅ view+copy; ⚠️ merge | Copying whole files to projects lacking one is safe; *merging* rule blocks into existing files needs diff-preview UX — defer |
 | MCP: view everywhere | ✅ | Read `~/.claude.json`, `.mcp.json`, `config.toml` |
 | MCP: add/copy per-project | ⚠️ CC only | CC: write `<proj>/.mcp.json` or shell `claude mcp add --scope project`. **Codex: global-only** — UI must show this, offer global install instead |
 | MCP secrets | 🚫 guard | Server entries may carry env/keys — copying must strip or prompt, never silently duplicate secrets |
 
-Overall: **possible, with two hard constraints** (no Codex per-project MCP,
-no Codex subagents) and one UX-sensitive area (memory-file merging).
+Overall: **possible, with one hard constraint** (no Codex per-project MCP)
+and one UX-sensitive area (memory-file merging).
+
+**Corrected 2026-08-17 — Codex has subagents.** This spec originally recorded
+that it had none; that was true when written and is not now. Verified against
+codex-cli 0.144.5: `codex features list` reports `multi_agent` as **stable,
+enabled**, and the binary carries `developer_instructions` (required,
+non-blank), `agents.max_depth`, `agents.max_threads`,
+`agents.job_max_runtime_seconds` and a `features.multi_agent_v2.*` block.
+Neither agents directory exists on this machine, so **verify the loader path
+against the installed binary before writing files into it** — and note the
+docs name `agents.default_subagent_model`, a string absent from that build.
 
 ## 3. Architecture
 
@@ -96,9 +108,17 @@ Apply = batched copy-engine calls, results toast.
 2. **Secrets in MCP entries** — strip `env` on copy, prompt to re-enter.
 3. **Name collisions** — a project skill can shadow a global/plugin skill;
    inventory should show shadowing; copies never overwrite silently.
-4. **Plugin-provided skills** (CC plugins, Codex marketplaces) are
-   *installed artifacts* — show them read-only in v1, exclude from copying
-   (owned by plugin managers, not us).
+4. **Plugin-provided skills and agents** (CC plugins, Codex marketplaces) are
+   *installed artifacts* — shown read-only and excluded from copying (owned by
+   plugin managers, not us). They are **scanned** as of 2026-08-17: they live
+   in the plugin cache, not `~/.claude/skills`, so omitting them under-reported
+   this machine by 4 found against 11 reachable. Read them through
+   `claude plugin list --json` (`src/main/plugins.ts`), never by walking the
+   cache — it keeps stale versions *and* disabled plugins side by side and
+   answers 132 for the same machine, off by 12×. Disabled plugins are
+   inventoried and flagged rather than hidden: their skills are installed but
+   reach no agent (figma here ships 12 and is disabled), and hiding them makes
+   "why can't my agent see this skill?" a silent failure.
 5. **Running sessions won't see new capabilities** until next session —
    surface that in the UI after a copy.
 6. Schema drift applies here too (esp. `config.toml` layout) — same
