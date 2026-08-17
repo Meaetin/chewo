@@ -2289,6 +2289,109 @@ body {
   margin-top: var(--space-4);
 }
 
+.capabilities-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-12);
+}
+
+.capabilities-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-12);
+  border-radius: var(--radius-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.capabilities-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.capabilities-tab--active,
+.capabilities-tab--active:hover {
+  background: var(--bg-selected);
+  color: var(--text-primary);
+}
+
+/* Total across every scope — includes capabilities that are installed but
+   unreachable, so this can exceed what an agent can actually use. */
+.capabilities-tab__count {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.capabilities-tab--active .capabilities-tab__count {
+  color: var(--text-secondary);
+}
+
+/* Which plugin shipped this, when it wasn't the scope itself. */
+.capability-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.capability-origin__off {
+  padding: 0 var(--space-4);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-2xs);
+  letter-spacing: 0.04em;
+}
+
+/* Installed, inventoried, but reaching no agent — dimmed rather than hidden so
+   "why can't my agent see this?" has a visible answer. The row keeps its
+   title attribute with the enable command. */
+.capability-row--off .capability-name,
+.capability-row--off .capability-detail,
+.capability-row--off .capability-subdetail {
+  opacity: 0.55;
+}
+
+/* An agent needs two lines: its description is the routing text the main agent
+   reads, so it must not share a row's width with the model/tools summary. */
+.capability-row__main--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.capability-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  /* Pinned to the parent's content box: as a column flex item this box would
+     otherwise be sized by its own max-content and run past the card, taking a
+     horizontal scrollbar with it (measured: 1264px inside a 638px parent). */
+  width: 100%;
+  min-width: 0;
+}
+
+/* Model, effort and tool policy for an agent — the line under its router text. */
+.capability-subdetail {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .capabilities-scopes {
   flex: 1;
   overflow-y: auto;

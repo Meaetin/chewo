@@ -3,7 +3,15 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { KeyRound, TriangleAlert, X } from 'lucide-react'
 import { ModalShell } from './ModalShell'
-import { Badge, Button, IconButton, Row, Tooltip } from './ui'
+import { Button, IconButton } from './ui'
+import {
+  AgentRow,
+  HookRow,
+  InstructionsRow,
+  McpRow,
+  SkillRow,
+  type MemoryKind
+} from './capabilities/CapabilityRows'
 import { MD_LINKS } from '../markdownLinks'
 import type {
   AgentRef,
@@ -16,14 +24,40 @@ import type {
   SkillRef,
   Tool
 } from '../../../shared/capabilities/types'
+
+/**
+ * Tabs are by capability **type**, not by scope: the question this view exists
+ * to answer is "which scopes have this?", and stacking all five types inside
+ * every scope card made that a scrolling exercise across N projects.
+ *
+ * Counts are totals across every scope, so the strip doubles as the inventory
+ * summary — including capabilities that are installed but unusable, which is
+ * why the Skills count can exceed what any agent can actually reach.
+ */
+type CapabilityTab = 'instructions' | 'skills' | 'agents' | 'hooks' | 'mcp'
+
+const TABS: Array<{
+  id: CapabilityTab
+  label: string
+  count: (inv: CapabilityInventory[]) => number
+}> = [
+  {
+    id: 'instructions',
+    label: 'Instructions',
+    count: (inv) =>
+      inv.reduce((n, i) => n + (i.memory.claudeMd ? 1 : 0) + (i.memory.agentsMd ? 1 : 0), 0)
+  },
+  { id: 'skills', label: 'Skills', count: (inv) => inv.reduce((n, i) => n + i.skills.length, 0) },
+  { id: 'agents', label: 'Agents', count: (inv) => inv.reduce((n, i) => n + i.agents.length, 0) },
+  { id: 'hooks', label: 'Hooks', count: (inv) => inv.reduce((n, i) => n + i.hooks.length, 0) },
+  { id: 'mcp', label: 'MCP', count: (inv) => inv.reduce((n, i) => n + i.mcp.length, 0) }
+]
 import type { Project } from '../../../shared/projects'
 
 interface CapabilitiesViewProps {
   projects: Project[]
   onClose: () => void
 }
-
-type MemoryKind = 'CLAUDE.md' | 'AGENTS.md'
 
 type CopySubject =
   | { kind: 'skill'; ref: SkillRef }
@@ -58,6 +92,7 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
   const [busy, setBusy] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [viewing, setViewing] = useState<{ title: string; content: string } | null>(null)
+  const [tab, setTab] = useState<CapabilityTab>('agents')
 
   const rescan = useCallback(() => {
     window.api
@@ -212,6 +247,8 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
     }
   }
 
+  const tabs = TABS.map((t) => ({ ...t, count: t.count(inventories ?? []) }))
+
   return (
     <div className="capabilities-view">
       <header className="capabilities-header">
@@ -225,6 +262,20 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
           What each scope gives your agents. Copy skills and subagents between projects and your
           personal setup — files are copied, never moved.
         </p>
+        <nav className="capabilities-tabs" aria-label="Capability types">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`capabilities-tab${tab === t.id ? ' capabilities-tab--active' : ''}`}
+              aria-current={tab === t.id}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+              <span className="capabilities-tab__count">{t.count}</span>
+            </button>
+          ))}
+        </nav>
         {banner && <div className="capabilities-banner">{banner}</div>}
       </header>
 
@@ -240,187 +291,91 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             </div>
 
             <div className="capability-group">
-              <div className="capability-group-title">Instructions</div>
-              {(
-                [
-                  ['CLAUDE.md', inv.memory.claudeMd, 'claude'],
-                  ['AGENTS.md', inv.memory.agentsMd, 'codex']
-                ] as Array<[MemoryKind, FileRef | undefined, Tool]>
-              ).map(
-                ([file, ref, tool]) =>
-                  ref && (
-                    <Row
-                      key={file}
-                      className="capability-row capability-row--clickable"
-                      density="compact"
-                      leading={<Badge source={tool} />}
-                      onClick={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
-                      trailing={
-                        <>
-                          <Button
-                            intent="secondary"
-                            size="compact"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)
-                            }}
-                          >
-                            View
-                          </Button>
-                          <Button
-                            intent="secondary"
-                            size="compact"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              startCopy({ kind: 'memory', ref, file })
-                            }}
-                          >
-                            Copy to…
-                          </Button>
-                        </>
-                      }
-                    >
-                      <div className="capability-row__main">
-                        <span className="capability-name">{file}</span>
-                        <span className="capability-detail">{ref.firstLine}</span>
-                      </div>
-                      <span className="capability-meta">{kb(ref.bytes)}</span>
-                    </Row>
-                  )
-              )}
-              {!inv.memory.claudeMd && !inv.memory.agentsMd && (
-                <div className="capability-empty">none</div>
-              )}
-            </div>
-
-            <div className="capability-group">
-              <div className="capability-group-title">Skills ({inv.skills.length})</div>
-              {inv.skills.map((s) => (
-                <Row
-                  key={s.dir}
-                  className="capability-row"
-                  density="compact"
-                  leading={s.tools.map((t) => (
-                    <Badge key={t} source={t} />
-                  ))}
-                  trailing={
-                    <Button
-                      intent="secondary"
-                      size="compact"
-                      onClick={() => startCopy({ kind: 'skill', ref: s })}
-                    >
-                      Copy to…
-                    </Button>
-                  }
-                >
-                  <div className="capability-row__main">
-                    <span className="capability-name">{s.name}</span>
-                    <span className="capability-detail">{s.description}</span>
-                  </div>
-                </Row>
-              ))}
-              {inv.skills.length === 0 && <div className="capability-empty">none</div>}
-            </div>
-
-            <div className="capability-group">
-              <div className="capability-group-title">Subagents ({inv.agents.length})</div>
-              {inv.agents.map((a) => (
-                <Row
-                  key={a.path}
-                  className="capability-row"
-                  density="compact"
-                  leading={<Badge source="claude" />}
-                  trailing={
-                    <Button
-                      intent="secondary"
-                      size="compact"
-                      onClick={() => startCopy({ kind: 'agent', ref: a })}
-                    >
-                      Copy to…
-                    </Button>
-                  }
-                >
-                  <div className="capability-row__main">
-                    <span className="capability-name">{a.name}</span>
-                    <span className="capability-detail">{a.description}</span>
-                  </div>
-                </Row>
-              ))}
-              {inv.agents.length === 0 && <div className="capability-empty">none</div>}
-            </div>
-
-            <div className="capability-group">
-              <div className="capability-group-title">Hooks ({inv.hooks.length})</div>
-              {inv.hooks.map((h, hi) => (
-                <Row
-                  key={hi}
-                  className="capability-row"
-                  density="compact"
-                  leading={<Badge source="claude" />}
-                  trailing={
-                    <Button
-                      intent="secondary"
-                      size="compact"
-                      onClick={() => startCopy({ kind: 'hook', ref: h })}
-                    >
-                      Copy to…
-                    </Button>
-                  }
-                >
-                  <div className="capability-row__main">
-                    <span className="capability-name">
-                      {h.event}
-                      {h.matcher ? ` · ${h.matcher}` : ''}
-                    </span>
-                    <span className="capability-detail">
-                      <code>{h.command}</code>
-                    </span>
-                  </div>
-                </Row>
-              ))}
-              {inv.hooks.length === 0 && (
-                <div className="capability-empty">
-                  {inv.scope.kind === 'global' && inv.scope.tool === 'codex'
-                    ? 'plugin-managed in Codex'
-                    : 'none'}
-                </div>
-              )}
-            </div>
-
-            <div className="capability-group">
-              <div className="capability-group-title">MCP servers ({inv.mcp.length})</div>
-              {inv.mcp.map((m) => (
-                <Row
-                  key={`${m.tool}:${m.name}`}
-                  className="capability-row"
-                  density="compact"
-                  leading={<Badge source={m.tool} />}
-                  trailing={
-                    <Button
-                      intent="secondary"
-                      size="compact"
-                      onClick={() => startCopy({ kind: 'mcp', ref: m })}
-                    >
-                      Copy to…
-                    </Button>
-                  }
-                >
-                  <div className="capability-row__main">
-                    <span className="capability-name">{m.name}</span>
-                    <span className="capability-detail">{m.command}</span>
-                  </div>
-                  {m.envKeys && m.envKeys.length > 0 && (
-                    <span className="capability-meta capability-meta--keys">
-                      <Tooltip label={`Needs env vars: ${m.envKeys.join(', ')}`}>
-                        <KeyRound size={12} strokeWidth={1.75} />
-                      </Tooltip>
-                      {m.envKeys.length}
-                    </span>
+              {tab === 'instructions' && (
+                <>
+                  {(
+                    [
+                      ['CLAUDE.md', inv.memory.claudeMd, 'claude'],
+                      ['AGENTS.md', inv.memory.agentsMd, 'codex']
+                    ] as Array<[MemoryKind, FileRef | undefined, Tool]>
+                  ).map(
+                    ([file, ref, tool]) =>
+                      ref && (
+                        <InstructionsRow
+                          key={file}
+                          file={file}
+                          refFile={ref}
+                          tool={tool}
+                          onView={() => viewMemory(`${scopeTitle(inv)} — ${file}`, ref.path)}
+                          onCopy={() => startCopy({ kind: 'memory', ref, file })}
+                        />
+                      )
                   )}
-                  <span className="capability-meta">{m.scope}</span>
-                </Row>
-              ))}
-              {inv.mcp.length === 0 && <div className="capability-empty">none</div>}
+                  {!inv.memory.claudeMd && !inv.memory.agentsMd && (
+                    <div className="capability-empty">none</div>
+                  )}
+                </>
+              )}
+
+              {tab === 'skills' && (
+                <>
+                  {inv.skills.map((s) => (
+                    <SkillRow
+                      key={s.dir}
+                      skill={s}
+                      onCopy={() => startCopy({ kind: 'skill', ref: s })}
+                    />
+                  ))}
+                  {inv.skills.length === 0 && <div className="capability-empty">none</div>}
+                </>
+              )}
+
+              {tab === 'agents' && (
+                <>
+                  {inv.agents.map((a) => (
+                    <AgentRow
+                      key={a.path}
+                      agent={a}
+                      onCopy={() => startCopy({ kind: 'agent', ref: a })}
+                    />
+                  ))}
+                  {inv.agents.length === 0 && (
+                    <div className="capability-empty">
+                      {inv.scope.kind === 'global' && inv.scope.tool === 'codex'
+                        ? 'not scanned yet — Codex subagents are TOML in ~/.codex/agents'
+                        : 'none'}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tab === 'hooks' && (
+                <>
+                  {inv.hooks.map((h, hi) => (
+                    <HookRow key={hi} hook={h} onCopy={() => startCopy({ kind: 'hook', ref: h })} />
+                  ))}
+                  {inv.hooks.length === 0 && (
+                    <div className="capability-empty">
+                      {inv.scope.kind === 'global' && inv.scope.tool === 'codex'
+                        ? 'plugin-managed in Codex'
+                        : 'none'}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {tab === 'mcp' && (
+                <>
+                  {inv.mcp.map((m) => (
+                    <McpRow
+                      key={`${m.tool}:${m.name}`}
+                      mcp={m}
+                      onCopy={() => startCopy({ kind: 'mcp', ref: m })}
+                    />
+                  ))}
+                  {inv.mcp.length === 0 && <div className="capability-empty">none</div>}
+                </>
+              )}
             </div>
           </section>
         ))}
