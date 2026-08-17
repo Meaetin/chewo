@@ -185,6 +185,8 @@ const api = {
     ipcRenderer.invoke('capabilities:copyMcp', args),
   copyHook: (args: { ref: unknown; destinations: unknown[] }) =>
     ipcRenderer.invoke('capabilities:copyHook', args),
+  /** One agent definition, for the editor — a narrower door than readMemory */
+  readAgent: (path: string) => ipcRenderer.invoke('capabilities:readAgent', path) as Promise<string>,
   /** NL → subagent draft. Nothing is written; the review screen decides. */
   draftAgent: (req: DraftRequest) => ipcRenderer.invoke('capabilities:draftAgent', req) as Promise<DraftResult>,
   writeAgent: (args: { draft: AgentDraft; dest: CopyDestination; overwrite: boolean }) =>

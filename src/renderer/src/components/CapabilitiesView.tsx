@@ -13,6 +13,9 @@ import {
   type MemoryKind
 } from './capabilities/CapabilityRows'
 import { MD_LINKS } from '../markdownLinks'
+import { AgentBuilderModal } from './capabilities/AgentBuilderModal'
+import { draftFromFile, type AgentDraft } from '../../../shared/capabilities/agent-file'
+import type { SkillOption } from '../../../shared/capabilities/agent-draft'
 import type {
   AgentRef,
   CapabilityInventory,
@@ -93,6 +96,9 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
   const [banner, setBanner] = useState<string | null>(null)
   const [viewing, setViewing] = useState<{ title: string; content: string } | null>(null)
   const [tab, setTab] = useState<CapabilityTab>('agents')
+  const [building, setBuilding] = useState<{
+    edit?: { draft: AgentDraft; dest: CopyDestination; source: string }
+  } | null>(null)
 
   const rescan = useCallback(() => {
     window.api
@@ -118,6 +124,78 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
       .then((content) => setViewing({ title, content }))
       .catch((err: unknown) =>
         setBanner(`Could not read file: ${err instanceof Error ? err.message : String(err)}`)
+      )
+  }
+
+  /**
+   * Every skill the builder may attach, deduped by name.
+   *
+   * A disabled plugin's skills are offered with `installed: false` rather than
+   * hidden: they are on disk and reach no agent, which is exactly the silent
+   * failure the plugin scan exists to surface — leaving them out would put it
+   * straight back.
+   */
+  const builderSkills = (): SkillOption[] => {
+    const out = new Map<string, SkillOption>()
+    for (const inv of inventories ?? []) {
+      for (const skill of inv.skills) {
+        if (out.has(skill.name)) continue
+        const origin = skill.origin
+        out.set(skill.name, {
+          name: skill.name,
+          description: skill.description,
+          origin:
+            origin.kind === 'plugin'
+              ? `${origin.plugin} plugin`
+              : origin.kind === 'project'
+                ? scopeTitle(inv)
+                : 'personal',
+          installed: origin.kind !== 'plugin' || origin.enabled,
+          unavailableReason:
+            origin.kind === 'plugin' && !origin.enabled
+              ? `the ${origin.plugin} plugin is disabled`
+              : undefined,
+          pluginId: origin.kind === 'plugin' ? `${origin.plugin}@${origin.marketplace}` : undefined,
+          bytes: skill.bytes
+        })
+      }
+    }
+    return [...out.values()]
+  }
+
+  /** Existing routers, so a new agent doesn't duplicate one. */
+  const existingAgents = (): Array<{ name: string; description: string }> =>
+    (inventories ?? []).flatMap((inv) =>
+      inv.agents.map((a) => ({ name: a.name, description: a.description }))
+    )
+
+  /** Where an authored agent can be saved. Claude-only: see SPEC-CAPABILITIES §1. */
+  const agentDestinations = (): CopyDestination[] => [
+    { kind: 'global', tool: 'claude', label: 'Personal · every project' },
+    ...projects.map((p) => ({
+      kind: 'project' as const,
+      path: p.path,
+      tool: 'claude' as const,
+      label: p.name
+    }))
+  ]
+
+  /**
+   * Open the builder on an existing definition. The body is read on demand —
+   * a scan deliberately does not carry every system prompt across IPC.
+   */
+  const editAgent = (agent: AgentRef, inv: CapabilityInventory): void => {
+    window.api
+      .readAgent(agent.path)
+      .then((content) => {
+        const dest: CopyDestination =
+          inv.scope.kind === 'project'
+            ? { kind: 'project', path: inv.scope.path, tool: 'claude', label: inv.scope.name }
+            : { kind: 'global', tool: 'claude', label: 'Personal · every project' }
+        setBuilding({ edit: { draft: draftFromFile(content), dest, source: content } })
+      })
+      .catch((err: unknown) =>
+        setBanner(`Could not read the agent: ${err instanceof Error ? err.message : String(err)}`)
       )
   }
 
@@ -276,6 +354,11 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
             </button>
           ))}
         </nav>
+        {tab === 'agents' && (
+          <div className="capabilities-actions">
+            <Button onClick={() => setBuilding({})}>New agent</Button>
+          </div>
+        )}
         {banner && <div className="capabilities-banner">{banner}</div>}
       </header>
 
@@ -337,6 +420,7 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
                       key={a.path}
                       agent={a}
                       onCopy={() => startCopy({ kind: 'agent', ref: a })}
+                      onEdit={() => editAgent(a, inv)}
                     />
                   ))}
                   {inv.agents.length === 0 && (
@@ -380,6 +464,21 @@ export function CapabilitiesView({ projects, onClose }: CapabilitiesViewProps): 
           </section>
         ))}
       </div>
+
+      {building && (
+        <AgentBuilderModal
+          skills={builderSkills()}
+          existing={existingAgents()}
+          destinations={agentDestinations()}
+          edit={building.edit}
+          onClose={() => setBuilding(null)}
+          onSaved={(result) => {
+            setBuilding(null)
+            setBanner(`Saved ${result.path}. Sessions already running will see it after a restart.`)
+            rescan()
+          }}
+        />
+      )}
 
       {viewing && (
         <ModalShell title={viewing.title} size="wide" onClose={() => setViewing(null)}>

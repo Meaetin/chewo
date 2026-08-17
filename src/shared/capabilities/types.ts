@@ -62,6 +62,13 @@ export interface SkillRef {
   name: string
   description: string
   dir: string
+  /**
+   * Size of SKILL.md. Only the one-line `description` normally sits in
+   * context — the body is read on demand — so this is not what a skill costs
+   * to *have*. It is what it costs to name in a subagent's `skills:`, which
+   * preloads the whole body at startup on every invocation.
+   */
+  bytes: number
   /** Which tool(s) discover it, based on which directory it lives in */
   tools: Tool[]
   origin: CapabilityOrigin

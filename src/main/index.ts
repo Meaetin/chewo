@@ -19,6 +19,7 @@ import {
   copyHook,
   copyMemoryFile,
   copySkill,
+  readAgentFile,
   readMemoryFile,
   writeAgent
 } from './capability-writer'
@@ -326,6 +327,7 @@ function registerIpc(): void {
       copyMemoryFile(args.sourcePath, args.destinations)
   )
   ipcMain.handle('capabilities:readMemory', (_e, path: string) => readMemoryFile(path))
+  ipcMain.handle('capabilities:readAgent', (_e, path: string) => readAgentFile(path))
   ipcMain.handle(
     'capabilities:copyMcp',
     (_e, args: { ref: McpRef; destinations: CopyDestination[]; overwrite: boolean }) =>

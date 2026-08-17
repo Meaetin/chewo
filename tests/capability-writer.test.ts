@@ -7,6 +7,7 @@ import {
   copyHook,
   copyMemoryFile,
   copySkill,
+  readAgentFile,
   readMemoryFile,
   writeAgent
 } from '../src/main/capability-writer'
@@ -259,5 +260,27 @@ describe('writeAgent', () => {
     expect(writeAgent(draft({ name: '!!!' }), dest(), false, roots())).toMatchObject({
       status: 'error'
     })
+  })
+})
+
+describe('readAgentFile', () => {
+  test('reads a definition out of an agents directory', () => {
+    mkdirSync(join(tmp, 'claude-home/agents'), { recursive: true })
+    const path = join(tmp, 'claude-home/agents/reviewer.md')
+    writeFileSync(path, '---\nname: reviewer\n---\n\nBody.\n')
+    expect(readAgentFile(path)).toContain('Body.')
+  })
+
+  test('refuses anything that is not a .md inside an agents dir', () => {
+    // The point of a separate reader is that this channel cannot be talked
+    // into reading arbitrary files — widening readMemoryFile would have.
+    mkdirSync(join(tmp, 'claude-home/agents'), { recursive: true })
+    writeFileSync(join(tmp, 'claude-home/agents/keys.json'), '{}')
+    writeFileSync(join(tmp, 'secrets.md'), 'nope')
+    expect(() => readAgentFile(join(tmp, 'claude-home/agents/keys.json'))).toThrow(/non-agent/)
+    expect(() => readAgentFile(join(tmp, 'secrets.md'))).toThrow(/non-agent/)
+    expect(() => readAgentFile(join(tmp, 'claude-home/agents/../../secrets.md'))).toThrow(
+      /non-agent/
+    )
   })
 })

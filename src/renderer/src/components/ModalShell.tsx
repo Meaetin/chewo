@@ -7,8 +7,13 @@ interface ModalShellProps {
   subtitle?: React.ReactNode
   /** Blocked while work is in flight — closing mid-command would strand the UI */
   busy?: boolean
-  /** Wider dialog for reading surfaces (e.g. the memory viewer). */
-  size?: 'default' | 'wide'
+  /**
+   * Wider dialog for reading surfaces (e.g. the memory viewer), and `xwide`
+   * for the one that is genuinely *edited* at length — a subagent's system
+   * prompt runs to thousands of words, and 640px wraps it to about seventy
+   * monospace columns.
+   */
+  size?: 'default' | 'wide' | 'xwide'
   onClose: () => void
   children: React.ReactNode
   /** Omit for a footerless reading modal. */
@@ -36,7 +41,7 @@ export function ModalShell({
   return (
     <div className="wt-modal-backdrop" onClick={busy ? undefined : onClose}>
       <div
-        className={`wt-modal ${size === 'wide' ? 'wt-modal--wide' : ''}`}
+        className={`wt-modal ${size === 'default' ? '' : `wt-modal--${size}`}`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="wt-modal-header">

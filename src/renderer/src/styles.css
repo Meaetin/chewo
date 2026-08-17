@@ -3971,6 +3971,10 @@ body {
   width: 640px;
 }
 
+.wt-modal--xwide {
+  width: 880px;
+}
+
 /* Close glyph steps up to 20px in modals + the capabilities header (design/03 §7). */
 .wt-modal-header .icon-btn svg,
 .capabilities-header-top .icon-btn svg {
@@ -6926,4 +6930,192 @@ body {
 .ship-danger:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ---------- agent builder ---------- */
+
+.capabilities-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-12);
+}
+
+.agent-builder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.agent-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-field--narrow {
+  flex: 0 0 132px;
+}
+
+.agent-field-row {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-start;
+}
+
+.agent-field__label {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  font-weight: 500;
+}
+
+.agent-field__input {
+  width: 100%;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-2);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  resize: vertical;
+}
+
+.agent-field__input:focus {
+  outline: none;
+  border-color: var(--border-selected);
+}
+
+.agent-field__input--tall {
+  min-height: 120px;
+}
+
+/* The system prompt is the agent's entire brief — it is read here, not
+   skimmed, so it gets a monospace column and real height. */
+.agent-field__input--prompt {
+  min-height: 260px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  line-height: var(--lh-base);
+}
+
+.agent-field__hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.agent-builder__waiting {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  margin: 0;
+}
+
+.agent-builder__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+}
+
+.agent-skills {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.agent-skills__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+/* The per-skill figures read as free one at a time and are not in aggregate,
+   which is the only reason this total is on screen. */
+.agent-skills__budget {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-skill {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-2);
+}
+
+.agent-skill__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Same trap as `.capability-row__line`: without this the inner row sizes to
+   max-content and runs past the card. */
+.agent-skill__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  width: 100%;
+  min-width: 0;
+}
+
+.agent-skill__reason {
+  margin: var(--space-4) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+}
+
+.agent-skill__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  cursor: pointer;
+}
+
+.agent-preview > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-sm);
+  cursor: pointer;
+}
+
+.agent-preview__body {
+  margin: var(--space-8) 0 0;
+  padding: var(--space-12);
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-2);
+  background: var(--bg-canvas);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  line-height: var(--lh-base);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

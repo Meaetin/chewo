@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { CopyDestination, CopyResult, HookRef } from '../shared/capabilities/types'
 import { agentFileName, serializeAgent, type AgentDraft } from '../shared/capabilities/agent-file'
 
@@ -126,6 +126,21 @@ export function copyMemoryFile(
 }
 
 /** Read an instruction file for the viewer — restricted to memory filenames. */
+/**
+ * Read one agent definition, for the editor.
+ *
+ * Deliberately **not** `readMemoryFile` with a widened whitelist: that guard
+ * is what stops an IPC channel named "read a file" from becoming one. This
+ * has its own, equally narrow constraint — a `.md` directly inside a directory
+ * called `agents`, which is the only place either CLI looks for one.
+ */
+export function readAgentFile(path: string): string {
+  if (!path.endsWith('.md') || basename(dirname(path)) !== 'agents') {
+    throw new Error(`refusing to read non-agent file: ${path}`)
+  }
+  return readFileSync(path, 'utf8')
+}
+
 export function readMemoryFile(path: string): string {
   if (!MEMORY_FILES.has(basename(path))) {
     throw new Error(`refusing to read non-instruction file: ${path}`)

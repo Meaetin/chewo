@@ -152,10 +152,13 @@ export function toolPolicy(agent: AgentRef): string {
 
 export function AgentRow({
   agent,
-  onCopy
+  onCopy,
+  onEdit
 }: {
   agent: AgentRef
   onCopy: () => void
+  /** Absent for a plugin's agent — its files belong to its plugin manager */
+  onEdit?: () => void
 }): React.JSX.Element {
   const fromPlugin = agent.origin.kind === 'plugin'
   return (
@@ -166,9 +169,16 @@ export function AgentRow({
       leading={<Badge source="claude" />}
       trailing={
         fromPlugin ? null : (
-          <Button intent="secondary" size="compact" onClick={onCopy}>
-            Copy to…
-          </Button>
+          <>
+            {onEdit && (
+              <Button intent="secondary" size="compact" onClick={onEdit}>
+                Edit
+              </Button>
+            )}
+            <Button intent="secondary" size="compact" onClick={onCopy}>
+              Copy to…
+            </Button>
+          </>
         )
       }
     >

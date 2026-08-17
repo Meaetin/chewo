@@ -150,6 +150,7 @@ function readSkillsDir(dir: string, tools: Tool[], origin: CapabilityOrigin): Sk
         name: fm.name || entry,
         description: fm.description ?? '',
         dir: skillDir,
+        bytes: md.length,
         tools,
         origin
       })

@@ -24,12 +24,31 @@ const MAX_SKILL_DESC = 240
 export interface SkillOption {
   name: string
   description: string
-  /** Human-readable provenance, e.g. "personal" or "figma plugin (disabled)" */
+  /** Human-readable provenance, e.g. "personal" or "figma plugin" */
   origin: string
+  /**
+   * Reachable by an agent *right now* — which is not the same as present on
+   * disk. A disabled plugin's skills are installed and reach nobody, and that
+   * is the case the inventory exists to make visible, so they are offered
+   * with this false rather than hidden.
+   */
   installed: boolean
+  /** Why it isn't reachable, in the words to show the user */
+  unavailableReason?: string
   /** `<plugin>@<marketplace>`, when installing it is a possibility */
   pluginId?: string
+  /** SKILL.md size — what preloading this one would cost, per invocation */
+  bytes?: number
 }
+
+/**
+ * Bytes → an honest-enough token count for a preload budget.
+ *
+ * Four characters per token is the usual English rule of thumb, and the
+ * precision that matters here is "hundreds or tens of thousands", not the
+ * exact figure — the decision the number informs is whether to preload at all.
+ */
+export const approxTokens = (bytes: number): number => Math.round(bytes / 4)
 
 export interface DraftRequest {
   /** What the user typed */
