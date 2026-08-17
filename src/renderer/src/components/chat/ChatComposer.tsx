@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, FileText, GitBranch, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, GitBranch, Network, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
@@ -42,12 +42,21 @@ export interface SessionSetup {
   branches?: { current: string; local: string[]; remote: string[] }
   /** The shared checkout's branch — what "this checkout" concretely means */
   currentBranch?: string
+  /** Run as a lead that plans and dispatches to your subagents */
+  orchestrate: boolean
+  /**
+   * How many agents this session could dispatch to. Zero hides the toggle
+   * entirely — a control whose only effect is to brief a lead about an empty
+   * roster is a control that does nothing.
+   */
+  dispatchable: number
   onChange: (patch: Partial<SessionChoice>) => void
 }
 
 export interface SessionChoice {
   source: 'claude' | 'codex'
   isolate: boolean
+  orchestrate: boolean
   model: string
   effort: EffortLevel
   /** Empty string means "the default, resolved when the branch is cut" */
@@ -89,6 +98,8 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
     branches,
     projectName,
     currentBranch,
+    orchestrate,
+    dispatchable,
     onChange
   } = setup
 
@@ -221,6 +232,29 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
             }
           />
         </div>
+      )}
+
+      {/* Spawn-time, like everything else on this row: the brief goes in with
+          `--append-system-prompt`, so it cannot be turned on mid-session.
+          Deliberately off by default — delegation costs a fresh context that
+          cannot see this conversation, which is a bad trade for the small
+          edit that most sessions are. */}
+      {dispatchable > 0 && source === 'claude' && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={orchestrate}
+          className={`chat-setup-chip chat-setup-lead${orchestrate ? ' chat-setup-chip--on' : ''}`}
+          title={
+            orchestrate
+              ? `Plans the work into tasks and hands them to your ${dispatchable} subagents, showing who is doing what. Best for work that splits up; a single edit is faster done directly.`
+              : `Runs as one agent. Turn on to have it plan and dispatch to your ${dispatchable} subagents.`
+          }
+          onClick={() => onChange({ orchestrate: !orchestrate })}
+        >
+          <Network size={13} strokeWidth={1.75} aria-hidden="true" />
+          Lead
+        </button>
       )}
     </div>
   )

@@ -44,6 +44,18 @@ export function claudeChatArgs(opts: {
   permissionMode?: string
   sessionId?: string
   extraDirs?: string[]
+  /**
+   * Orchestration brief, appended to the CLI's own system prompt rather than
+   * replacing it — the lead still needs everything a normal session knows.
+   * Empty or absent passes no flag at all.
+   */
+  appendSystemPrompt?: string
+  /**
+   * Emit subagent text and thinking as messages carrying `parent_tool_use_id`,
+   * so a dispatched agent's work is visible instead of a spinner. Off unless
+   * asked for: it multiplies the stream on a fan-out.
+   */
+  forwardSubagentText?: boolean
 }): string[] {
   const args = [
     '-p',
@@ -63,6 +75,10 @@ export function claudeChatArgs(opts: {
   if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode)
   if (opts.sessionId) args.push('--resume', opts.sessionId)
   for (const dir of opts.extraDirs ?? []) args.push('--add-dir', dir)
+  // Passed as argv through `"$@"`, never interpolated into the script, so a
+  // multi-line brief needs no quoting and cannot reach the shell.
+  if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt)
+  if (opts.forwardSubagentText) args.push('--forward-subagent-text')
   return args
 }
 

@@ -7119,3 +7119,48 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------- agent attribution ---------- */
+
+/* Two initials and a hue, so three running agents are told apart at a glance.
+   Colour is inline (per agent, from its `color` frontmatter or a hash of its
+   name), so only the shape lives here. */
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 0 0 auto;
+  padding: 1px var(--space-6) 1px 1px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-2);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-2xs);
+  white-space: nowrap;
+}
+
+.agent-chip__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  border-radius: calc(var(--radius-2) - 1px);
+  background: currentColor;
+  color: var(--bg-canvas);
+  font-size: var(--fs-2xs);
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The Lead toggle sits with the other setup chips but is a switch, not a
+   radio — it reads as pressed rather than as selected. */
+.chat-setup-lead {
+  gap: var(--space-6);
+}

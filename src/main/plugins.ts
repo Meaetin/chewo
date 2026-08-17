@@ -91,11 +91,43 @@ export function parsePluginList(stdout: string): InstalledPlugin[] {
 }
 
 /**
+ * Briefly cached, because this is a process spawn and it is now on the path of
+ * every project selection (the composer's Lead toggle needs to know whether
+ * there is anyone to dispatch to). Installing a plugin is a deliberate act in
+ * another window, so a stale answer for a few seconds costs nothing — whereas
+ * **agent files are deliberately not cached anywhere**, since writing one in
+ * the Capabilities view and using it in the next session is the whole point.
+ */
+const CACHE_MS = 30_000
+let cached: { at: number; plugins: InstalledPlugin[] } | null = null
+/** In-flight read, so a dozen callers in one tick cost one spawn. */
+let inFlight: Promise<InstalledPlugin[]> | null = null
+
+/** Drops the cache, for when this process is what changed the plugins. */
+export function forgetInstalledPlugins(): void {
+  cached = null
+}
+
+/**
  * Never throws and never blocks the view: a missing CLI, a timeout or a shape
  * change all return `[]`, which degrades the Capabilities view to the
  * user/project dirs it showed before rather than failing it outright.
  */
 export async function listInstalledPlugins(): Promise<InstalledPlugin[]> {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.plugins
+  if (inFlight) return inFlight
+  inFlight = readInstalledPlugins()
+    .then((plugins) => {
+      cached = { at: Date.now(), plugins }
+      return plugins
+    })
+    .finally(() => {
+      inFlight = null
+    })
+  return inFlight
+}
+
+async function readInstalledPlugins(): Promise<InstalledPlugin[]> {
   if (claudePath === undefined) claudePath = await shellLookup('claude')
   if (!claudePath) return []
   return new Promise((resolve) => {

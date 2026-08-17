@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
 import type { AgentDraft } from '../shared/capabilities/agent-file'
+import type { DispatchableAgent } from '../shared/orchestrator'
 import type { DraftRequest, DraftResult } from '../shared/capabilities/agent-draft'
 import type { CopyDestination, CopyResult } from '../shared/capabilities/types'
 import type { ScanResult } from '../shared/adapter/types'
@@ -137,6 +138,8 @@ const api = {
     permissionMode?: string
     extraDirs?: string[]
     setupCommand?: string
+    /** Run as a lead: main resolves the roster and appends the brief */
+    orchestrate?: boolean
   }) => ipcRenderer.invoke('chat:create', opts) as Promise<number>,
   /** `images` are staged attachment paths; main reads them into content blocks */
   chatSend: (id: number, text: string, images?: string[]) =>
@@ -187,6 +190,9 @@ const api = {
     ipcRenderer.invoke('capabilities:copyHook', args),
   /** One agent definition, for the editor — a narrower door than readMemory */
   readAgent: (path: string) => ipcRenderer.invoke('capabilities:readAgent', path) as Promise<string>,
+  /** Agents a lead session could dispatch to — drives the composer's toggle */
+  dispatchableAgents: (cwd: string | null) =>
+    ipcRenderer.invoke('capabilities:dispatchable', cwd) as Promise<DispatchableAgent[]>,
   /** NL → subagent draft. Nothing is written; the review screen decides. */
   draftAgent: (req: DraftRequest) => ipcRenderer.invoke('capabilities:draftAgent', req) as Promise<DraftResult>,
   writeAgent: (args: { draft: AgentDraft; dest: CopyDestination; overwrite: boolean }) =>

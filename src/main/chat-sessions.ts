@@ -68,6 +68,13 @@ export interface CreateChatOptions {
    *  starts. The user's own script, so it is shell by design — same contract
    *  as `buildCommand` in terminals.ts. */
   setupCommand?: string
+  /**
+   * Resolved by the caller, not here: the roster comes from a capability scan
+   * and this file owns process lifecycle, not inventory. Empty = a normal
+   * session.
+   */
+  appendSystemPrompt?: string
+  forwardSubagentText?: boolean
 }
 
 function emit(win: BrowserWindow, id: number, event: AgentChatEvent): void {
@@ -81,7 +88,9 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
     effort: opts.effort,
     permissionMode: opts.permissionMode,
     sessionId: opts.sessionId,
-    extraDirs: opts.extraDirs
+    extraDirs: opts.extraDirs,
+    appendSystemPrompt: opts.appendSystemPrompt,
+    forwardSubagentText: opts.forwardSubagentText
   })
 
   // A setup script runs first and the agent only starts if it succeeds, same

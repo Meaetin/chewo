@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Circle, Loader } from 'lucide-react'
 import { isBlocked, taskProgress, type AgentTask } from '../../../../shared/tool-tasks'
+import { AgentChip } from './AgentChip'
 
 /**
  * The agent's plan, as one list that updates in place.
@@ -86,7 +87,9 @@ function TaskRow({ task, tasks }: { task: AgentTask; tasks: AgentTask[] }): Reac
       <span className="chat-task-subject">
         {task.status === 'in_progress' ? task.activeForm || task.subject : task.subject}
       </span>
-      {task.owner && <span className="chat-task-tag chat-task-tag--owner">{task.owner}</span>}
+      {/* The owner is what turns a plan into "who is on what" — the whole
+          reason the lead brief insists on setting it. */}
+      {task.owner && <AgentChip name={task.owner} title={`${task.owner} owns this task`} />}
       {blocked && (
         <span className="chat-task-tag chat-task-tag--blocked">
           blocked by {task.blockedBy?.map((id) => `#${id}`).join(', ')}

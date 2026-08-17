@@ -34,6 +34,8 @@ import {
   type Workflow,
   type Worktree
 } from '../../shared/projects'
+import type { DispatchableAgent } from '../../shared/orchestrator'
+import { AgentColorsProvider } from './components/chat/AgentChip'
 import {
   type NoteSource,
   type NoteStyle,
@@ -135,6 +137,17 @@ export interface TerminalTab {
    */
   baseBranch?: string
   /**
+   * Run this session as a lead that plans into tasks and dispatches to the
+   * installed subagents, rather than as one agent doing the work.
+   *
+   * Absent means off, and that is deliberate and should stay that way:
+   * delegation costs a fresh context that cannot see the conversation, which
+   * is the wrong trade for the small edit most sessions are. It is also a
+   * spawn-time flag (`--append-system-prompt`), so like the checkout it can
+   * only be chosen before the first message.
+   */
+  orchestrate?: boolean
+  /**
    * Model and reasoning effort for the session, also from the setup row.
    * Absent means "whatever `sessionModel`/`sessionEffort` resolve for this
    * agent" — an explicit id would go stale the moment a CLI update renames a
@@ -226,6 +239,16 @@ export function App(): React.JSX.Element {
   const [defaultBases, setDefaultBases] = useState<Map<string, string | null>>(new Map())
   /** Every other branch a session could be cut from, per project path */
   const [branchLists, setBranchLists] = useState<Map<string, ProjectBranches>>(new Map())
+  /**
+   * Agents a lead session could dispatch to. Drives whether the composer even
+   * offers the Lead toggle, and tints the chip that says who is doing what.
+   *
+   * Re-read on project selection rather than on every render: it costs a
+   * `claude plugin list` spawn, and the answer only changes when an agent file
+   * does — which the Capabilities view is the usual way of doing, and that
+   * remounts this anyway.
+   */
+  const [roster, setRoster] = useState<DispatchableAgent[]>([])
   /** Projects whose own checkout is parked on an already-merged branch */
   const [staleCheckouts, setStaleCheckouts] = useState<Map<string, StaleCheckout>>(new Map())
   /**
@@ -1100,6 +1123,7 @@ export function App(): React.JSX.Element {
       initialPrompt?: string
       initialImages?: string[]
       extraDirs?: string[]
+      orchestrate?: boolean
     }): Promise<number> => {
       const { claudeMode } = settingsForSection(opts.projectId)
       const chatId = await window.api.createChat({
@@ -1110,7 +1134,10 @@ export function App(): React.JSX.Element {
         effort: opts.effort,
         permissionMode: claudeMode,
         setupCommand: opts.setupCommand,
-        extraDirs: opts.extraDirs
+        extraDirs: opts.extraDirs,
+        // Main resolves the roster and the brief — a spawn flag, so this is
+        // the last moment it can be decided
+        orchestrate: opts.orchestrate
       })
       setTabs((t) => [
         ...t,
@@ -1177,6 +1204,8 @@ export function App(): React.JSX.Element {
       images?: string[]
       extraDirs?: string[]
       attachImages?: string[]
+      /** Chat panes only — a pty has no brief to append */
+      orchestrate?: boolean
       forceTerminal?: boolean
     }): Promise<number> => {
       const images = opts.images ?? []
@@ -1550,6 +1579,7 @@ export function App(): React.JSX.Element {
         effort,
         initialPrompt: text,
         images,
+        orchestrate: tab.orchestrate === true,
         forceTerminal: tab.mode === 'terminal' && !tab.pending
       })
 
@@ -1589,6 +1619,7 @@ export function App(): React.JSX.Element {
             setupCommand: owner.worktreeSetup || undefined,
             initialPrompt: text,
             images,
+            orchestrate: tab.orchestrate === true,
             forceTerminal: tab.mode === 'terminal' && !tab.pending
           })
         } catch (err) {
@@ -1847,6 +1878,24 @@ export function App(): React.JSX.Element {
    * the pane so the tab strip's badge and the branch chip read the same
    * answer the send path will act on.
    */
+  /** Only the agents that declared a `color`; everything else hashes its name. */
+  const agentColors = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const a of roster) if (a.color) map.set(a.name, a.color)
+    return map
+  }, [roster])
+
+  useEffect(() => {
+    let live = true
+    window.api
+      .dispatchableAgents(selectedProject?.path ?? null)
+      .then((list) => live && setRoster(list))
+      .catch(() => live && setRoster([]))
+    return () => {
+      live = false
+    }
+  }, [selectedProject?.path])
+
   const setPaneChoice = useCallback(
     (
       termId: number,
@@ -1855,6 +1904,7 @@ export function App(): React.JSX.Element {
         branchMode?: 'current' | 'separate'
         /** `''` picks the default back — the one answer that is stored as absent */
         base?: string
+        orchestrate?: boolean
         model?: string
         effort?: EffortLevel
       }
@@ -1866,6 +1916,7 @@ export function App(): React.JSX.Element {
       if (next.branchMode !== undefined) patch.branchMode = next.branchMode
       if (next.model !== undefined) patch.model = next.model
       if (next.effort !== undefined) patch.effort = next.effort
+      if (next.orchestrate !== undefined) patch.orchestrate = next.orchestrate
       // The one answer whose absence is meaningful: the picker's default row
       // has no ref of its own, so choosing it clears the field rather than
       // writing today's `origin/main` onto the tab.
@@ -2650,6 +2701,7 @@ export function App(): React.JSX.Element {
   ]
 
   return (
+    <AgentColorsProvider value={agentColors}>
     <div className="app-layout">
       <div className="sidebar-column">
         {/* hiddenInset traffic lights wired in main process separately */}
@@ -3077,6 +3129,8 @@ export function App(): React.JSX.Element {
                             base: tabProject ? (defaultBases.get(tabProject.path) ?? null) : null,
                             baseChoice: tab.baseBranch,
                             branches: tabProject ? branchLists.get(tabProject.path) : undefined,
+                            orchestrate: tab.orchestrate === true,
+                            dispatchable: roster.length,
                             // Only meaningful for the visible pane: `repoStatus`
                             // follows the *active* tab's root, and an unstarted
                             // pane's root is its project's checkout
@@ -3094,6 +3148,7 @@ export function App(): React.JSX.Element {
                                       ? 'separate'
                                       : 'current',
                                 base: patch.base,
+                                orchestrate: patch.orchestrate,
                                 model: patch.model,
                                 effort: patch.effort
                               })
@@ -3229,5 +3284,6 @@ export function App(): React.JSX.Element {
           })()}
       </main>
     </div>
+    </AgentColorsProvider>
   )
 }

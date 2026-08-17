@@ -14,6 +14,8 @@ import {
   MessageCircleQuestion
 } from 'lucide-react'
 import type { ApprovalDecision, ChatItem, ToolCall } from '../../../../shared/agent-chat'
+import { launchedAgent } from '../../../../shared/subagent'
+import { AgentChip } from './AgentChip'
 import {
   composeAnswers,
   parseAskQuestions,
@@ -129,6 +131,7 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
   // click still wins — the patch arrives after the chip mounts, so an
   // initial-state default would always be computed before there is one.
   const [toggled, setToggled] = useState<boolean | null>(null)
+  const dispatched = launchedAgent(call.name, call.input)
   const summary = toolSummary(call)
   const patch = call.patch
   const images = call.images ?? []
@@ -157,7 +160,14 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
         <span className="chat-tool-status" title={STATUS_TITLE[call.status]}>
           {STATUS_ICON[call.status]}
         </span>
-        <span className="chat-tool-name">{call.displayName ?? call.name}</span>
+        {/* A dispatch is the one tool call whose subject is another agent, so
+            it is named after that agent rather than after the launcher — a row
+            reading "Agent" tells you nothing about who is working. */}
+        {dispatched ? (
+          <AgentChip name={dispatched} />
+        ) : (
+          <span className="chat-tool-name">{call.displayName ?? call.name}</span>
+        )}
         {summary && <code className="chat-tool-summary">{shorten(summary, home)}</code>}
         {stats && (
           <span className="chat-diff-stat">

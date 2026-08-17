@@ -66,6 +66,7 @@ import { loadProjects, saveProjects } from './projects'
 import { loadSettings, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
 import { nextPaneId } from './pane-ids'
+import { dispatchableAgents, orchestratorPrompt } from './roster'
 import { accountUsage } from './claude-usage'
 import { pruneAttachments, stageImage } from './attachments'
 import type { AgentId } from '../shared/agents'
@@ -275,10 +276,21 @@ function registerIpc(): void {
   // its place in the strip later.
   ipcMain.handle('pane:reserve', () => nextPaneId())
 
-  ipcMain.handle('chat:create', (_e, opts: CreateChatOptions) => {
-    if (!mainWindow) throw new Error('no window')
-    return createChat(mainWindow, opts)
-  })
+  ipcMain.handle(
+    'chat:create',
+    async (_e, opts: CreateChatOptions & { orchestrate?: boolean }) => {
+      if (!mainWindow) throw new Error('no window')
+      // The roster is inventory, so it is resolved here rather than in
+      // chat-sessions, which owns process lifecycle only. An empty brief
+      // (no agents installed, or the scan failed) spawns an ordinary chat.
+      const appendSystemPrompt = opts.orchestrate ? await orchestratorPrompt(opts.cwd) : ''
+      return createChat(mainWindow, {
+        ...opts,
+        appendSystemPrompt,
+        forwardSubagentText: Boolean(appendSystemPrompt)
+      })
+    }
+  )
   ipcMain.on(
     'chat:send',
     (_e, { id, text, images }: { id: number; text: string; images?: string[] }) => {
@@ -328,6 +340,9 @@ function registerIpc(): void {
   )
   ipcMain.handle('capabilities:readMemory', (_e, path: string) => readMemoryFile(path))
   ipcMain.handle('capabilities:readAgent', (_e, path: string) => readAgentFile(path))
+  // Just the roster, for the composer's Lead toggle — sending the whole
+  // inventory to the renderer to count agents would be a scan per keystroke.
+  ipcMain.handle('capabilities:dispatchable', (_e, cwd: string | null) => dispatchableAgents(cwd))
   ipcMain.handle(
     'capabilities:copyMcp',
     (_e, args: { ref: McpRef; destinations: CopyDestination[]; overwrite: boolean }) =>
