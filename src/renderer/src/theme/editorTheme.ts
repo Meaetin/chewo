@@ -5,6 +5,7 @@ import { tags as t } from '@lezer/highlight'
 import {
   deriveSurfaces,
   deriveTextRamp,
+  isLightBase,
   withAlpha,
   type AppearanceSettings
 } from '../../../shared/appearance'
@@ -17,6 +18,7 @@ import { MONO_STACK } from './terminalTheme'
 // terracotta / amber / cyan), tuned for #181818.
 
 export function makeEditorTheme(a: AppearanceSettings): Extension {
+  const light = isLightBase(a.base)
   const ramp = deriveSurfaces(a.base)
   const canvas = ramp.surfaces[1]
   const text = deriveTextRamp(a.base)
@@ -30,7 +32,11 @@ export function makeEditorTheme(a: AppearanceSettings): Extension {
       '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
         { backgroundColor: withAlpha(a.accent, 0.22) },
       '.cm-gutters': { backgroundColor: canvas, color: GUTTER_FG, border: 'none' },
-      '.cm-activeLine': { backgroundColor: 'rgba(255, 255, 255, 0.03)' },
+      // The active line is a wash of the ink, not of the canvas: white over a
+      // light canvas is invisible.
+      '.cm-activeLine': {
+        backgroundColor: light ? 'rgba(31, 35, 40, 0.045)' : 'rgba(255, 255, 255, 0.03)'
+      },
       '.cm-activeLineGutter': { backgroundColor: 'transparent' },
       // Find panel chrome — the panel body itself is the React EditorFindPanel,
       // styled in styles.css; here we only replace CM's stock grey shell.
@@ -49,7 +55,9 @@ export function makeEditorTheme(a: AppearanceSettings): Extension {
       },
       '.cm-selectionMatch': { backgroundColor: withAlpha(a.accent, 0.12) }
     },
-    { dark: true }
+    // CodeMirror uses this to pick its own defaults for anything the theme
+    // above leaves alone (the panel chrome, the tooltip fills).
+    { dark: !light }
   )
 
   const c = a.editor

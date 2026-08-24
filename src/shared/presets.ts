@@ -2,6 +2,17 @@
 // (types only from appearance.ts) so it can be imported anywhere. Every preset is
 // a full AppearanceSettings for fidelity; the surface ramp, text ramp and rim are
 // derived from `base` at apply time (see applyAppearance / makeTerminalTheme).
+//
+// The three accents are three *signals*, not a colour harmony: `accent` means
+// you-are-here, `accentSecondary` means this-container-is-open (the expanded
+// project's wash and left bar), `accentTertiary` means an-agent-is-working
+// (every live dot, running row and in-flight tool chip). Picking all three out
+// of one palette family makes them neighbours and destroys the distinction, so
+// each preset keeps them **at least 45° apart in hue** and clear of the hues
+// the fixed status colours already own — danger (h5), the Claude badge (h17),
+// warning (h38), diff-add (h135) and the Codex badge (h214). That leaves three
+// usable bands: 64–109, 161–188 and 240–339. `tests/appearance.test.ts` pins
+// all of it, so a new preset cannot quietly reintroduce the problem.
 
 import {
   DEFAULT_APPEARANCE,
@@ -28,12 +39,12 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'midnight',
     name: 'Midnight',
-    description: 'Deep navy base with a bright sky-cyan accent.',
+    description: 'Deep navy base, bright sky accent, indigo and pink signals.',
     appearance: {
       base: '#0f1420',
       accent: '#38bdf8',
-      accentSecondary: '#818cf8',
-      accentTertiary: '#2dd4bf',
+      accentSecondary: '#8b7ff5',
+      accentTertiary: '#f472b6',
       terminal: {
         black: '#1e293b',
         red: '#f87171',
@@ -73,12 +84,12 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'nocturne',
     name: 'Nocturne',
-    description: 'Cool blue-grey base with soft frost accents.',
+    description: 'Nord — cool blue-grey base, frost accent, mauve and sage signals.',
     appearance: {
       base: '#2e3440',
       accent: '#88c0d0',
-      accentSecondary: '#81a1c1',
-      accentTertiary: '#8fbcbb',
+      accentSecondary: '#c89dc0',
+      accentTertiary: '#a3be8c',
       terminal: {
         black: '#3b4252',
         red: '#bf616a',
@@ -118,12 +129,12 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'ember',
     name: 'Ember',
-    description: 'Warm charcoal base, amber accent, mossy greens.',
+    description: 'Gruvbox — warm charcoal base, amber accent, teal and pink signals.',
     appearance: {
       base: '#1d2021',
       accent: '#fabd2f',
-      accentSecondary: '#b8bb26',
-      accentTertiary: '#8ec07c',
+      accentSecondary: '#78b7ba',
+      accentTertiary: '#cf7bb0',
       terminal: {
         black: '#282828',
         red: '#cc241d',
@@ -163,12 +174,12 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'nightshade',
     name: 'Nightshade',
-    description: 'Violet-tinted base with pink and purple accents.',
+    description: 'Dracula — violet base, pink accent, purple and turquoise signals.',
     appearance: {
       base: '#282a36',
       accent: '#ff79c6',
       accentSecondary: '#bd93f9',
-      accentTertiary: '#8be9fd',
+      accentTertiary: '#5ce6d2',
       terminal: {
         black: '#21222c',
         red: '#ff5555',
@@ -208,12 +219,12 @@ export const PRESETS: ThemePreset[] = [
   {
     id: 'rose',
     name: 'Rosé',
-    description: 'Muted mauve base with rose, iris and foam accents.',
+    description: 'Rosé Pine — muted mauve base with rose, iris and foam.',
     appearance: {
       base: '#191724',
       accent: '#ebbcba',
       accentSecondary: '#c4a7e7',
-      accentTertiary: '#9ccfd8',
+      accentTertiary: '#86cdd8',
       terminal: {
         black: '#26233a',
         red: '#eb6f92',
@@ -249,11 +260,63 @@ export const PRESETS: ThemePreset[] = [
       },
       notes: { heading: '#ebbcba', link: '#9ccfd8', code: '#f6c177', quote: '#6e6a86' }
     }
+  },
+  // GitHub Light, kept byte for byte: every one of its slots already clears
+  // 3:1 against a white canvas. Pastel light palettes (Catppuccin Latte,
+  // Solarized Light) were tried and dropped — several of their own colours sit
+  // under that bar on their own paper, and darkening them enough to read is a
+  // different theme wearing their name.
+  {
+    id: 'daylight',
+    name: 'Daylight',
+    description: 'White canvas, GitHub Light syntax and ANSI — the plainest light theme.',
+    appearance: {
+      base: '#ffffff',
+      accent: '#0969da',
+      accentSecondary: '#8250df',
+      accentTertiary: '#bf3989',
+      terminal: {
+        black: '#24292f',
+        red: '#cf222e',
+        green: '#116329',
+        yellow: '#4d2d00',
+        blue: '#0969da',
+        magenta: '#8250df',
+        cyan: '#1b7c83',
+        white: '#6e7781',
+        brightBlack: '#57606a',
+        brightRed: '#a40e26',
+        brightGreen: '#1a7f37',
+        brightYellow: '#633c01',
+        brightBlue: '#218bff',
+        brightMagenta: '#a475f9',
+        brightCyan: '#3192aa',
+        brightWhite: '#8c959f'
+      },
+      editor: {
+        keyword: '#cf222e',
+        string: '#0a3069',
+        number: '#0550ae',
+        function: '#8250df',
+        type: '#953800',
+        tag: '#116329',
+        attribute: '#0550ae',
+        property: '#1f2328',
+        punctuation: '#57606a',
+        comment: '#6e7781',
+        regexp: '#0a3069',
+        link: '#0969da',
+        invalid: '#82071e'
+      },
+      notes: { heading: '#0550ae', link: '#0969da', code: '#116329', quote: '#6e7781' }
+    }
   }
 ]
 
-// Quick-pick swatches for the high-impact slots. Base = dark neutrals/tints;
-// accents = saturated hues that read well as the app accent on a dark canvas.
+// Quick-pick swatches for the high-impact slots. Bases run dark to light —
+// anything past 55% lightness flips the whole app into light mode (see
+// isLightBase), so these last two are the way into one by hand. Accents are
+// saturated hues that read as the app accent at either end of the ramp.
 export const CURATED_BASES = [
   '#141414', // graphite
   '#0a0a0a', // true black
@@ -262,7 +325,9 @@ export const CURATED_BASES = [
   '#14181f', // cool slate
   '#191724', // plum
   '#101613', // forest
-  '#2e3440' // nord grey
+  '#2e3440', // nord grey
+  '#ffffff', // paper white
+  '#f4f5f7' // cool paper
 ]
 
 export const CURATED_ACCENTS = [
@@ -277,7 +342,11 @@ export const CURATED_ACCENTS = [
   '#fb7185', // rose
   '#f59e0b', // amber
   '#84cc16', // lime
-  '#fb923c' // orange
+  '#fb923c', // orange
+  '#0969da', // deep blue — for light bases
+  '#8250df', // deep violet
+  '#116329', // deep green
+  '#b8532e' // deep terracotta
 ]
 
 /** Every AppearanceSettings field, for structural comparison */

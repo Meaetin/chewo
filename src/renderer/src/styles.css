@@ -35,11 +35,14 @@
   --c-accent-deep: hsl(var(--accent-h) calc(var(--accent-s) + 3%) calc(var(--accent-l) - 9%));
   --c-accent-text: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 10%));
   --c-accent-wash: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.12);
-  --c-on-accent: hsl(var(--accent-h) 30% 12%); /* dark ink on accent fills — NOT white */
+  /* Ink on accent fills — NOT white. applyAppearance() overwrites this with
+     inkOn(), which picks the near-white twin when the accent is too deep for
+     dark ink; these two lines must stay in step so the first paint matches. */
+  --c-on-accent: hsl(var(--accent-h) 30% 10%);
 
   /* Status — fixed, decoupled from the accent ("green = accent only") */
-  --c-live: #34c9d6; /* cool cyan — running/live */
-  --c-live-wash: rgba(52, 201, 214, 0.12);
+  --c-live: #ef7fc8; /* magenta — running/live */
+  --c-live-wash: rgba(239, 127, 200, 0.12);
   --c-danger: #e2574b; /* red — destructive + recording */
   --c-danger-wash: rgba(226, 87, 75, 0.11);
   --c-warning: #dfa94e; /* honey amber */
@@ -52,7 +55,13 @@
   --c-badge-codex-wash: rgba(107, 164, 248, 0.22);
 
   /* Secondary selection — the expanded project/section. A distinct periwinkle
-     so it reads apart from the emerald accent (the focused terminal). */
+     so it reads apart from the emerald accent (the focused terminal).
+
+     These two and the accent are three *signals*, not a harmonious triad: one
+     means you-are-here, one means this-container-is-open, one means an agent is
+     working. Every preset therefore keeps all three at least 45° apart in hue —
+     which is why live is magenta here rather than the cyan it was, only 29°
+     off the emerald accent. `tests/appearance.test.ts` pins the rule. */
   --c-project: #948ada;
   --c-project-wash: rgba(148, 138, 218, 0.16);
 
@@ -172,6 +181,51 @@
   --accent-claude: var(--accent); /* app accent now emerald; brand terracotta lives in --badge-claude */
   --accent-codex: var(--accent);  /* app accent now emerald; brand blue lives in --badge-codex */
   --accent-live: var(--live);
+}
+
+/* ============================================================
+   LIGHT — the handful of tokens that cannot simply be re-derived
+   ============================================================
+   applyAppearance() sets data-theme from the base's lightness and writes the
+   surfaces, text ramp, rim, accent H/S/L and on-accent ink as inline styles,
+   which outrank this block. So everything here is a token that is *only* ever
+   written in CSS, and every one of them is a value that has to flip rather
+   than shift: the accent scale steps down instead of up, shadows stop being
+   black voids, and the status hues need the darker end of their family to
+   clear 4.5:1 against a near-white surface. */
+:root[data-theme='light'] {
+  /* Hover, press and accent-text all mean "more ink" on a light surface,
+     which is the opposite direction from the dark scale above. */
+  --c-accent-hi: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 7%));
+  --c-accent-deep: hsl(var(--accent-h) calc(var(--accent-s) + 3%) calc(var(--accent-l) - 14%));
+  --c-accent-text: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 10%));
+
+  /* Elevation — a 0.45 black under a white card reads as soot, not as height */
+  --scrim: rgba(31, 35, 40, 0.3);
+  --shadow-popover: 0 8px 24px rgba(31, 35, 40, 0.14);
+  --shadow-overlay: 0 16px 40px rgba(31, 35, 40, 0.18);
+  --shadow-toast: 0 6px 24px rgba(31, 35, 40, 0.16);
+
+  /* Status — the dark ramp's pastels sit at ~2:1 on white, so each drops to
+     the darker member of its own family. --c-live is not here: it is written
+     inline from the preset's tertiary accent. */
+  --c-danger: #cf222e;
+  --c-danger-wash: rgba(207, 34, 46, 0.1);
+  --c-warning: #9a6700;
+  --c-warning-wash: rgba(154, 103, 0, 0.12);
+
+  --c-badge-claude: #b8532e;
+  --c-badge-claude-wash: rgba(184, 83, 46, 0.16);
+  --c-badge-codex: #0969da;
+  --c-badge-codex-wash: rgba(9, 105, 218, 0.14);
+
+  /* Diff — add stays at hue 135, still deliberately apart from the accent */
+  --c-diff-add: hsl(135 71% 24%);
+  --c-diff-add-wash: hsl(135 60% 35% / 0.11);
+  --c-diff-add-gutter: hsl(135 60% 35% / 0.2);
+  --c-diff-del: #a40e26;
+  --c-diff-del-wash: rgba(207, 34, 46, 0.09);
+  --c-diff-del-gutter: rgba(207, 34, 46, 0.18);
 }
 
 html,
@@ -4760,6 +4814,20 @@ body {
 
 .preset-gallery-custom {
   color: var(--accent-text);
+}
+
+.preset-gallery-group + .preset-gallery-group {
+  margin-top: var(--space-24);
+}
+
+.preset-gallery-heading {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-8);
 }
 
 .preset-gallery {

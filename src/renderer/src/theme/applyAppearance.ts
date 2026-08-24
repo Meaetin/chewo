@@ -3,6 +3,8 @@ import {
   deriveSurfaces,
   deriveTextRamp,
   hexToHsl,
+  inkOn,
+  isLightBase,
   withAlpha,
   type AppearanceSettings
 } from '../../../shared/appearance'
@@ -13,9 +15,15 @@ import {
  * styles.css derives from these, so the whole UI (including the notes
  * markdown preview) re-themes live. The accent is written as its H/S/L parts;
  * the CSS calc() scale (hover / press / text / wash) derives the rest.
+ *
+ * `data-theme` carries the one thing calc() cannot work out for itself: which
+ * direction the accent scale and the shadows should run. Everything set here
+ * is an inline style and so outranks the `:root[data-theme='light']` block, so
+ * that block only holds tokens this function never writes.
  */
 export function applyAppearance(a: AppearanceSettings): void {
   const root = document.documentElement.style
+  document.documentElement.dataset.theme = isLightBase(a.base) ? 'light' : 'dark'
   const ramp = deriveSurfaces(a.base)
   ramp.surfaces.forEach((hex, i) => root.setProperty(`--c-surface-${i}`, hex))
   root.setProperty('--c-line-1', ramp.line1)
@@ -33,6 +41,7 @@ export function applyAppearance(a: AppearanceSettings): void {
   root.setProperty('--accent-h', String(h))
   root.setProperty('--accent-s', `${s}%`)
   root.setProperty('--accent-l', `${l}%`)
+  root.setProperty('--c-on-accent', inkOn(a.accent))
 
   root.setProperty('--c-project', a.accentSecondary)
   root.setProperty('--c-project-wash', withAlpha(a.accentSecondary, 0.16))

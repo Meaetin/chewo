@@ -78,7 +78,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   base: '#141414', // --c-surface-0 (graphite)
   accent: '#3bbf8b', // --c-accent (emerald)
   accentSecondary: '#948ada', // --c-project (periwinkle)
-  accentTertiary: '#34c9d6', // --c-live (cyan)
+  accentTertiary: '#ef7fc8', // --c-live (magenta)
   terminal: {
     black: '#232323',
     red: '#e2574b',
@@ -203,10 +203,39 @@ export interface SurfaceRamp {
 const SURFACE_OFFSETS = [0, 1.6, 3.9, 6.7, 9.4, 12.6] as const
 const LINE_OFFSETS = [14.9, 20.4] as const
 
+// A base past this lightness reads as a light theme, and every ramp derived
+// from it runs the other way: surfaces get *darker* as they are raised, and
+// text is ink rather than cream. One threshold, exported, so the CSS token
+// overrides, the CodeMirror theme and the surface math never disagree about
+// which way round the app is.
+const LIGHT_AT = 55
+
+export function isLightBase(base: string): boolean {
+  return hexToHsl(base).l > LIGHT_AT
+}
+
+/**
+ * HSL saturation that holds the base's *chroma* steady at a new lightness.
+ * HSL compresses saturation near white — Solarized's #fdf6e3 measures s=87%
+ * while its own next surface down, #eee8d5, is s=42% — so carrying s unchanged
+ * down a light ramp turns a cream into custard. Dark ramps keep s as it is:
+ * the shipped dark presets were authored against that, and Nord's own ramp
+ * holds saturation flat the same way.
+ */
+function chromaHeldSat(s: number, from: number, to: number): number {
+  const width = (l: number): number => 1 - Math.abs((2 * l) / 100 - 1)
+  const w = width(to)
+  return w <= 0 ? 0 : Math.min(100, (s * width(from)) / w)
+}
+
 /** Rebuild the whole neutral ramp from one base color, keeping its hue/chroma */
 export function deriveSurfaces(base: string): SurfaceRamp {
   const { h, s, l } = hexToHsl(base)
-  const at = (offset: number): string => hslToHex(h, s, Math.min(100, Math.max(0, l + offset)))
+  const light = l > LIGHT_AT
+  const at = (offset: number): string => {
+    const to = Math.min(100, Math.max(0, light ? l - offset : l + offset))
+    return hslToHex(h, light ? chromaHeldSat(s, l, to) : s, to)
+  }
   return {
     surfaces: SURFACE_OFFSETS.map(at) as SurfaceRamp['surfaces'],
     line1: at(LINE_OFFSETS[0]),
@@ -224,11 +253,21 @@ export interface TextRamp {
 // The stock cream ramp (--c-text-primary…faint) with a per-level saturation cap
 // so text carries only a whisper of hue. These are the anchors: a neutral base
 // reproduces them exactly; a saturated base pulls each toward the base hue.
-const TEXT_ANCHORS = [
+const DARK_TEXT_ANCHORS = [
   { hex: '#e9e7e4', sCap: 16 },
   { hex: '#adaaa6', sCap: 11 },
   { hex: '#807d78', sCap: 8 },
   { hex: '#5a5854', sCap: 6 }
+] as const
+
+// The same four roles as ink, for a light base. Contrast is matched level for
+// level against the cream ramp on graphite (≈15:1, 6.5:1, 3.2:1, 2.2:1), so a
+// light preset reads with the same hierarchy rather than the same hex.
+const LIGHT_TEXT_ANCHORS = [
+  { hex: '#202326', sCap: 16 },
+  { hex: '#474d55', sCap: 11 },
+  { hex: '#6a737f', sCap: 8 },
+  { hex: '#959da6', sCap: 6 }
 ] as const
 
 // Base saturation at which text/rim fully adopt the base hue; below it the
@@ -237,22 +276,60 @@ const HUE_PULL_FULL_AT = 40
 
 /**
  * Text ramp that tracks the base hue. At a neutral base it is exactly the stock
- * cream; as the base gains saturation the whole ramp is pulled toward its hue,
- * fully by ~40% saturation.
+ * cream (or, on a light base, the stock ink); as the base gains saturation the
+ * whole ramp is pulled toward its hue, fully by ~40% saturation.
  */
 export function deriveTextRamp(base: string): TextRamp {
   const { h, s } = hexToHsl(base)
   const pull = Math.min(1, s / HUE_PULL_FULL_AT)
-  const [primary, secondary, tertiary, faint] = TEXT_ANCHORS.map((a) => {
+  const anchors = isLightBase(base) ? LIGHT_TEXT_ANCHORS : DARK_TEXT_ANCHORS
+  const [primary, secondary, tertiary, faint] = anchors.map((a) => {
     const tint = hslToHex(h, Math.min(s, a.sCap), hexToHsl(a.hex).l)
     return mixHex(a.hex, tint, pull)
   })
   return { primary, secondary, tertiary, faint }
 }
 
-/** Inset top rim-light: white by default, pulled toward the base hue when set */
+/**
+ * Inset top rim-light: white by default, pulled toward the base hue when set.
+ * A white hairline barely registers on a light surface, so it is given the
+ * alpha a dark surface would blow out.
+ */
 export function deriveRim(base: string): string {
   const { h, s } = hexToHsl(base)
   const pull = Math.min(1, s / HUE_PULL_FULL_AT)
-  return withAlpha(mixHex('#ffffff', hslToHex(h, Math.min(s, 20), 92), pull), 0.05)
+  const tint = mixHex('#ffffff', hslToHex(h, Math.min(s, 20), 92), pull)
+  return withAlpha(tint, isLightBase(base) ? 0.7 : 0.05)
+}
+
+// ---------- contrast ----------
+
+/** WCAG relative luminance, 0 (black) – 1 (white) */
+export function luminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex) ?? [0, 0, 0]
+  const lin = (v: number): number => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/** WCAG contrast ratio between two colors, 1 (identical) – 21 (black on white) */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/**
+ * Ink for text and icons drawn on an accent fill. Both candidates carry the
+ * accent's own hue; whichever reads better against it wins. So a mid emerald
+ * keeps the near-black ink the dark presets were designed around, while a deep
+ * one — a light theme's saturated blue, say — gets near-white instead of
+ * failing quietly at 2:1.
+ */
+export function inkOn(fill: string): string {
+  const { h } = hexToHsl(fill)
+  const dark = hslToHex(h, 30, 10)
+  const light = hslToHex(h, 25, 97)
+  return contrastRatio(fill, dark) >= contrastRatio(fill, light) ? dark : light
 }

@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react'
-import { deriveSurfaces, deriveTextRamp } from '../../../../shared/appearance'
+import { deriveSurfaces, deriveTextRamp, isLightBase } from '../../../../shared/appearance'
 import { PRESETS, type ThemePreset } from '../../../../shared/presets'
 
 /** One preset card — a mini swatch of the theme's own base/accent/syntax/ANSI */
@@ -62,22 +62,34 @@ export function PresetGallery({
   selectedId: string | null
   onPick: (preset: ThemePreset) => void
 }): React.JSX.Element {
+  // Dark and light are the one split worth drawing: picking a light preset
+  // turns the whole app around, which is a bigger step than swapping accents.
+  const groups: Array<[string, ThemePreset[]]> = [
+    ['Dark', PRESETS.filter((p) => !isLightBase(p.appearance.base))],
+    ['Light', PRESETS.filter((p) => isLightBase(p.appearance.base))]
+  ]
+
   return (
     <div className="preset-gallery-wrap">
       <div className="preset-gallery-intro">
         Pick a starting theme, then fine-tune it in the App, Terminal and Editor tabs.
         {selectedId === null && <span className="preset-gallery-custom"> · Custom (edited)</span>}
       </div>
-      <div className="preset-gallery">
-        {PRESETS.map((preset) => (
-          <PresetCard
-            key={preset.id}
-            preset={preset}
-            selected={preset.id === selectedId}
-            onPick={() => onPick(preset)}
-          />
-        ))}
-      </div>
+      {groups.map(([label, presets]) => (
+        <section key={label} className="preset-gallery-group">
+          <h3 className="preset-gallery-heading">{label}</h3>
+          <div className="preset-gallery">
+            {presets.map((preset) => (
+              <PresetCard
+                key={preset.id}
+                preset={preset}
+                selected={preset.id === selectedId}
+                onPick={() => onPick(preset)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
