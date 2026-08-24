@@ -105,8 +105,11 @@ select {
   --fs-xl: 18px;   --lh-xl: 24px;
   --fs-2xl: 24px;  --lh-2xl: 30px;
   --fs-mono-sm: 11px; --fs-mono: 12px; --fs-mono-lg: 13px;
-  --weight-light: 300; --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;
-  --weight-body: var(--weight-light); /* the app rests at Light 300 */
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;
+  /* The UI font only ever renders at 11-15px — every heading above that is
+     serif — so the resting weight stays at 400. Light 300 is a display weight
+     and this app has no display sizes in sans to spend it on. */
+  --weight-body: var(--weight-regular);
   --tracking-caps: 0.06em; --tracking-badge: 0.02em; --tracking-tight: -0.01em;
 
   /* Space — base 4 (design/03) */
