@@ -5682,10 +5682,23 @@ body {
   background: var(--c-surface-1);
 }
 
+/* An unstarted, empty pane has nothing to scroll — the headline and the
+   composer read as one group, not a tall scroll area with the composer
+   pinned far below it, so the whole pane centers them together instead of
+   `.chat-scroll` centering the headline alone in its own flex:1 share. */
+.chat-pane--empty {
+  justify-content: center;
+}
+
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+.chat-pane--empty .chat-scroll {
+  flex: 0 1 auto;
+  overflow: visible;
 }
 
 .chat-thread {
@@ -5696,6 +5709,44 @@ body {
   max-width: 780px; /* editorial measure, as .message */
   margin: 0 auto;
   width: 100%;
+}
+
+/* ---- empty state (unstarted pane, no history yet) ----
+   Vertical centering is `.chat-pane--empty`'s job — it centers this block
+   together with the composer below it, as one group. This only needs to
+   center itself horizontally. */
+.chat-empty-state {
+  margin: 0 auto;
+  text-align: center;
+  max-width: 420px;
+}
+
+.chat-empty-mark {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto var(--space-16);
+  border-radius: var(--radius-3);
+  background: var(--c-accent-wash);
+  color: var(--c-accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-empty-state h2 {
+  font-family: var(--font-serif-stack);
+  font-weight: var(--weight-medium);
+  font-size: var(--fs-xl);
+  line-height: var(--lh-xl);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+}
+
+.chat-empty-state p {
+  margin-top: var(--space-6);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  color: var(--text-tertiary);
 }
 
 /* ---- user turn ---- */
@@ -6685,6 +6736,58 @@ body {
   color: var(--text-primary);
 }
 
+.chat-mention-item svg { flex-shrink: 0; color: var(--text-tertiary); }
+
+.chat-mention-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- suggested prompts ----
+   Only shown on a blank, unstarted pane — a handful of recent prompts for
+   this project to fill the composer with instead of typing from scratch. */
+.chat-suggested {
+  margin-top: var(--space-16);
+}
+
+.chat-suggested-label {
+  padding: 0 var(--space-4) var(--space-6);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.chat-suggested-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-2);
+  background: none;
+  border: 0;
+  color: var(--text-tertiary);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-suggested-row svg { flex-shrink: 0; color: var(--text-faint); }
+
+.chat-suggested-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-suggested-row:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .chat-tool--cancelled .chat-tool-status { color: var(--text-faint); }
 .chat-tool--cancelled .chat-tool-name { color: var(--text-tertiary); }
 
@@ -7239,10 +7342,4 @@ body {
 .agent-chip__name {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The Lead toggle sits with the other setup chips but is a switch, not a
-   radio — it reads as pressed rather than as selected. */
-.chat-setup-lead {
-  gap: var(--space-6);
 }

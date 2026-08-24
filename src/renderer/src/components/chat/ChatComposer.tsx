@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, FileText, GitBranch, Network, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, GitBranch, MessageCircle, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
@@ -7,6 +7,8 @@ import { countLines, isLongPaste, type Attachment } from '../../../../shared/att
 import type { ChatUsage } from '../../../../shared/agent-chat'
 import { usageChips } from '../../chatUsage'
 import { useAccountUsage } from './useAccountUsage'
+import { mentionAt } from '../../mentionMatch'
+import { filterOptions } from '../../selectFilter'
 
 /**
  * The two questions a session has to answer before it exists, asked here
@@ -42,6 +44,8 @@ export interface SessionSetup {
   branches?: { current: string; local: string[]; remote: string[] }
   /** The shared checkout's branch — what "this checkout" concretely means */
   currentBranch?: string
+  /** Uncommitted files in that checkout — same count the git panel badge shows */
+  currentDirty?: number
   /** Run as a lead that plans and dispatches to your subagents */
   orchestrate: boolean
   /**
@@ -86,6 +90,17 @@ const HERE = ':current'
  */
 const NEW_BRANCH = 'New branch from…'
 
+/** Same two descriptions the switch used to show on hover, read up front now */
+const LEAD_OPTIONS = (dispatchable: number): SelectOption<'agent' | 'lead'>[] => [
+  { value: 'agent', label: 'Agent', detail: 'Runs as one agent, handling everything itself.' },
+  {
+    value: 'lead',
+    label: `Lead · ${dispatchable} subagent${dispatchable === 1 ? '' : 's'}`,
+    detail:
+      'Plans the work into tasks and hands them to your subagents, showing who is doing what. Best for work that splits up; a single edit is faster done directly.'
+  }
+]
+
 function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element {
   const {
     source,
@@ -98,6 +113,7 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
     branches,
     projectName,
     currentBranch,
+    currentDirty,
     orchestrate,
     dispatchable,
     onChange
@@ -145,7 +161,11 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
       value: HERE,
       group: 'In this checkout',
       label: `${projectName ?? 'This checkout'}${currentBranch ? ` · ${currentBranch}` : ''}`,
-      detail: 'shared — other agents write here too'
+      // Whichever is more useful right now: a dirty checkout says how much is
+      // sitting there uncommitted, a clean one explains what "shared" costs.
+      detail: currentDirty
+        ? `Uncommitted · ${currentDirty} file${currentDirty === 1 ? '' : 's'}`
+        : 'shared — other agents write here too'
     },
     { value: '', group: NEW_BRANCH, label: base ?? 'the default branch', detail: 'default' },
     ...(branches?.local ?? [])
@@ -238,23 +258,20 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
           `--append-system-prompt`, so it cannot be turned on mid-session.
           Deliberately off by default — delegation costs a fresh context that
           cannot see this conversation, which is a bad trade for the small
-          edit that most sessions are. */}
+          edit that most sessions are.
+
+          A picker rather than a switch: what each mode does used to show only
+          on hover, and only after you had already committed to a state. Same
+          two descriptions as before, just read before you pick instead of
+          after. */}
       {dispatchable > 0 && source === 'claude' && (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={orchestrate}
-          className={`chat-setup-chip chat-setup-lead${orchestrate ? ' chat-setup-chip--on' : ''}`}
-          title={
-            orchestrate
-              ? `Plans the work into tasks and hands them to your ${dispatchable} subagents, showing who is doing what. Best for work that splits up; a single edit is faster done directly.`
-              : `Runs as one agent. Turn on to have it plan and dispatch to your ${dispatchable} subagents.`
-          }
-          onClick={() => onChange({ orchestrate: !orchestrate })}
-        >
-          <Network size={13} strokeWidth={1.75} aria-hidden="true" />
-          Lead
-        </button>
+        <Select
+          className="chat-setup-select"
+          menuMinWidth={280}
+          value={orchestrate ? 'lead' : 'agent'}
+          options={LEAD_OPTIONS(dispatchable)}
+          onChange={(next) => onChange({ orchestrate: next === 'lead' })}
+        />
       )}
     </div>
   )
@@ -358,11 +375,18 @@ interface ChatComposerProps {
   setup?: SessionSetup
   /** Context fullness and rate-limit window; empty until the first turn speaks */
   usage: ChatUsage
+  /** Where `@`-mention file paths are read from. Absent in Home — no repo. */
+  cwd?: string
+  /** Recent prompts for this project, offered while the pane is still blank */
+  suggested?: string[]
   onSend: (text: string, attachments: Attachment[]) => void
   onInterrupt: () => void
   /** A staging failure has nowhere else to surface from in here */
   onError?: (message: string) => void
 }
+
+/** One `@`-mentionable file, read once per pane and filtered client-side */
+type MentionFiles = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; paths: string[] }
 
 export function ChatComposer({
   busy,
@@ -371,6 +395,8 @@ export function ChatComposer({
   placeholder,
   setup,
   usage,
+  cwd,
+  suggested,
   onSend,
   onInterrupt,
   onError
@@ -378,6 +404,9 @@ export function ChatComposer({
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [paletteIndex, setPaletteIndex] = useState(0)
+  const [caret, setCaret] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [mentionFiles, setMentionFiles] = useState<MentionFiles>({ status: 'idle' })
   const areaRef = useRef<HTMLTextAreaElement>(null)
 
   // Grow with the content, up to a cap — a fixed single line makes pasting a
@@ -401,6 +430,50 @@ export function ChatComposer({
   useEffect(() => setPaletteIndex(0), [query])
 
   const paletteOpen = matches.length > 0
+
+  /**
+   * `@`-mention: reference a file without typing its path from memory. Reads
+   * the whole project's file list once per pane, on the first `@` — a git
+   * call is cheap, but there is no reason to pay it in a pane nobody uses it
+   * in. Never active while the slash palette is (the two cannot really
+   * collide — slash only matches when the entire value is `/word` with no
+   * spaces — but the guard says so rather than relying on that).
+   */
+  const mention = !paletteOpen ? mentionAt(value, caret) : null
+
+  useEffect(() => {
+    if (!mention || !cwd || mentionFiles.status !== 'idle') return
+    setMentionFiles({ status: 'loading' })
+    void window.api.gitListFiles(cwd).then((res) => {
+      setMentionFiles({ status: 'ready', paths: res.ok ? res.paths : [] })
+    })
+  }, [mention, cwd, mentionFiles.status])
+
+  const mentionMatches = useMemo(() => {
+    if (!mention || mentionFiles.status !== 'ready') return []
+    return filterOptions(
+      mentionFiles.paths.map((p) => ({ value: p, label: p })),
+      mention.query
+    ).slice(0, 8)
+  }, [mention, mentionFiles])
+
+  useEffect(() => setMentionIndex(0), [mention?.query])
+
+  const mentionOpen = mention !== null && mentionMatches.length > 0
+
+  const acceptMention = (path: string): void => {
+    if (!mention) return
+    const before = value.slice(0, mention.start)
+    const after = value.slice(caret)
+    const next = `${before}@${path} ${after}`
+    setValue(next)
+    const nextCaret = before.length + 1 + path.length + 1
+    setCaret(nextCaret)
+    // The value prop updates on the next render; the DOM selection has to be
+    // set after that paint, or it snaps back to wherever it was before.
+    requestAnimationFrame(() => areaRef.current?.setSelectionRange(nextCaret, nextCaret))
+    areaRef.current?.focus()
+  }
 
   /**
    * Chip numbering counts pastes, not surviving chips: removing "Image 1" must
@@ -484,6 +557,22 @@ export function ChatComposer({
         </div>
       )}
 
+      {mentionOpen && (
+        <div className="chat-palette">
+          {mentionMatches.map((m, i) => (
+            <button
+              key={m.value}
+              className={`chat-palette-item chat-mention-item${i === mentionIndex ? ' chat-palette-item--active' : ''}`}
+              onMouseEnter={() => setMentionIndex(i)}
+              onClick={() => acceptMention(m.value)}
+            >
+              <FileText size={13} strokeWidth={1.75} aria-hidden="true" />
+              <span className="chat-mention-path">{m.value}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* One box. The setup controls belong to the message being written, so
           they sit inside the same border rather than floating above it. */}
       <div className="chat-composer-box">
@@ -507,7 +596,11 @@ export function ChatComposer({
             value={value}
             placeholder={placeholder}
             disabled={disabled}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value)
+              setCaret(e.target.selectionStart ?? e.target.value.length)
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onPaste={onPaste}
             onKeyDown={(e) => {
               if (paletteOpen) {
@@ -526,6 +619,25 @@ export function ChatComposer({
                 if (e.key === 'Tab') {
                   e.preventDefault()
                   accept(matches[paletteIndex])
+                  return
+                }
+              }
+              if (mentionOpen) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setMentionIndex((i) => (i + 1) % mentionMatches.length)
+                  return
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length)
+                  return
+                }
+                // Both accept — a mention sits mid-sentence, so Enter here
+                // picks a file rather than sending a message that isn't done
+                if (e.key === 'Tab' || e.key === 'Enter') {
+                  e.preventDefault()
+                  acceptMention(mentionMatches[mentionIndex].value)
                   return
                 }
               }
@@ -555,6 +667,28 @@ export function ChatComposer({
       </div>
 
       <UsageLine usage={usage} busy={busy} />
+
+      {/* Only while the pane is genuinely blank — the moment there is a draft
+          worth keeping, a list of other prompts is competing for the same
+          click rather than helping start one. */}
+      {setup && !value.trim() && suggested && suggested.length > 0 && (
+        <div className="chat-suggested">
+          <div className="chat-suggested-label">Suggested</div>
+          {suggested.map((text, i) => (
+            <button
+              key={i}
+              className="chat-suggested-row"
+              onClick={() => {
+                setValue(text)
+                areaRef.current?.focus()
+              }}
+            >
+              <MessageCircle size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span>{text}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import {
   appendUserMessage,
   emptyChatState,
@@ -82,6 +83,10 @@ interface ChatPaneProps {
   onSessionBound: (sessionId: string) => void
   /** Surfaced as a toast — a pasted image that could not be staged */
   onError?: (message: string) => void
+  /** Where the composer's `@`-mention picker reads files from */
+  cwd?: string
+  /** Recent prompts for this project, offered while the pane is still blank */
+  suggested?: string[]
 }
 
 type Action =
@@ -126,7 +131,9 @@ export function ChatPane({
   setup,
   notice,
   onSessionBound,
-  onError
+  onError,
+  cwd,
+  suggested
 }: ChatPaneProps): React.JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, emptyChatState)
   /**
@@ -357,9 +364,13 @@ export function ChatPane({
   const awaiting = pendingApprovals(state)
   const exited = state.exitCode !== null
   const elapsed = useElapsed(state.busy, active)
+  const showEmptyState = !started && Boolean(setup) && !loadingHistory && state.items.length === 0
 
   return (
-    <div className="chat-pane" style={{ display: active ? 'flex' : 'none' }}>
+    <div
+      className={`chat-pane${showEmptyState ? ' chat-pane--empty' : ''}`}
+      style={{ display: active ? 'flex' : 'none' }}
+    >
       {/* No header. The cwd was a duplicate of the tab's own ⎇ label and the
           branch chip beside it, and the "Terminal" escape hatch cost a full
           bar's height to sit there unused — a conversation still moves to a
@@ -384,6 +395,18 @@ export function ChatPane({
         onTouchMove={onTouchMove}
       >
         <div className="chat-thread">
+          {/* Only a pane with nothing behind it yet — the moment there is
+              real history or a live turn, the thread itself is the content
+              and a headline above it would just be in the way. */}
+          {showEmptyState && (
+            <div className="chat-empty-state">
+              <div className="chat-empty-mark">
+                <Sparkles size={20} strokeWidth={1.6} aria-hidden="true" />
+              </div>
+              <h2>Ready when you are</h2>
+              <p>Type a task, or pick up something recent below.</p>
+            </div>
+          )}
           {loadingHistory && (
             <div className="chat-working">
               <WorkingText>Loading history…</WorkingText>
@@ -435,6 +458,8 @@ export function ChatPane({
         slashCommands={state.info?.slashCommands ?? []}
         setup={started ? undefined : setup}
         usage={state.usage}
+        cwd={cwd}
+        suggested={suggested}
         placeholder={
           exited
             ? 'Session ended'

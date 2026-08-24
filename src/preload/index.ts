@@ -20,6 +20,7 @@ import type { VersionStatus } from '../main/app-version'
 import type {
   CommitDetailResult,
   DiffResult,
+  FileListResult,
   GitChangedEvent,
   GitDiffSpec,
   LogResult,
@@ -238,6 +239,8 @@ const api = {
     ipcRenderer.invoke('git:diff', args) as Promise<DiffResult>,
   gitUntrackedFiles: (args: { root: string; dir: string }) =>
     ipcRenderer.invoke('git:untracked-files', args) as Promise<UntrackedFilesResult>,
+  /** Every file the `@`-mention picker can offer: tracked + untracked-not-ignored */
+  gitListFiles: (root: string) => ipcRenderer.invoke('git:list-files', root) as Promise<FileListResult>,
   /** Throw away working-tree changes. Unrecoverable — the caller confirms first. */
   gitDiscard: (args: { root: string; paths: string[] }) =>
     ipcRenderer.invoke('git:discard', args) as Promise<DiscardResult>,

@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chewo — Chat composer v2 (Graphite + Emerald)</title>
+<style>
+  /* ── 06-chosen-direction tokens, copied verbatim from styles.css ───── */
+  :root {
+    --c-surface-0: #141414;
+    --c-surface-1: #181818;
+    --c-surface-2: #1E1E1E;
+    --c-surface-3: #252525;
+    --c-surface-4: #2C2C2C;
+    --c-surface-5: #343434;
+    --c-line-1:    #3A3A3A;
+    --c-line-2:    #484848;
+    --c-text-primary:   #E9E7E4;
+    --c-text-secondary: #ADAAA6;
+    --c-text-tertiary:  #807D78;
+    --c-text-faint:     #5A5854;
+
+    --accent:       hsl(158 52% 48%);
+    --accent-hover: hsl(158 52% 55%);
+    --accent-text:  hsl(158 52% 58%);
+    --accent-wash:  hsla(158 52% 48% / 0.12);
+    --on-accent:    hsl(158 30% 12%);
+
+    --c-project: #948ada;
+    --c-live:    #34C9D6;
+    --c-warn:    #DFA94E;
+    --c-danger:  #E2574B;
+    --c-cc:      #D97757;
+    --c-cc-wash: rgba(217,119,87,.16);
+    --c-cx:      #6BA4F8;
+    --c-cx-wash: rgba(107,164,248,.16);
+
+    --radius-1: 5px; --radius-2: 7px; --radius-3: 10px; --radius-4: 14px; --radius-pill: 999px;
+    --shadow-popover: 0 8px 24px rgba(0,0,0,.4);
+    --shadow-overlay: 0 16px 40px rgba(0,0,0,.45);
+
+    --font-ui:    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --font-serif: "Source Serif 4", Georgia, serif; /* bundled in-app; faked with Georgia here */
+    --font-mono:  ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-ui);
+    background: #0B0B0B;
+    color: var(--c-text-primary);
+    padding: 48px 24px 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 56px;
+  }
+
+  /* ── page chrome ─────────────────────────────────────────────── */
+  .page-head { max-width: 900px; width: 100%; }
+  .page-head h1 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+  }
+  .page-head p {
+    margin-top: 8px;
+    color: var(--c-text-secondary);
+    font-size: 13px;
+    line-height: 20px;
+    max-width: 640px;
+  }
+
+  .panel {
+    max-width: 900px;
+    width: 100%;
+  }
+  .panel-label {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .panel-label .tag {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--on-accent);
+    background: var(--accent);
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+  }
+  .panel-label .title { font-size: 13px; color: var(--c-text-secondary); }
+
+  .stage {
+    position: relative;
+    background: var(--c-surface-1);
+    border: 1px solid var(--c-line-1);
+    border-radius: 12px;
+    padding: 40px 32px 28px;
+    overflow: visible;
+  }
+
+  /* ── numbered annotation badges ──────────────────────────────── */
+  .flag {
+    position: absolute;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--c-project);
+    color: #17142a;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 3px var(--c-surface-1);
+    z-index: 5;
+  }
+
+  /* ── empty state ─────────────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    max-width: 480px;
+    margin: 0 auto 28px;
+  }
+  .empty-mark {
+    width: 44px; height: 44px;
+    margin: 0 auto 16px;
+    border-radius: 12px;
+    background: var(--accent-wash);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent-text);
+  }
+  .empty-state h2 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 20px;
+    line-height: 26px;
+    letter-spacing: -0.01em;
+    color: var(--c-text-primary);
+  }
+  .empty-state p {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 19px;
+    color: var(--c-text-tertiary);
+  }
+
+  /* ── composer pill (matches .chat-composer-box) ──────────────── */
+  .composer {
+    max-width: 780px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .composer-box {
+    background: var(--c-surface-2);
+    border: 1px solid var(--c-line-2);
+    border-radius: var(--radius-4);
+    padding: 8px 8px 8px 12px;
+  }
+  .composer-box.focused {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px hsla(158 52% 48% / 0.30);
+  }
+  .composer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .composer-input {
+    flex: 1;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--c-text-faint);
+  }
+  .composer-input b { color: var(--accent-text); font-weight: 600; }
+  .composer-input em { color: var(--c-text-tertiary); font-style: normal; }
+
+  .send-btn {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--on-accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── setup row ────────────────────────────────────────────────── */
+  .setup {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    padding: 6px 0 0;
+    border-top: 1px solid var(--c-line-2);
+  }
+  .icon-btn {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--c-text-tertiary);
+    position: relative;
+  }
+  .icon-btn .dot {
+    position: absolute; top: 1px; right: 1px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .agent-chips { display: flex; gap: 2px; margin-right: 2px; }
+  .badge {
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    font-size: 8px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: 0.02em;
+  }
+  .badge--cc { background: var(--c-cc-wash); color: var(--c-cc); }
+  .badge--cx { background: var(--c-cx-wash); color: var(--c-cx); }
+
+  .chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--c-text-tertiary);
+    font-size: 12px;
+    line-height: 17px;
+    cursor: default;
+  }
+  .chip svg { flex-shrink: 0; }
+  .chip.on { background: var(--accent-wash); border-color: var(--c-line-2); color: var(--c-text-primary); }
+  .chip.hoverable:hover { color: var(--c-text-primary); background: var(--c-surface-4); }
+
+  .divider { width: 1px; height: 16px; background: var(--c-line-1); margin: 0 2px; }
+
+  .setup .spacer { margin-left: auto; }
+
+  .branch-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 4px 4px 8px;
+    border: 1px solid var(--c-line-2);
+    border-radius: 999px;
+    color: var(--c-text-secondary);
+    font-size: 12px;
+  }
+  .branch-chip .uncommitted {
+    color: var(--c-warn);
+  }
+
+  /* ── usage line ───────────────────────────────────────────────── */
+  .usage-line {
+    display: flex; justify-content: flex-end; gap: 12px;
+    margin-top: 6px;
+    font-size: 11px; color: var(--c-text-tertiary);
+  }
+
+  /* ── suggested list ───────────────────────────────────────────── */
+  .suggested {
+    max-width: 780px;
+    margin: 18px auto 0;
+  }
+  .suggested-label {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--c-text-faint);
+    padding: 0 4px 8px;
+  }
+  .suggested-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 8px;
+    border-radius: var(--radius-2);
+    color: var(--c-text-tertiary);
+    font-size: 13px;
+  }
+  .suggested-row svg { color: var(--c-text-faint); flex-shrink: 0; }
+  .suggested-row:hover { background: var(--c-surface-2); color: var(--c-text-primary); }
+  .suggested-row:hover svg { color: var(--c-text-tertiary); }
+
+  /* ── popovers ─────────────────────────────────────────────────── */
+  .popover {
+    position: absolute;
+    background: var(--c-surface-3);
+    border: 1px solid var(--c-line-2);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-overlay);
+    z-index: 20;
+  }
+  .popover-search {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--c-line-1);
+    color: var(--c-text-faint);
+    font-size: 13px;
+  }
+  .popover-search svg { color: var(--c-text-faint); }
+  .popover-list { padding: 4px; }
+  .popover-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 8px;
+    border-radius: var(--radius-1);
+    font-size: 13px;
+    color: var(--c-text-primary);
+  }
+  .popover-row:hover, .popover-row.active { background: var(--accent-wash); }
+  .popover-row svg { color: var(--c-text-tertiary); flex-shrink: 0; }
+  .popover-row .meta { margin-left: auto; color: var(--c-text-faint); font-size: 12px; }
+  .popover-row .chevron { color: var(--c-text-faint); }
+  .popover-row.checked { color: var(--c-text-primary); }
+  .popover-row .check { margin-left: auto; color: var(--accent-text); }
+
+  .popover-divider { height: 1px; background: var(--c-line-1); margin: 4px 8px; }
+
+  .toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 8px 8px 12px;
+  }
+  .toggle-row svg { color: var(--c-text-tertiary); }
+  .toggle-row .label { font-size: 13px; color: var(--c-text-primary); }
+  .toggle-row .desc { font-size: 11px; color: var(--c-text-faint); }
+  .toggle-row .switch {
+    margin-left: auto;
+    width: 30px; height: 17px;
+    border-radius: 999px;
+    background: var(--c-surface-5);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .toggle-row .switch .knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--c-text-secondary);
+  }
+  .toggle-row.on .switch { background: var(--accent); }
+  .toggle-row.on .switch .knob { left: 15px; background: var(--on-accent); }
+
+  /* option-with-description popover (agent/lead) */
+  .opt-row {
+    display: flex; gap: 10px;
+    padding: 10px 10px;
+    border-radius: var(--radius-2);
+  }
+  .opt-row:hover, .opt-row.selected { background: var(--accent-wash); }
+  .opt-row .opt-icon {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: var(--c-surface-4);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--c-text-secondary);
+    flex-shrink: 0;
+  }
+  .opt-row.selected .opt-icon { background: var(--accent); color: var(--on-accent); }
+  .opt-row .opt-label { font-size: 13px; font-weight: 600; color: var(--c-text-primary); display: flex; align-items: center; gap: 6px; }
+  .opt-row .opt-label .n { color: var(--c-text-faint); font-weight: 400; font-size: 11px; }
+  .opt-row .opt-desc { margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--c-text-tertiary); }
+
+  .group-heading {
+    padding: 8px 8px 4px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--c-text-faint);
+  }
+
+  /* ── legend ───────────────────────────────────────────────────── */
+  .legend {
+    max-width: 900px; width: 100%;
+    border-top: 1px solid var(--c-line-1);
+    padding-top: 28px;
+  }
+  .legend h3 { font-size: 13px; color: var(--c-text-secondary); margin-bottom: 12px; }
+  .legend ol { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .legend li { display: flex; gap: 10px; font-size: 13px; line-height: 19px; }
+  .legend li .flag { position: static; box-shadow: none; flex-shrink: 0; margin-top: 1px; }
+  .legend li span { color: var(--c-text-secondary); }
+  .legend li b { color: var(--c-text-primary); }
+
+  .skip-note {
+    margin-top: 20px;
+    padding: 12px 14px;
+    border-radius: var(--radius-3);
+    background: var(--c-surface-2);
+    border: 1px solid var(--c-line-1);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--c-text-tertiary);
+  }
+  .skip-note b { color: var(--c-text-secondary); }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Chat composer — proposed changes</h1>
+  <p>
+    Same pill, same setup row Chewo already ships — four additions layered on top of it,
+    each pulled from the reference screens and checked against what our composer already does.
+    Nothing here replaces a decision already made in <code>ChatComposer.tsx</code>.
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- PANEL A — resting state -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label"><span class="tag">A</span><span class="title">Resting state — unstarted session</span></div>
+  <div class="stage">
+    <div class="flag" style="top: 178px; left: 130px;">1</div>
+    <div class="flag" style="top: 218px; left: 158px;">2</div>
+    <div class="flag" style="top: 213px; right: 148px;">3</div>
+    <div class="flag" style="top: 330px; left: 60px;">4</div>
+
+    <div class="empty-state">
+      <div class="empty-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.2H22l-6 4.6 2.3 7.2L12 16.4l-6.3 4.6 2.3-7.2-6-4.6h7.6z"/></svg>
+      </div>
+      <h2>Ready when you are</h2>
+      <p>Type a task, or pick up something recent below.</p>
+    </div>
+
+    <div class="composer">
+      <div class="composer-box focused">
+        <div class="composer-row">
+          <div class="composer-input">Plan and build — <em>@ for context,</em> <em>/ for commands</em></div>
+          <div class="send-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </div>
+        </div>
+
+        <div class="setup">
+          <div class="icon-btn">
+            <div class="dot"></div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          </div>
+
+          <div class="agent-chips">
+            <div class="badge badge--cc">CC</div>
+          </div>
+
+          <div class="chip hoverable">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            Agent
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+
+          <div class="chip hoverable">Opus <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="chip hoverable">High <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+
+          <div class="spacer"></div>
+
+          <div class="branch-chip">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            main
+            <span class="uncommitted">· 72 uncommitted</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="usage-line">
+        <span>Context 4%</span>
+        <span>5h window resets in 3h 40m</span>
+      </div>
+    </div>
+
+    <div class="suggested">
+      <div class="suggested-label">Suggested</div>
+      <div class="suggested-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Finish the branch-picker uncommitted-count change
+      </div>
+      <div class="suggested-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Raise test coverage of chat-composer.test.ts
+      </div>
+      <div class="suggested-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Wire dictation into the chat composer
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- PANEL B — @ context menu open -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label"><span class="tag">B</span><span class="title">"@" pressed in the input — context picker</span></div>
+  <div class="stage" style="padding-top: 300px;">
+    <div class="composer" style="position: relative;">
+      <div class="popover" style="left: 0; right: 0; bottom: calc(100% + 8px);">
+        <div class="popover-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Search files, folders, agents…
+        </div>
+        <div class="popover-list">
+          <div class="popover-row active">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            Files
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+          <div class="popover-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            Folders
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+          <div class="popover-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.4l-8.5 8.5a5 5 0 0 1-7.1-7.1l8.5-8.5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-2.8-2.8l7.8-7.8"/></svg>
+            Attachment <span style="color:var(--c-text-faint); font-weight:400;">&nbsp;— local files &amp; images</span>
+          </div>
+          <div class="popover-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Agents <span style="color:var(--c-text-faint); font-weight:400;">&nbsp;— your installed subagents</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+          <div class="popover-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+            Skills &amp; commands
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+
+          <div class="popover-divider"></div>
+
+          <div class="toggle-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <div>
+              <div class="label">Plan first</div>
+              <div class="desc">Propose a plan, then proceed once you confirm — this turn only</div>
+            </div>
+            <div class="switch"><div class="knob"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-box focused">
+        <div class="composer-row">
+          <div class="composer-input"><b>@</b><em>&nbsp;</em></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- PANEL C — Agent / Lead picker, described before you pick -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label"><span class="tag">C</span><span class="title">"Agent" clicked — described before you pick, not after</span></div>
+  <div class="stage" style="padding-top: 230px;">
+    <div class="composer" style="position: relative;">
+      <div class="popover" style="left: 32px; width: 340px; bottom: calc(100% + 8px); padding: 6px;">
+        <div class="opt-row">
+          <div class="opt-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          </div>
+          <div>
+            <div class="opt-label">Agent</div>
+            <div class="opt-desc">Runs as one agent, handling everything itself.</div>
+          </div>
+        </div>
+        <div class="opt-row selected">
+          <div class="opt-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/><path d="M10 7h4M10 17h4M7 10v4M17 10v4"/></svg>
+          </div>
+          <div>
+            <div class="opt-label">Lead <span class="n">4 subagents</span></div>
+            <div class="opt-desc">Plans the work into tasks and hands them to your subagents, showing who is doing what. Best for work that splits up — a single edit is faster done directly.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-box">
+        <div class="composer-row">
+          <div class="composer-input" style="color: var(--c-text-faint);">Plan and build…</div>
+        </div>
+        <div class="setup">
+          <div class="agent-chips"><div class="badge badge--cc">CC</div></div>
+          <div class="chip on">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+            Lead
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- PANEL D — branch picker, uncommitted count added -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="panel">
+  <div class="panel-label"><span class="tag">D</span><span class="title">Checkout picker — uncommitted count added to the existing row</span></div>
+  <div class="stage" style="padding-top: 260px;">
+    <div class="composer" style="position: relative;">
+      <div class="popover" style="right: 32px; width: 300px; bottom: calc(100% + 8px);">
+        <div class="popover-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Filter branches…
+        </div>
+        <div class="popover-list">
+          <div class="group-heading">In this checkout</div>
+          <div class="popover-row checked">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <div>
+              chewo · main
+              <div style="font-size:11px; color: var(--c-warn); font-weight: 500;">Uncommitted · 72 files</div>
+            </div>
+            <span class="check">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 6L9 17l-5-5"/></svg>
+            </span>
+          </div>
+          <div class="group-heading">New branch from…</div>
+          <div class="popover-row">
+            origin/main <span class="meta">default</span>
+          </div>
+          <div class="popover-row">
+            fix/upload-retry <span class="meta">checked out</span>
+          </div>
+          <div class="popover-row">
+            origin/dev/updates <span class="meta">remote</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-box">
+        <div class="composer-row">
+          <div class="composer-input" style="color: var(--c-text-faint);">Plan and build…</div>
+        </div>
+        <div class="setup">
+          <div class="spacer"></div>
+          <div class="branch-chip" style="border-color: var(--accent);">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            main
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- LEGEND -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="legend">
+  <h3>What each number is</h3>
+  <ol>
+    <li><div class="flag">1</div><span><b>"+" attach</b> and <b>@ for context</b> in the placeholder — new. Opens panel B: a picker over files, folders, images, installed subagents, and skills/commands, reusing the <code>ContextMenu</code> primitive we already have. The two toggles at the bottom (<b>Plan first</b>, and a <b>Goal</b> mode we haven't spec'd yet) are per-message opt-ins, separate from the project-wide permission-mode setting in Section Settings.</span></li>
+    <li><div class="flag">2</div><span><b>Agent / Lead picker</b> — enhanced. Same boolean the Lead chip already sets, but the description you currently only see on hover after picking now shows for both options before you pick, in panel C. Copy is pulled straight from the existing <code>title</code> text in <code>ChatComposer.tsx</code>, not invented.</span></li>
+    <li><div class="flag">3</div><span><b>Uncommitted count on the checkout chip</b> — enhanced. The branch <code>Select</code> already annotates rows ("checked out", "remote", "not found"); panel D adds one more line to the current-checkout row using data we already read for the git panel.</span></li>
+    <li><div class="flag">4</div><span><b>Empty-state headline + Suggested list</b> — new. An unstarted pane today is a blank scroll area; this fills it with a short heading and a handful of clickable prompts (recent tasks, to start).</span></li>
+  </ol>
+
+  <div class="skip-note">
+    <b>Deliberately not carried over:</b> the project switcher's "Connect SSH" row (no remote-project support in Chewo), splitting "Local vs Worktree" into its own control ahead of the branch picker (this app merged that into one control on purpose — see the comment above <code>SessionSetupRow</code> in <code>ChatComposer.tsx</code>), and the multi-vendor model list with per-model pricing multipliers (different business model — our model list is per-CLI catalog, not a cross-vendor marketplace).
+  </div>
+</div>
+
+</body>
+</html>

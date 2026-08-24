@@ -35,6 +35,7 @@ import {
   type Worktree
 } from '../../shared/projects'
 import type { DispatchableAgent } from '../../shared/orchestrator'
+import { suggestedPrompts } from './suggestedPrompts'
 import { AgentColorsProvider } from './components/chat/AgentChip'
 import {
   type NoteSource,
@@ -3108,6 +3109,12 @@ export function App(): React.JSX.Element {
                   initialPrompt={tab.initialPrompt}
                   initialImages={tab.initialImages}
                   resumeFrom={resumeSourceFor(tab)}
+                  cwd={tabWorktree?.path ?? tabProject?.path}
+                  suggested={
+                    tab.pending
+                      ? suggestedPrompts(sessions, tabProject, worktrees, window.api.homeDir)
+                      : undefined
+                  }
                   onError={showToast}
                   // Consulted on every pane's first message; it returns false
                   // for one already running the agent and checkout it asked for
@@ -3137,6 +3144,10 @@ export function App(): React.JSX.Element {
                             currentBranch:
                               paneActive && repoStatus?.ok && repoStatus.isRepo
                                 ? repoStatus.branch
+                                : undefined,
+                            currentDirty:
+                              paneActive && repoStatus?.ok && repoStatus.isRepo
+                                ? repoStatus.files.length
                                 : undefined,
                             onChange: (patch) =>
                               setPaneChoice(tab.termId, {

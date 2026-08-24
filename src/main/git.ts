@@ -377,6 +377,29 @@ export async function gitUntrackedFiles(root: string, dir: string): Promise<Untr
   return { ok: true, paths: paths.slice(0, MAX_UNTRACKED_LISTED), total: paths.length }
 }
 
+/** A big repo has far more files than a popover should ever render at once */
+const MAX_FILES_LISTED = 3000
+
+export type FileListResult =
+  | { ok: true; paths: string[]; total: number }
+  | { ok: false; error: string }
+
+/**
+ * Every path the `@`-mention picker can offer: tracked plus untracked-but-not-
+ * ignored, in one call, so a file created a moment ago is reachable without a
+ * second round trip. Ignored files (build output, `node_modules`) never show,
+ * same as the git panel.
+ */
+export async function gitListFiles(root: string): Promise<FileListResult> {
+  const real = resolveInsideRoots(root)
+  if (!real) return { ok: false, error: `not readable: ${basename(root)}` }
+
+  const res = await runGit(real, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])
+  if (!res.ok) return { ok: false, error: gitErrorOf(res) }
+  const paths = res.stdout.split('\0').filter(Boolean)
+  return { ok: true, paths: paths.slice(0, MAX_FILES_LISTED), total: paths.length }
+}
+
 // ---------- history ----------
 
 export interface CommitMeta {

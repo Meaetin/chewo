@@ -117,6 +117,7 @@ import {
   disposeAllGitWatches,
   gitCommitDetail,
   gitDiff,
+  gitListFiles,
   gitLog,
   gitStatus,
   gitUntrackedFiles,
@@ -418,6 +419,7 @@ function registerIpc(): void {
   ipcMain.handle('git:untracked-files', (_e, a: { root: string; dir: string }) =>
     gitUntrackedFiles(a.root, a.dir)
   )
+  ipcMain.handle('git:list-files', (_e, root: string) => gitListFiles(root))
   ipcMain.handle('git:discard', (_e, a: { root: string; paths: string[] }) =>
     discardChanges(a.root, a.paths)
   )
