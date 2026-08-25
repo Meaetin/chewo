@@ -48,9 +48,8 @@ interface LoadedDiff {
 }
 
 /**
- * Read-only diff layer — covers the terminal inside .main-content exactly like
- * FileEditor, and Esc dismisses it the same way. Shows one working-tree file's
- * diff, or a commit: header + file list + per-file diff.
+ * Read-only diff surface for a working-tree file or a commit: header, file
+ * list, and per-file diff. Esc clears the current selection.
  */
 export function GitDiffView({
   visible,

@@ -35,7 +35,9 @@ interface FileEditorProps {
   onActivate: (path: string, goto?: { line: number; col?: number }) => void
   onCloseFile: (path: string) => void
   onReorderFile: (path: string, targetPath: string) => void
-  /** Back to the terminal layer (Esc / chip strip empty) */
+  /** First edit promotes a replaceable preview before another can replace it. */
+  onDirty: (path: string) => void
+  /** Clear the active editor (Esc / chip strip empty). */
   onExit: () => void
 }
 
@@ -106,7 +108,7 @@ const disposeBuffer = (buf: FileBuffer | undefined): void => {
 const SAVE_ECHO_MS = 1500
 
 /**
- * The editor layer over the terminal: chip strip of open files + read-only
+ * The Files tool editor: chip strip of open files + read-only
  * CodeMirror. Buffers live in a ref keyed by absolute path and the component
  * never unmounts, so switching sessions or toggling panels loses nothing.
  */
@@ -121,6 +123,7 @@ export function FileEditor({
   onActivate,
   onCloseFile,
   onReorderFile,
+  onDirty,
   onExit
 }: FileEditorProps): React.JSX.Element {
   const buffers = useRef(new Map<string, FileBuffer>())
@@ -318,7 +321,7 @@ export function FileEditor({
         {openFiles.map((f) => (
           <div
             key={f.path}
-            className={`file-chip ${f.path === activePath ? 'file-chip-active' : ''} ${f.path === draggedPath ? 'file-chip-dragging' : ''}`}
+            className={`file-chip ${f.path === activePath ? 'file-chip-active' : ''} ${!f.pinned ? 'file-chip-preview' : ''} ${f.path === draggedPath ? 'file-chip-dragging' : ''}`}
             title={f.path}
             draggable
             onDragStart={(event) => {
@@ -463,6 +466,7 @@ export function FileEditor({
               // bump only on the clean→dirty flip — the chip dot; CM owns its doc
               if (!buf.dirty) {
                 buf.dirty = true
+                if (activePath) onDirty(activePath)
                 bump()
               }
             }}

@@ -1,7 +1,6 @@
 /**
  * Finds an in-progress `@` mention ending at the caret, for the chat
- * composer's file picker. DOM-free and tested, same reason as
- * `selectPlacement.ts` and `tabStrip.ts`.
+ * composer's file picker. DOM-free and tested like `selectPlacement.ts`.
  */
 
 export interface MentionMatch {

@@ -31,7 +31,7 @@ import { useElapsed } from './useElapsed'
 /**
  * A chat pane: the same agent CLI a terminal pane runs, rendered as a
  * conversation (SPEC §chat). Mounted alongside `TerminalPane` and keyed by the
- * same pane id, so the tab strip cannot tell them apart.
+ * same pane id, so the surrounding workspace does not need runtime-specific state.
  *
  * State is a `useReducer` over the shared fold in `agent-chat.ts` — the same
  * function the tests replay recorded sessions through, so what ships and what

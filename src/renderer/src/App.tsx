@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  FolderTree,
-  GitBranch,
-  Play,
-  Plus,
-  Settings,
-  Terminal,
-  X
-} from 'lucide-react'
+import { PanelLeftOpen, Settings, Terminal } from 'lucide-react'
 import { ChatPane } from './components/chat/ChatPane'
-import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../shared/appearance'
+import {
+  DEFAULT_APPEARANCE,
+  DEFAULT_LAYOUT,
+  type AppearanceSettings,
+  type LayoutSettings
+} from '../../shared/appearance'
 import {
   agentDef,
   AGENT_IDS,
@@ -74,22 +71,36 @@ import type { ChangedFile, StaleCheckout } from '../../main/git'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
 import { UpdateButton } from './components/UpdateButton'
-import { TabOverflowButton, type TabMenuItem } from './components/TabOverflowMenu'
-import { stripEdges } from './tabStrip'
 import { ShipButton } from './components/ShipButton'
 import { ShipModal } from './components/ShipModal'
 import { branchNameFor } from '../../shared/branch-names'
 import { splitComposed, withImagePaths } from '../../shared/attachments'
 import type { ShipPreview, ShipSuccess } from '../../main/git-ship'
-import { useGitDirtyCount, useGitStatus } from './useGitStatus'
+import { useGitStatus } from './useGitStatus'
 import { WorktreeCreateModal } from './components/WorktreeModals'
 import { SectionSettingsModal } from './components/SectionSettingsModal'
 import { AppSettings, type SettingsPane } from './components/settings/AppSettings'
 import { applyAppearance } from './theme/applyAppearance'
 import { makeTerminalTheme } from './theme/terminalTheme'
 import { makeEditorTheme } from './theme/editorTheme'
-import { Badge, ContextMenu, Dot, IconButton } from './components/ui'
-import { reorderOpenFiles } from './fileTabs'
+import { ContextMenu, IconButton } from './components/ui'
+import { openFileTab, pinOpenFile, reorderOpenFiles, type FileDisposition } from './fileTabs'
+import { SessionHeader } from './components/SessionHeader'
+import { ToolsPanel } from './components/tools/ToolsPanel'
+import { ToolActivityBar } from './components/tools/ToolActivityBar'
+import { ShellWorkspace, type ShellTabInfo } from './components/tools/ShellWorkspace'
+import type { CodingTool } from './components/tools/ToolActivityBar'
+import { ResizablePane } from './components/layout/ResizablePane'
+import {
+  EXPLORER_MAX,
+  EXPLORER_MIN,
+  SESSION_MIN,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
+  TOOLS_MIN,
+  normalizeLayout
+} from './layoutState'
+import type { LiveSessionPane } from './codingWorkspace'
 
 export type PaneSource = Source | 'shell'
 
@@ -179,11 +190,13 @@ type MainView =
   | { kind: 'capabilities' }
   | { kind: 'empty' }
 
-/** A file open in the editor layer — never a session tab */
+/** A file open in the Files tool. */
 export interface OpenFile {
   /** Absolute path — the identity everywhere */
   path: string
   name: string
+  /** False only for the explorer's single replaceable preview tab */
+  pinned: boolean
 }
 
 /** One-shot cursor jump after opening a file at `path:line[:col]` — seq lets repeat clicks re-fire */
@@ -197,7 +210,7 @@ export interface GotoTarget {
 /** Editor-layer state for one section (project or Home) */
 interface SectionFiles {
   openFiles: OpenFile[]
-  /** Non-null → the editor covers the terminal layer */
+  /** Active editor chip for this checkout. */
   activePath: string | null
 }
 
@@ -207,24 +220,9 @@ const EMPTY_SECTION_FILES: SectionFiles = { openFiles: [], activePath: null }
 const isAtOrUnder = (path: string, base: string): boolean =>
   path === base || path.startsWith(base + '/')
 
-/** Passive dirty-count pill on a worktree session tab — polled, no watcher */
-function TabDirtyPill({ root }: { root: string | null }): React.JSX.Element | null {
-  const count = useGitDirtyCount(root)
-  if (count === 0) return null
-  return (
-    <span
-      className="terminal-tab-dirty"
-      title={`${count} uncommitted change${count === 1 ? '' : 's'} in this worktree`}
-    >
-      {count}
-    </span>
-  )
-}
-
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [tabs, setTabs] = useState<TerminalTab[]>([])
-  const [draggedTermId, setDraggedTermId] = useState<number | null>(null)
   /** Where to open `+`'s checkout menu — viewport coords, null while closed */
   const [shellMenuAt, setShellMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [view, setView] = useState<MainView>({ kind: 'empty' })
@@ -274,6 +272,8 @@ export function App(): React.JSX.Element {
   const [appSettingsOpen, setAppSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SettingsPane>('presets')
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
+  const [layout, setLayout] = useState<LayoutSettings>(DEFAULT_LAYOUT)
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
   const [stt, setStt] = useState<SttSettings>(DEFAULT_STT_SETTINGS)
   // Whether a Deepgram key is stored. Dictation is disabled until it is —
@@ -298,12 +298,12 @@ export function App(): React.JSX.Element {
   /** Board scope in the todo workflow — a project id, or null for General */
   const [todoScopeId, setTodoScopeId] = useState<string | null>(null)
   const [todoBoard, setTodoBoard] = useState<BoardFile | null>(null)
-  const [fileTreeOpen, setFileTreeOpen] = useState(false)
-  const [gitOpen, setGitOpen] = useState(false)
-  /** What the git diff layer shows — a working-tree file or a commit */
+  const [activeTool, setActiveTool] = useState<CodingTool | null>(null)
+  const [selectedShellId, setSelectedShellId] = useState<number | null>(null)
+  /** What the Git tool shows — a working-tree file or a commit. */
   const [gitSel, setGitSel] = useState<GitSelection | null>(null)
-  // Editor-layer files per section, keyed by projectId ?? 'home'. Session-
-  // lifetime only — deliberately not persisted to the projects file.
+  // Editor-layer files per checkout root. Sessions sharing a checkout share
+  // tabs; an isolated worktree never inherits the main checkout's editor state.
   const [filesBySection, setFilesBySection] = useState<Map<string, SectionFiles>>(new Map())
   const [pendingAppend, setPendingAppend] = useState<PendingAppend | null>(null)
   const appendSeq = useRef(0)
@@ -312,6 +312,8 @@ export function App(): React.JSX.Element {
   // Live mirrors for the stt event handler (registered once, must not go stale)
   const workflowRef = useRef<Workflow>('code')
   workflowRef.current = workflow
+  const activeToolRef = useRef<CodingTool | null>(null)
+  activeToolRef.current = activeTool
   const notesSelRef = useRef<TopicRef | null>(null)
   notesSelRef.current = notesSel
   const sttModelRef = useRef(DEFAULT_STT_SETTINGS.model)
@@ -435,6 +437,12 @@ export function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    const onResize = (): void => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
     void refresh()
     void refreshNotes()
     void window.api.loadProjects().then((file: ProjectsFile) => {
@@ -454,6 +462,7 @@ export function App(): React.JSX.Element {
       setAppearance(file.appearance)
       setAgents(file.agents)
       setStt(file.stt)
+      setLayout(normalizeLayout(file.layout, window.innerWidth))
       settingsLoaded.current = true
     })
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
@@ -542,7 +551,7 @@ export function App(): React.JSX.Element {
     if (!loaded.current) return
     const savedFor = (projectId: string | null, dormant: SavedTerminal[]): SavedTerminal[] => {
       const live: SavedTerminal[] = tabs
-        // Shell panes have no session to resume — only agent tabs persist
+        // Shell panes have no session to resume — only agent sessions persist.
         .filter(
           (t): t is TerminalTab & { source: Source; sessionId: string } =>
             t.projectId === projectId && !!t.sessionId && t.source !== 'shell'
@@ -674,31 +683,16 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!settingsLoaded.current) return
     const t = setTimeout(
-      () => void window.api.saveSettings({ appearance, agents, stt }),
+      () => void window.api.saveSettings({ appearance, agents, stt, layout }),
       400
     )
     return () => clearTimeout(t)
-  }, [appearance, agents, stt])
+  }, [appearance, agents, stt, layout])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
-  // ---------- file explorer ----------
-
-  const sectionKey = selectedProjectId ?? 'home'
-  const sectionFiles = filesBySection.get(sectionKey) ?? EMPTY_SECTION_FILES
-  // Every section's open files — the editor watches/keeps buffers for all of
-  // them so switching sections loses nothing
-  const allOpenPaths = useMemo(
-    () => [
-      ...new Set([...filesBySection.values()].flatMap((s) => s.openFiles.map((f) => f.path)))
-    ],
-    [filesBySection]
-  )
-  /** Editor covers the terminal layer; `view` still describes what's underneath */
-  const editorVisible = workflow === 'code' && sectionFiles.activePath !== null
-
-  // The tree follows the active tab's effective root: an isolated session
-  // browses its worktree, not the main checkout (same resolution as wakeDormant)
+  // The tree follows the active pane's effective root: an isolated session
+  // browses its worktree, not the main checkout.
   const activeTab = view.kind === 'terminal' ? tabs.find((t) => t.termId === view.termId) : undefined
   const activeWorktree = activeTab?.worktreeId
     ? worktrees.find((w) => w.id === activeTab.worktreeId)
@@ -711,6 +705,19 @@ export function App(): React.JSX.Element {
   const treeRootLabel = activeWorktree
     ? `⎇ ${activeWorktree.taskName}`
     : (selectedProject?.name ?? 'Home')
+
+  // ---------- file explorer ----------
+
+  const sectionKey = treeRoot
+  const sectionFiles = filesBySection.get(sectionKey) ?? EMPTY_SECTION_FILES
+  const allOpenPaths = useMemo(
+    () => [
+      ...new Set([...filesBySection.values()].flatMap((s) => s.openFiles.map((f) => f.path)))
+    ],
+    [filesBySection]
+  )
+  const editorVisible =
+    workflow === 'code' && activeTool === 'files' && sectionFiles.activePath !== null
 
   /**
    * An isolated session that has not cut its branch yet is only *standing* in
@@ -736,24 +743,49 @@ export function App(): React.JSX.Element {
   gitRootRef.current = gitRoot
   const dirtyCount = repoStatus?.ok && repoStatus.isRepo ? repoStatus.files.length : 0
 
-  // The diff layer describes one root's state — switching tab/section drops it
+  useEffect(() => {
+    if (!gitRoot) setActiveTool((tool) => (tool === 'git' ? null : tool))
+  }, [gitRoot])
+
+  // A diff describes one checkout; switching checkout drops it.
   useEffect(() => setGitSel(null), [treeRoot])
 
   const gotoSeq = useRef(0)
   const [gotoTarget, setGotoTarget] = useState<GotoTarget | null>(null)
 
   const openFile = useCallback(
-    (path: string, goto?: { line: number; col?: number }) => {
+    (
+      path: string,
+      goto?: { line: number; col?: number },
+      disposition: FileDisposition = 'pinned'
+    ) => {
       setFilesBySection((prev) => {
         const cur = prev.get(sectionKey) ?? EMPTY_SECTION_FILES
-        const openFiles = cur.openFiles.some((f) => f.path === path)
-          ? cur.openFiles
-          : [...cur.openFiles, { path, name: path.split('/').pop() ?? path }]
+        const openFiles = openFileTab(cur.openFiles, path, disposition)
         return new Map(prev).set(sectionKey, { openFiles, activePath: path })
       })
       if (goto) setGotoTarget({ path, line: goto.line, col: goto.col, seq: ++gotoSeq.current })
-      // The editor and the diff layer share the space over the terminal
+      setActiveTool('files')
       setGitSel(null)
+    },
+    [sectionKey]
+  )
+
+  const openExplorerFile = useCallback(
+    (path: string, disposition: FileDisposition) => openFile(path, undefined, disposition),
+    [openFile]
+  )
+
+  const pinFile = useCallback(
+    (path: string) => {
+      setFilesBySection((prev) => {
+        const cur = prev.get(sectionKey)
+        if (!cur) return prev
+        const openFiles = pinOpenFile(cur.openFiles, path)
+        return openFiles === cur.openFiles
+          ? prev
+          : new Map(prev).set(sectionKey, { ...cur, openFiles })
+      })
     },
     [sectionKey]
   )
@@ -777,8 +809,7 @@ export function App(): React.JSX.Element {
         const idx = cur.openFiles.findIndex((f) => f.path === path)
         if (idx === -1) return prev
         const openFiles = cur.openFiles.filter((f) => f.path !== path)
-        // Closing the active chip focuses its left neighbour, then right, then
-        // falls back to the terminal
+        // Closing the active chip focuses its left neighbour, then right.
         const activePath =
           cur.activePath === path
             ? (openFiles[idx - 1] ?? openFiles[idx])?.path ?? null
@@ -801,18 +832,6 @@ export function App(): React.JSX.Element {
     },
     [sectionKey]
   )
-
-  const reorderTab = useCallback((termId: number, targetTermId: number) => {
-    setTabs((prev) => {
-      const from = prev.findIndex((t) => t.termId === termId)
-      const to = prev.findIndex((t) => t.termId === targetTermId)
-      if (from === -1 || to === -1 || from === to) return prev
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
-  }, [])
 
   /** A path (file or whole dir) was trashed — close its chips in every section */
   const closeFilesUnder = useCallback((path: string) => {
@@ -852,7 +871,7 @@ export function App(): React.JSX.Element {
         changed = true
         const openFiles = sf.openFiles.map((f) => {
           const to = moved(f.path)
-          return to ? { path: to, name: to.split('/').pop() ?? to } : f
+          return to ? { ...f, path: to, name: to.split('/').pop() ?? to } : f
         })
         const activePath = sf.activePath ? (moved(sf.activePath) ?? sf.activePath) : null
         next.set(key, { openFiles, activePath })
@@ -861,23 +880,28 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
-  // ⌘⇧E toggles the file tree, ⌘⇧G the git panel (mutually exclusive — one
-  // left rail) anywhere in the code workflow — including with terminal focus
+  // ⌘⇧E and ⌘⇧G open/close the shared tools panel anywhere in Code, ⌘⇧B
+  // collapses the file explorer inside it — including with terminal focus
   // (xterm doesn't swallow them; see TerminalPane key handler)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
         if (workflowRef.current === 'code') {
-          setFileTreeOpen((o) => !o)
-          setGitOpen(false)
+          setActiveTool((tool) => (tool === 'files' ? null : 'files'))
         }
       }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
         e.preventDefault()
         if (workflowRef.current === 'code' && gitRootRef.current) {
-          setGitOpen((o) => !o)
-          setFileTreeOpen(false)
+          setActiveTool((tool) => (tool === 'git' ? null : 'git'))
+        }
+      }
+      // Explorer only: the tool stays open, its tree folds to the edge.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        if (workflowRef.current === 'code' && activeToolRef.current === 'files') {
+          setLayout((value) => ({ ...value, explorerCollapsed: !value.explorerCollapsed }))
         }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
@@ -899,13 +923,23 @@ export function App(): React.JSX.Element {
     [projects, homeSettings]
   )
 
-  // Tab bar shows only the selected section's terminals (Home when nothing
-  // is selected). Terminals in other sections keep running — the sidebar
-  // shows a live count per section so they stay discoverable.
-  const visibleTabs = tabs.filter((t) => t.projectId === (selectedProject?.id ?? null))
-  // Panes render in a stable termId order, decoupled from the reorderable tab
-  // strip: moving a live terminal's DOM node corrupts its xterm renderer.
-  const paneTabs = [...tabs].sort((a, b) => a.termId - b.termId)
+  const agentPanes = tabs.filter((tab) => tab.source !== 'shell')
+  const shellPanes = tabs.filter((tab) => tab.source === 'shell')
+  // Each runtime kind mounts in stable termId order. Changing sidebar or shell
+  // tab order must never move a live xterm DOM node.
+  const paneTabs = [...agentPanes].sort((a, b) => a.termId - b.termId)
+  const livePanes: LiveSessionPane[] = agentPanes.map((pane) => ({
+    paneId: pane.termId,
+    projectId: pane.projectId,
+    source: pane.source as Source,
+    title: pane.label,
+    sessionId: pane.sessionId,
+    pending: pane.pending === true,
+    exited: pane.exited,
+    worktreeLabel: pane.worktreeId
+      ? worktrees.find((worktree) => worktree.id === pane.worktreeId)?.branch
+      : undefined
+  }))
 
   /**
    * Locate the transcript a resumed chat pane should open with. Returns
@@ -923,7 +957,8 @@ export function App(): React.JSX.Element {
       : undefined
   }
   const liveCounts = new Map<string | null, number>()
-  for (const t of tabs) liveCounts.set(t.projectId, (liveCounts.get(t.projectId) ?? 0) + 1)
+  for (const pane of agentPanes.filter((candidate) => !candidate.exited))
+    liveCounts.set(pane.projectId, (liveCounts.get(pane.projectId) ?? 0) + 1)
 
   // Notes-chat and todo-voice runs create real Claude sessions with cwd
   // under the notes root / ~/.chewo — they're app plumbing, not coding
@@ -938,16 +973,12 @@ export function App(): React.JSX.Element {
   const visibleSessions = sessions.filter((s) => !hiddenIds.has(s.id) && !inAppStore(s.project))
   const hiddenSessions = sessions.filter((s) => hiddenIds.has(s.id) && !inAppStore(s.project))
 
-  // Remember which terminal was last viewed in each section
+  // Remember which session pane was last viewed in each section.
   useEffect(() => {
     if (view.kind !== 'terminal') return
     const tab = tabs.find((t) => t.termId === view.termId)
     if (tab) lastViewedTerm.current.set(tab.projectId, tab.termId)
   }, [view, tabs])
-
-  // Sessions that currently have a live terminal — sidebar rows route to the
-  // terminal instead of the transcript
-  const liveSessionTabs = new Map(tabs.filter((t) => t.sessionId).map((t) => [t.sessionId!, t]))
 
   const hideSession = useCallback((id: string) => {
     setHiddenIds((prev) => new Set(prev).add(id))
@@ -960,73 +991,6 @@ export function App(): React.JSX.Element {
       return next
     })
   }, [])
-
-  // Dormant (resumable) tabs show for the selected section only — Home's
-  // when nothing is selected
-  const liveSessionIds = new Set(tabs.map((t) => t.sessionId).filter(Boolean))
-  const dormantTerminals = (selectedProject?.terminals ?? homeTerminals).filter(
-    (t) => !liveSessionIds.has(t.sessionId)
-  )
-
-  /**
-   * How much of the tab strip is off-screen. Tabs shrink to a floor and only
-   * then scroll, and the scrollbar is hidden, so this is the only thing that
-   * can say a session exists past the edge — it drives the edge fades and the
-   * ⌄ overflow menu.
-   */
-  const tabStripRef = useRef<HTMLDivElement>(null)
-  const [strip, setStrip] = useState({ left: false, right: false, overflowing: false, hidden: 0 })
-
-  const measureStrip = useCallback(() => {
-    const el = tabStripRef.current
-    if (!el) return
-    const edges = stripEdges({
-      scrollLeft: el.scrollLeft,
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth
-    })
-    // Rects, not offsetLeft: a tab's offsetParent is a positioned ancestor of
-    // the scrollport, so its offset is not in the same space as scrollLeft.
-    let hidden = 0
-    if (edges.overflowing) {
-      const box = el.getBoundingClientRect()
-      for (const child of Array.from(el.children)) {
-        const r = child.getBoundingClientRect()
-        if (r.left < box.left - 1 || r.right > box.right + 1) hidden++
-      }
-    }
-    setStrip((prev) =>
-      prev.left === edges.left &&
-      prev.right === edges.right &&
-      prev.overflowing === edges.overflowing &&
-      prev.hidden === hidden
-        ? prev
-        : { ...edges, hidden }
-    )
-  }, [])
-
-  // Remeasure whenever the strip resizes (window, sidebar, panels) or its
-  // contents change. A ResizeObserver on the scrollport catches the first two;
-  // the tab counts in the deps catch the third.
-  useEffect(() => {
-    const el = tabStripRef.current
-    if (!el) return
-    measureStrip()
-    const ro = new ResizeObserver(measureStrip)
-    ro.observe(el)
-    for (const child of Array.from(el.children)) ro.observe(child)
-    return () => ro.disconnect()
-  }, [measureStrip, workflow, visibleTabs.length, dormantTerminals.length])
-
-  // Focusing a session that is scrolled out of the strip has to bring its tab
-  // back, or the focused pane has no tab — the exact state the overflow menu
-  // exists to rescue, reached by accident.
-  useEffect(() => {
-    if (view.kind !== 'terminal') return
-    tabStripRef.current
-      ?.querySelector(`[data-term-id="${view.termId}"]`)
-      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
-  }, [view])
 
   const openTerminal = useCallback(
     async (opts: {
@@ -1076,7 +1040,12 @@ export function App(): React.JSX.Element {
           exited: false
         }
       ])
-      setView({ kind: 'terminal', termId })
+      if (opts.source === 'shell') {
+        setSelectedShellId(termId)
+        setActiveTool('shell')
+      } else {
+        setView({ kind: 'terminal', termId })
+      }
       return termId
     },
     [settingsForSection]
@@ -1089,8 +1058,8 @@ export function App(): React.JSX.Element {
    *  build, poke at the thing the agent just wrote — so which checkout it opens
    *  in is the whole question, and it is not answerable from the focus alone:
    *  `git log` wants the branch, `npm install` usually wants main. So unlike ▷,
-   *  which follows the focused session silently, `+` *asks* whenever there is
-   *  something to ask about, and stays a single click when there isn't. */
+   *  which follows the focused session silently, New shell asks whenever there
+   *  is something to ask about. */
   const newShell = useCallback(
     (worktree?: Worktree) =>
       void openTerminal({
@@ -1167,7 +1136,7 @@ export function App(): React.JSX.Element {
 
   /**
    * Open an agent session. This is the one place that decides *how* an agent
-   * runs, so every caller — the tab bar, resume, wake, worktrees, card runs —
+   * runs, so every caller — resume, worktrees, and card runs —
    * gets the same answer.
    *
    * Claude runs as a chat pane; that is the UI now, and the pty is reached
@@ -1256,8 +1225,8 @@ export function App(): React.JSX.Element {
    *
    * Takes the project rather than reading the selected one, because it lives on
    * the sidebar's project row — where it can be pressed for a project that
-   * isn't open. The pane it opens belongs to that section, so the section has
-   * to come with it, or the new tab lands in a strip nobody is looking at.
+   * isn't open. The shell belongs to that project, so selecting the project
+   * makes the new process visible immediately in the tools panel.
    *
    * It runs what you are *looking at*: with an isolated session
    * focused, the dev server comes up in that session's checkout, so pressing ▷
@@ -1282,6 +1251,11 @@ export function App(): React.JSX.Element {
           ? worktrees.find((w) => w.id === activeTab.worktreeId)
           : undefined
       setSelectedProjectId(projectId)
+      const sectionPanes = agentPanes.filter((pane) => pane.projectId === projectId)
+      const remembered = lastViewedTerm.current.get(projectId)
+      const target =
+        sectionPanes.find((pane) => pane.termId === remembered) ?? sectionPanes.at(-1) ?? null
+      setView(target ? { kind: 'terminal', termId: target.termId } : { kind: 'empty' })
       const lines = (project.runCommand?.trim() || 'npm run dev')
         .split('\n')
         .map((l) => l.trim())
@@ -1292,14 +1266,13 @@ export function App(): React.JSX.Element {
           cwd: worktree?.path ?? project.path,
           projectId: project.id,
           worktreeId: worktree?.id,
-          // ⎇ marks a branch-bound pane everywhere else in the strip, and two
-          // dev servers are otherwise the same word twice
+          // ⎇ distinguishes a branch-bound server from the same command on main.
           label: `${worktree ? '⎇ ' : ''}${line.length > 24 ? `${line.slice(0, 24)}…` : line}`,
           runCommand: line
         })
       }
     },
-    [openTerminal, projects, worktrees, activeTab]
+    [openTerminal, projects, worktrees, activeTab, agentPanes]
   )
 
   const resumeSession = useCallback(
@@ -1346,24 +1319,6 @@ export function App(): React.JSX.Element {
       resumeSession(s)
     },
     [resumeSession, tabs]
-  )
-
-  const wakeDormant = useCallback(
-    (t: SavedTerminal) => {
-      const wt = t.worktreeId ? worktrees.find((w) => w.id === t.worktreeId) : undefined
-      const common = {
-        sessionId: t.sessionId,
-        cwd: wt?.path ?? selectedProject?.path ?? null,
-        label: t.label,
-        projectId: selectedProject?.id ?? null,
-        worktreeId: wt?.id
-      }
-      // Sessions saved before chat panes existed have no mode; they wake as
-      // chat like everything else. Only an explicit 'terminal' — set by using
-      // a pane's Terminal button — keeps a session on the pty.
-      void openAgent({ ...common, source: t.source, forceTerminal: t.mode === 'terminal' })
-    },
-    [openAgent, selectedProject, worktrees]
   )
 
   /**
@@ -1514,8 +1469,8 @@ export function App(): React.JSX.Element {
   /**
    * Swap a pane for a fresh one in the same slot. Used when a session moves
    * checkouts before it has said anything: the old runtime is killed and the
-   * new tab takes its place in the strip, so nothing jumps and no second
-   * process is ever left driving the same conversation.
+   * replacement keeps the same logical position, so no second process is ever
+   * left driving the same conversation.
    */
   const replacePane = useCallback(
     async (oldTermId: number, opts: Parameters<typeof openAgent>[0]): Promise<void> => {
@@ -1754,7 +1709,7 @@ export function App(): React.JSX.Element {
         // finished, so it is where the checkout gets tidied — not at ship
         // time, which would make a follow-up ship open a second PR.
         if (project) await tidyCheckout(project)
-        // A tab with no process behind it, so the id comes from main's counter
+        // A pane with no process behind it, so the id comes from main's counter
         // rather than from a spawn. Nothing here is committed to yet: agent,
         // model, effort and checkout are all still the setup row's to change,
         // and spawning now would mean re-spawning on every one of them.
@@ -1861,22 +1816,24 @@ export function App(): React.JSX.Element {
       // Every selection, not only the ones that open a pane: whatever you do
       // next in this project starts from the refs this brings in
       if (project) prefetchProject(project)
-      const sectionTabs = tabs.filter((t) => t.projectId === id)
-      if (sectionTabs.length === 0) {
+      const sectionPanes = agentPanes.filter((pane) => pane.projectId === id)
+      if (sectionPanes.length === 0) {
         setView({ kind: 'empty' })
         return
       }
       const remembered = lastViewedTerm.current.get(id)
-      const target = sectionTabs.find((t) => t.termId === remembered) ?? sectionTabs[sectionTabs.length - 1]
+      const target =
+        sectionPanes.find((pane) => pane.termId === remembered) ?? sectionPanes.at(-1)
+      if (!target) return
       setView({ kind: 'terminal', termId: target.termId })
     },
-    [tabs, projects, prefetchProject]
+    [agentPanes, projects, prefetchProject]
   )
 
   /**
    * The agent and the checkout a pane will use, changed from its setup row
    * until the first message settles both. Held on the tab rather than inside
-   * the pane so the tab strip's badge and the branch chip read the same
+   * the pane so its sidebar badge and checkout label read the same
    * answer the send path will act on.
    */
   /** Only the agents that declared a `color`; everything else hashes its name. */
@@ -2096,7 +2053,7 @@ export function App(): React.JSX.Element {
           showToast(`${file.path} has no changes to discard any more.`)
           return
         }
-        // The diff layer is showing a file that no longer differs from HEAD
+        // The selected file no longer differs from HEAD.
         setGitSel((sel) => (sel?.kind === 'file' && sel.file.path === file.path ? null : sel))
       })
       // The status refresh is the fs watcher's — `useGitStatus` re-reads on
@@ -2244,8 +2201,21 @@ export function App(): React.JSX.Element {
       const closing = tabs.find((tab) => tab.termId === termId)
       if (closing) killPane(closing)
       setTabs((t) => t.filter((tab) => tab.termId !== termId))
-      // Closing a tab forgets the session for good — otherwise it would be
-      // re-persisted as a resumable dormant tab and reappear on the next load.
+
+      if (closing?.source === 'shell') {
+        const siblings = tabs.filter(
+          (tab) => tab.source === 'shell' && tab.projectId === closing.projectId
+        )
+        const idx = siblings.findIndex((tab) => tab.termId === termId)
+        const neighbour = siblings[idx - 1] ?? siblings[idx + 1] ?? null
+        setSelectedShellId((selected) =>
+          selected === termId ? (neighbour?.termId ?? null) : selected
+        )
+        return
+      }
+
+      // Closing a live pane forgets its saved process handle; the transcript
+      // remains in the sidebar and can be resumed later.
       if (closing?.sessionId) {
         const sid = closing.sessionId
         if (closing.projectId === null) {
@@ -2260,35 +2230,18 @@ export function App(): React.JSX.Element {
           )
         }
       }
-      // Closing the focused tab hands focus to its left neighbour in the same
-      // section (falling back to the right, then the empty state). Closing a
-      // background tab leaves focus where it is.
+      // Closing the focused session hands focus to its nearest live neighbour.
       setView((v) => {
         if (v.kind !== 'terminal' || v.termId !== termId || !closing) return v
-        const siblings = tabs.filter((tab) => tab.projectId === closing.projectId)
+        const siblings = tabs.filter(
+          (tab) => tab.source !== 'shell' && tab.projectId === closing.projectId
+        )
         const idx = siblings.findIndex((tab) => tab.termId === termId)
         const neighbour = siblings[idx - 1] ?? siblings[idx + 1] ?? null
         return neighbour ? { kind: 'terminal', termId: neighbour.termId } : { kind: 'empty' }
       })
     },
     [tabs]
-  )
-
-  const removeDormant = useCallback(
-    (sessionId: string) => {
-      if (selectedProject) {
-        setProjects((ps) =>
-          ps.map((p) =>
-            p.id === selectedProject.id
-              ? { ...p, terminals: p.terminals.filter((t) => t.sessionId !== sessionId) }
-              : p
-          )
-        )
-      } else {
-        setHomeTerminals((ts) => ts.filter((t) => t.sessionId !== sessionId))
-      }
-    },
-    [selectedProject]
   )
 
   const saveSectionSettings = useCallback(
@@ -2582,7 +2535,7 @@ export function App(): React.JSX.Element {
       setCardRuns((prev) => new Map(prev).set(cardId, termId))
       setTodoBoard(await window.api.todosMarkRun({ scopeDir: todoScopeDir, cardId }))
       showToast(
-        `Running “${card.title}” in ${agentDef(agent).label} — ${todoProject?.name ?? 'Home'}. It's in the Code tabs when you want it.`
+        `Running “${card.title}” in ${agentDef(agent).label} — ${todoProject?.name ?? 'Home'}. It's in the Code sidebar when you want it.`
       )
     },
     [openAgent, showToast, todoProject, todoScopeDir]
@@ -2602,109 +2555,96 @@ export function App(): React.JSX.Element {
     const project: Project = { id: crypto.randomUUID(), name, path, terminals: [] }
     setProjects((ps) => [...ps, project])
     setSelectedProjectId(project.id)
+    setView({ kind: 'empty' })
   }, [])
 
   const deleteProject = useCallback(
     (id: string, deleteBoard = false, project?: { name: string; path: string }) => {
+      const projectRoot = project?.path ?? projects.find((candidate) => candidate.id === id)?.path
       // Board files outlive the project entry unless the user opted in at the
       // confirm — the folder may come back (SPEC-TODOS §8)
       if (deleteBoard && project) {
         void window.api.todosDeleteScope(projectScopeDir(project.name, project.path))
       }
-      // Closing a project fully tears it down: kill its live terminals and drop
-      // their tabs, rather than orphaning them into Home.
+      // Closing a project fully tears it down rather than orphaning processes into Home.
       const doomed = tabs.filter((tab) => tab.projectId === id)
       for (const tab of doomed) killPane(tab)
       const doomedIds = new Set(doomed.map((tab) => tab.termId))
       setTabs((t) => t.filter((tab) => !doomedIds.has(tab.termId)))
       setProjects((ps) => ps.filter((p) => p.id !== id))
       setFilesBySection((prev) => {
-        if (!prev.has(id)) return prev
+        const roots = new Set([
+          ...(projectRoot ? [projectRoot] : []),
+          ...worktrees.filter((worktree) => worktree.projectId === id).map((worktree) => worktree.path)
+        ])
+        if (![...roots].some((root) => prev.has(root))) return prev
         const next = new Map(prev)
-        next.delete(id)
+        for (const root of roots) next.delete(root)
         return next
       })
       if (selectedProjectId === id) setSelectedProjectId(null)
       // If the focused terminal belonged to the closed project, drop the view.
       setView((v) => (v.kind === 'terminal' && doomedIds.has(v.termId) ? { kind: 'empty' } : v))
     },
-    [tabs, selectedProjectId]
+    [tabs, selectedProjectId, projects, worktrees]
   )
 
-  /** Show a session's pane — and dismiss the editor and diff layers over it. */
+  /** Show a live session pane selected from the sidebar. */
   const focusTab = (termId: number): void => {
-    activateFile(null)
-    setGitSel(null)
     setView({ kind: 'terminal', termId })
   }
 
-  /**
-   * The tab's own hover detail — full label, then which checkout it is in.
-   *
-   * This is where the tab bar's branch chip went. The chip stated the focused
-   * session's branch beside a tab already labelled with the task that branch is
-   * named after, and it did so in the widest control on a rail the tabs were
-   * being squeezed off. Same facts, no width, and every tab gets them rather
-   * than only the focused one.
-   */
-  const tabTitle = (tab: TerminalTab): string => {
-    const lines = [tab.label]
-    const wt = tab.worktreeId ? worktrees.find((w) => w.id === tab.worktreeId) : undefined
-    if (wt) lines.push(`${wt.branch} · cut from ${wt.baseBranch}`, wt.path)
-    const focused = view.kind === 'terminal' && view.termId === tab.termId
-    // A pending isolated pane is only borrowing the shared checkout until its
-    // first message, so reporting that checkout's state as the session's is
-    // the same lie the chip's dashed variant existed to avoid.
-    if (focused && pendingBase) lines.push(`New branch, cut from ${pendingBase} on the first message`)
-    else if (focused && !wt && repoStatus?.ok && repoStatus.isRepo)
-      lines.push(`${repoStatus.branch} · ${repoStatus.upstream ?? 'no upstream'}`)
-    if (focused && !pendingBase && repoStatus?.ok && repoStatus.isRepo) {
-      const { ahead, behind, files } = repoStatus
-      lines.push(
-        [
-          ahead > 0 || behind > 0 ? `↑${ahead} ↓${behind}` : null,
-          files.length > 0
-            ? `${files.length} uncommitted change${files.length === 1 ? '' : 's'}`
-            : 'clean'
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      )
+  const checkoutLabel = pendingBase
+    ? `New branch from ${pendingBase} after first message`
+    : activeWorktree
+      ? `${activeWorktree.branch} · isolated worktree`
+      : repoStatus?.ok && repoStatus.isRepo
+        ? repoStatus.branch
+        : undefined
+  const checkoutTitle = activeWorktree
+    ? `${activeWorktree.branch} · cut from ${activeWorktree.baseBranch}\n${activeWorktree.path}`
+    : repoStatus?.ok && repoStatus.isRepo
+      ? `${repoStatus.branch} · ${repoStatus.upstream ?? 'no upstream'}\n${repoStatus.files.length > 0 ? `${repoStatus.files.length} uncommitted changes` : 'clean'}${repoStatus.ahead || repoStatus.behind ? ` · ↑${repoStatus.ahead} ↓${repoStatus.behind}` : ''}`
+      : checkoutLabel
+  const sectionShellPanes = shellPanes.filter(
+    (pane) => pane.projectId === (selectedProject?.id ?? null)
+  )
+  const shellTabs: ShellTabInfo[] = sectionShellPanes.map((pane) => {
+    const worktree = pane.worktreeId
+      ? worktrees.find((candidate) => candidate.id === pane.worktreeId)
+      : undefined
+    const project = projects.find((candidate) => candidate.id === pane.projectId)
+    return {
+      termId: pane.termId,
+      label: pane.label,
+      root: worktree?.path ?? project?.path ?? window.api.homeDir,
+      exited: pane.exited
     }
-    return lines.join('\n')
-  }
-
-  /**
-   * Every session of this section for the ⌄ menu, in strip order and with the
-   * dormant ones after them — the same two lists the strip renders, so the
-   * menu can never disagree with it about what is open.
-   */
-  const tabMenuItems: TabMenuItem[] = [
-    ...visibleTabs.map((tab) => ({
-      id: `t${tab.termId}`,
-      label: tab.label,
-      source: tab.source,
-      live: !tab.exited,
-      dormant: false,
-      active: view.kind === 'terminal' && view.termId === tab.termId,
-      root: tab.worktreeId ? (worktrees.find((w) => w.id === tab.worktreeId)?.path ?? null) : null,
-      onSelect: () => focusTab(tab.termId)
-    })),
-    ...dormantTerminals.map((t) => ({
-      id: `d${t.sessionId}`,
-      label: t.label,
-      source: t.source,
-      live: false,
-      dormant: true,
-      active: false,
-      onSelect: () => wakeDormant(t)
-    }))
-  ]
+  })
+  const activeShellId = shellTabs.some((tab) => tab.termId === selectedShellId)
+    ? selectedShellId
+    : (shellTabs.at(-1)?.termId ?? null)
+  const toolsMax = Math.max(
+    TOOLS_MIN,
+    Math.min(
+      Math.floor(viewportWidth * 0.72),
+      viewportWidth - layout.sidebarWidth - SESSION_MIN
+    )
+  )
+  const toolsSize = Math.min(layout.toolsWidth, toolsMax)
+  const explorerMax = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, toolsSize - 260))
+  const explorerSize = Math.min(layout.explorerWidth, explorerMax)
 
   return (
     <AgentColorsProvider value={agentColors}>
     <div className="app-layout">
-      <div className="sidebar-column">
+      <ResizablePane
+        className="sidebar-column"
+        size={layout.sidebarWidth}
+        min={SIDEBAR_MIN}
+        max={SIDEBAR_MAX}
+        onSizeChange={(sidebarWidth) => setLayout((value) => ({ ...value, sidebarWidth }))}
+      >
         {/* hiddenInset traffic lights wired in main process separately */}
         <div className="sidebar-drag-strip" />
         <div className="workflow-switcher-row">
@@ -2736,25 +2676,33 @@ export function App(): React.JSX.Element {
         projects={projects}
         worktrees={worktrees}
         liveCounts={liveCounts}
-        liveSessionIds={new Set(liveSessionTabs.keys())}
+        livePanes={livePanes}
         selectedProjectId={selectedProjectId}
         selectedSessionId={
           view.kind === 'terminal'
             ? tabs.find((t) => t.termId === view.termId)?.sessionId
             : undefined
         }
+        selectedPaneId={view.kind === 'terminal' ? view.termId : undefined}
         onHideSession={hideSession}
         onRestoreSession={restoreSession}
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
         onSelect={openSession}
+        onSelectLive={focusTab}
+        onCloseLive={closeTerminal}
         onNewTerminal={() => {
           if (selectedProject) prefetchProject(selectedProject)
           newAgent(selectedProject)
         }}
         onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
         liveWorktreeIds={
-          new Set(tabs.map((t) => t.worktreeId).filter((id): id is string => !!id))
+          new Set(
+            tabs
+              .filter((tab) => !tab.exited)
+              .map((tab) => tab.worktreeId)
+              .filter((id): id is string => !!id)
+          )
         }
         onOpenWorktree={openWorktree}
         onRemoveWorktree={confirmRemoveWorktree}
@@ -2771,7 +2719,7 @@ export function App(): React.JSX.Element {
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
       />
         )}
-      </div>
+      </ResizablePane>
 
       <main className="main-panel">
         {appSettingsOpen && (
@@ -2792,211 +2740,173 @@ export function App(): React.JSX.Element {
           />
         )}
         {workflow === 'code' && (
-        <div className="terminal-tab-bar">
-          <IconButton
-            label="Files (⌘⇧E)"
-            className="file-tree-toggle"
-            onClick={() => {
-              setFileTreeOpen((o) => !o)
-              setGitOpen(false)
-            }}
-          >
-            <FolderTree size={16} strokeWidth={1.75} />
-          </IconButton>
-          <IconButton
-            label={gitRoot ? 'Git — changes & history (⌘⇧G)' : 'Git — select a project first'}
-            className="git-toggle"
-            active={gitOpen}
-            disabled={!gitRoot}
-            onClick={() => {
-              setGitOpen((o) => !o)
-              setFileTreeOpen(false)
-            }}
-          >
-            <GitBranch size={16} strokeWidth={1.75} />
-            {dirtyCount > 0 && (
-              <span className="git-toggle-count">{dirtyCount > 99 ? '99+' : dirtyCount}</span>
-            )}
-          </IconButton>
-          <div
-            className={`terminal-tabs-wrap ${strip.left ? 'terminal-tabs-fade-left' : ''} ${strip.right ? 'terminal-tabs-fade-right' : ''}`}
-          >
-          <div className="terminal-tabs" ref={tabStripRef} onScroll={measureStrip}>
-          {visibleTabs.map((tab) => (
-            <div
-              key={tab.termId}
-              data-term-id={tab.termId}
-              title={tabTitle(tab)}
-              className={`terminal-tab ${view.kind === 'terminal' && view.termId === tab.termId ? 'terminal-tab-active' : ''} ${tab.exited ? 'terminal-tab-exited' : ''} ${draggedTermId === tab.termId ? 'terminal-tab-dragging' : ''}`}
-              draggable
-              onDragStart={(e) => {
-                if ((e.target as HTMLElement).closest('button')) {
-                  e.preventDefault()
-                  return
-                }
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', String(tab.termId))
-                setDraggedTermId(tab.termId)
-              }}
-              onDragOver={(e) => {
-                if (draggedTermId === null || draggedTermId === tab.termId) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                const fromIndex = visibleTabs.findIndex((t) => t.termId === draggedTermId)
-                const overIndex = visibleTabs.findIndex((t) => t.termId === tab.termId)
-                if (fromIndex === -1 || overIndex === -1) return
-                const box = e.currentTarget.getBoundingClientRect()
-                const midpoint = box.left + box.width / 2
-                const crossed =
-                  fromIndex < overIndex ? e.clientX > midpoint : e.clientX < midpoint
-                if (crossed) reorderTab(draggedTermId, tab.termId)
-              }}
-              onDrop={(e) => e.preventDefault()}
-              onDragEnd={() => setDraggedTermId(null)}
-              onClick={() => focusTab(tab.termId)}
-            >
-              {!tab.exited && <Dot tone="live" className="terminal-tab-dot" />}
-              <Badge source={tab.source} />
-              <span className="terminal-tab-label">{tab.label}</span>
-              {tab.worktreeId && (
-                <TabDirtyPill
-                  root={worktrees.find((w) => w.id === tab.worktreeId)?.path ?? null}
-                />
-              )}
-              <IconButton
-                label="Close session"
-                dense
-                className="terminal-tab-action"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  closeTerminal(tab.termId)
-                }}
-              >
-                <X size={14} strokeWidth={1.75} />
-              </IconButton>
-            </div>
-          ))}
-
-          {dormantTerminals.map((t) => (
-            <div
-              key={`dormant-${t.sessionId}`}
-              className="terminal-tab terminal-tab-dormant"
-              title="Terminal from a previous app run — click to resume"
-              onClick={() => wakeDormant(t)}
-            >
-              <Play className="terminal-tab-ghost-glyph" size={14} strokeWidth={1.75} />
-              <Badge source={t.source} />
-              <span className="terminal-tab-label">{t.label}</span>
-              <IconButton
-                label="Forget this session"
-                dense
-                className="terminal-tab-action"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  removeDormant(t.sessionId)
-                }}
-              >
-                <X size={14} strokeWidth={1.75} />
-              </IconButton>
-            </div>
-          ))}
-          </div>
-          </div>
-
-          {/* Only once the strip is genuinely hiding something: a control that
-              is always there costs the tabs the width it exists to give back */}
-          {strip.overflowing && (
-            <TabOverflowButton items={tabMenuItems} hidden={strip.hidden} />
-          )}
-
-          {/* Pinned to the far right, outside the scrolling tab strip */}
-          <div className="terminal-tab-actions">
-            {/* Nothing to update and nothing to ship until the branch exists —
-                both would act on the shared checkout this pane is only
-                borrowing, which is the whole thing the worktree avoids */}
-            {gitRoot && !pendingBase && (
-              <UpdateButton
-                root={gitRoot}
-                status={repoStatus}
-                onDone={showToast}
-                onError={showToast}
+          <SessionHeader
+            leading={
+              <ToolActivityBar
+                active={activeTool}
+                gitEnabled={gitRoot !== null}
+                dirtyCount={dirtyCount}
+                onSelect={(tool) => setActiveTool((current) => (current === tool ? null : tool))}
               />
-            )}
-            {gitRoot && !pendingBase && (
-              <ShipButton
-                status={repoStatus}
-                busy={shipReading === gitRoot}
-                onOpen={() => void openShip(gitRoot)}
-              />
-            )}
-            {/* ▷ lives on the sidebar's project row now — a start command is a
-                project's, and it can be pressed for one that isn't even open */}
-            <IconButton
-              label={
-                shellWorktree
-                  ? `New shell — in ⎇ ${shellWorktree.taskName} or ${selectedProject?.name ?? 'Home'}`
-                  : `New shell in ${selectedProject?.name ?? 'Home'}`
-              }
-              className="new-shell-button"
-              onClick={(e) => {
-                if (!shellWorktree) {
-                  newShell()
-                  return
-                }
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                setShellMenuAt({ x: r.left, y: r.bottom + 4 })
-              }}
-            >
-              <Plus size={18} strokeWidth={1.75} />
-            </IconButton>
-            {shellMenuAt && shellWorktree && (
-              <ContextMenu
-                x={shellMenuAt.x}
-                y={shellMenuAt.y}
-                items={[
-                  { id: 'worktree', label: `⎇ ${shellWorktree.taskName}` },
-                  { id: 'main', label: `${selectedProject?.name ?? 'Home'} — main checkout` }
-                ]}
-                onSelect={(id) => {
-                  setShellMenuAt(null)
-                  newShell(id === 'worktree' ? shellWorktree : undefined)
-                }}
-                onClose={() => setShellMenuAt(null)}
-              />
-            )}
-          </div>
-        </div>
+            }
+            source={activeTab?.source}
+            title={activeTab?.label ?? selectedProject?.name ?? 'Chewo'}
+            live={!!activeTab && !activeTab.exited}
+            checkout={checkoutLabel}
+            checkoutTitle={checkoutTitle}
+            actions={
+              gitRoot && !pendingBase ? (
+                <>
+                  <UpdateButton
+                    root={gitRoot}
+                    status={repoStatus}
+                    onDone={showToast}
+                    onError={showToast}
+                  />
+                  <ShipButton
+                    status={repoStatus}
+                    busy={shipReading === gitRoot}
+                    onOpen={() => void openShip(gitRoot)}
+                  />
+                </>
+              ) : undefined
+            }
+          />
         )}
 
         <div className="workspace-row">
-        <FileTreePanel
-          visible={workflow === 'code' && fileTreeOpen}
-          root={treeRoot}
-          rootLabel={treeRootLabel}
-          activePath={sectionFiles.activePath}
-          onOpenFile={openFile}
-          onClose={() => setFileTreeOpen(false)}
-          onError={showToast}
-          onDeleted={closeFilesUnder}
-          onRenamed={renameOpenFiles}
-        />
-        <GitPanel
-          visible={workflow === 'code' && gitOpen && gitRoot !== null}
-          root={treeRoot}
-          rootLabel={treeRootLabel}
-          status={repoStatus}
-          selection={gitSel}
-          onShowFile={(file) => {
-            activateFile(null)
-            setGitSel({ kind: 'file', file })
-          }}
-          onShowCommit={(hash) => {
-            activateFile(null)
-            setGitSel({ kind: 'commit', hash })
-          }}
-          onDiscard={confirmDiscard}
-          onClose={() => setGitOpen(false)}
-        />
+        {workflow === 'code' && activeTool && (
+            <ResizablePane
+              className="tools-column"
+              size={toolsSize}
+              min={TOOLS_MIN}
+              max={toolsMax}
+              onSizeChange={(toolsWidth) => setLayout((value) => ({ ...value, toolsWidth }))}
+            >
+              <ToolsPanel>
+                {activeTool === 'files' && (
+                  <div className="files-tool-workspace">
+                    {!layout.explorerCollapsed && (
+                      <ResizablePane
+                        className="file-explorer-column"
+                        size={explorerSize}
+                        min={EXPLORER_MIN}
+                        max={explorerMax}
+                        onSizeChange={(explorerWidth) =>
+                          setLayout((value) => ({ ...value, explorerWidth }))
+                        }
+                      >
+                        <FileTreePanel
+                          visible
+                          root={treeRoot}
+                          rootLabel={treeRootLabel}
+                          activePath={sectionFiles.activePath}
+                          onOpenFile={openExplorerFile}
+                          onCollapse={() =>
+                            setLayout((value) => ({ ...value, explorerCollapsed: true }))
+                          }
+                          onError={showToast}
+                          onDeleted={closeFilesUnder}
+                          onRenamed={renameOpenFiles}
+                        />
+                      </ResizablePane>
+                    )}
+                    {layout.explorerCollapsed && (
+                      <div className="file-explorer-collapsed-rail">
+                        <IconButton
+                          label="Expand file explorer (⌘⇧B)"
+                          dense
+                          onClick={() =>
+                            setLayout((value) => ({ ...value, explorerCollapsed: false }))
+                          }
+                        >
+                          <PanelLeftOpen size={14} strokeWidth={1.75} />
+                        </IconButton>
+                      </div>
+                    )}
+                    <div className="file-editor-column">
+                      <FileEditor
+                        visible={editorVisible}
+                        openFiles={sectionFiles.openFiles}
+                        allOpenPaths={allOpenPaths}
+                        activePath={sectionFiles.activePath}
+                        root={treeRoot}
+                        gotoTarget={gotoTarget}
+                        theme={editorTheme}
+                        onActivate={openFile}
+                        onCloseFile={closeFile}
+                        onReorderFile={reorderFile}
+                        onDirty={pinFile}
+                        onExit={() => activateFile(null)}
+                      />
+                      {!editorVisible && (
+                        <div className="tools-empty">Select a file to open it here.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {activeTool === 'git' && gitRoot && (
+                  <div className="git-tool-workspace">
+                    <GitPanel
+                      visible
+                      root={treeRoot}
+                      rootLabel={treeRootLabel}
+                      status={repoStatus}
+                      selection={gitSel}
+                      onShowFile={(file) => setGitSel({ kind: 'file', file })}
+                      onShowCommit={(hash) => setGitSel({ kind: 'commit', hash })}
+                      onDiscard={confirmDiscard}
+                      onClose={() => setActiveTool(null)}
+                    />
+                    <div className="git-diff-column">
+                      <GitDiffView
+                        visible={gitSel !== null}
+                        root={treeRoot}
+                        target={gitSel}
+                        onClose={() => setGitSel(null)}
+                      />
+                      {gitSel === null && (
+                        <div className="tools-empty">Select a change or commit to inspect it.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {activeTool === 'shell' && (
+                  <ShellWorkspace
+                    tabs={shellTabs}
+                    activeId={activeShellId}
+                    theme={terminalTheme}
+                    onActivate={setSelectedShellId}
+                    onClose={closeTerminal}
+                    onNew={(event) => {
+                      if (!shellWorktree) {
+                        newShell()
+                        return
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setShellMenuAt({ x: rect.left, y: rect.bottom + 4 })
+                    }}
+                    onOpenFile={openFile}
+                  />
+                )}
+              </ToolsPanel>
+            </ResizablePane>
+          )}
+        {shellMenuAt && shellWorktree && (
+          <ContextMenu
+            x={shellMenuAt.x}
+            y={shellMenuAt.y}
+            items={[
+              { id: 'worktree', label: `⎇ ${shellWorktree.taskName}` },
+              { id: 'main', label: `${selectedProject?.name ?? 'Home'} — main checkout` }
+            ]}
+            onSelect={(id) => {
+              setShellMenuAt(null)
+              newShell(id === 'worktree' ? shellWorktree : undefined)
+            }}
+            onClose={() => setShellMenuAt(null)}
+          />
+        )}
         <div className="main-content">
           {workflow === 'notes' && (
             <div className="notes-main">
@@ -3064,7 +2974,7 @@ export function App(): React.JSX.Element {
             />
           )}
 
-          {workflow === 'code' && !editorVisible && view.kind === 'empty' && (
+          {workflow === 'code' && view.kind === 'empty' && (
             <div className="empty-state">
               <Terminal className="empty-state-glyph" size={20} strokeWidth={1.5} />
               <h2 className="empty-state-title">
@@ -3078,13 +2988,11 @@ export function App(): React.JSX.Element {
             </div>
           )}
 
-          {workflow === 'code' && !editorVisible && view.kind === 'capabilities' && (
+          {workflow === 'code' && view.kind === 'capabilities' && (
             <CapabilitiesView projects={projects} onClose={() => setView({ kind: 'empty' })} />
           )}
 
-          {/* Panes stay mounted across workflow switches — terminals keep running.
-              Fixed termId order so reordering the tab strip never moves a live
-              terminal's DOM node (which would corrupt its xterm renderer). */}
+          {/* Panes stay mounted across workflow switches so live processes keep running. */}
           {paneTabs.map((tab) => {
             // Same root resolution as the file tree: isolated sessions resolve
             // clicked paths inside their worktree, not the main checkout
@@ -3094,8 +3002,6 @@ export function App(): React.JSX.Element {
             const tabProject = projects.find((p) => p.id === tab.projectId)
             const paneActive =
               workflow === 'code' &&
-              !editorVisible &&
-              gitSel === null &&
               view.kind === 'terminal' &&
               view.termId === tab.termId
 
@@ -3186,25 +3092,6 @@ export function App(): React.JSX.Element {
               />
             )
           })}
-          <FileEditor
-            visible={editorVisible}
-            openFiles={sectionFiles.openFiles}
-            allOpenPaths={allOpenPaths}
-            activePath={sectionFiles.activePath}
-            root={treeRoot}
-            gotoTarget={gotoTarget}
-            theme={editorTheme}
-            onActivate={openFile}
-            onCloseFile={closeFile}
-            onReorderFile={reorderFile}
-            onExit={() => activateFile(null)}
-          />
-          <GitDiffView
-            visible={workflow === 'code' && gitSel !== null}
-            root={treeRoot}
-            target={gitSel}
-            onClose={() => setGitSel(null)}
-          />
         </div>
         </div>
 

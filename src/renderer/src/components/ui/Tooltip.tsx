@@ -11,7 +11,7 @@ interface TooltipProps {
 
 /**
  * Tooltip whose bubble is portalled to <body> and positioned with fixed
- * coordinates, so no ancestor's `overflow: hidden` (sidebar, tab bar, window
+ * coordinates, so no ancestor's `overflow: hidden` (sidebar, header, window
  * edge) can ever clip it. Flips to the opposite side and clamps horizontally
  * when it would fall off-screen. Fade only; never affects layout.
  */

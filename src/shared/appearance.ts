@@ -65,6 +65,21 @@ export interface AppearanceSettings {
   notes: NotesColors
 }
 
+/** Persisted workspace geometry. Runtime contents remain renderer-session state. */
+export interface LayoutSettings {
+  sidebarWidth: number
+  toolsWidth: number
+  explorerWidth: number
+  explorerCollapsed: boolean
+}
+
+export const DEFAULT_LAYOUT: LayoutSettings = {
+  sidebarWidth: 300,
+  toolsWidth: 620,
+  explorerWidth: 240,
+  explorerCollapsed: false
+}
+
 /** userData/settings.json — one key per settings tab */
 export interface SettingsFile {
   appearance: AppearanceSettings
@@ -72,6 +87,8 @@ export interface SettingsFile {
   agents: AgentAssignments
   /** Deepgram model + language both dictation surfaces use */
   stt: SttSettings
+  /** Resizable Code-workspace panes */
+  layout: LayoutSettings
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

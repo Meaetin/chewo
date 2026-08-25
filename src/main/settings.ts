@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
-import { DEFAULT_APPEARANCE, type SettingsFile } from '../shared/appearance'
+import { DEFAULT_APPEARANCE, DEFAULT_LAYOUT, type SettingsFile } from '../shared/appearance'
 import { normalizeAgents, type AgentChoice, type AgentTask } from '../shared/agents'
 import { normalizeStt } from '../shared/stt'
 
@@ -27,13 +27,15 @@ export function loadSettings(): SettingsFile {
         notes: { ...DEFAULT_APPEARANCE.notes, ...a?.notes }
       },
       agents: normalizeAgents(parsed.agents),
-      stt: normalizeStt(parsed.stt)
+      stt: normalizeStt(parsed.stt),
+      layout: { ...DEFAULT_LAYOUT, ...parsed.layout }
     }
   } catch {
     return {
       appearance: DEFAULT_APPEARANCE,
       agents: normalizeAgents(undefined),
-      stt: normalizeStt(undefined)
+      stt: normalizeStt(undefined),
+      layout: DEFAULT_LAYOUT
     }
   }
 }

@@ -16,6 +16,11 @@ import type { VersionStatus } from '../../../main/app-version'
 import type { StaleCheckout } from '../../../main/git'
 import type { WorktreeState } from '../../../main/worktrees'
 import { sessionInSection, type Project, type Worktree } from '../../../shared/projects'
+import {
+  livePaneBySession,
+  unrepresentedLivePanes,
+  type LiveSessionPane
+} from '../codingWorkspace'
 import { useWorktreeState } from '../useGitStatus'
 import { Badge, Button, Dot, IconButton, Input, Row } from './ui'
 
@@ -25,17 +30,20 @@ interface SidebarProps {
   projects: Project[]
   /** Isolated checkouts — their sessions group under the owning project */
   worktrees: Worktree[]
-  /** Live terminal count per section (keyed by project id, null = Home) */
+  /** Live session count per section (keyed by project id, null = Home). */
   liveCounts: Map<string | null, number>
-  /** Sessions that currently have an open terminal */
-  liveSessionIds: Set<string>
+  /** Live agent panes; auxiliary shell ptys are tracked inside the tools panel */
+  livePanes: LiveSessionPane[]
   selectedProjectId: string | null
   selectedSessionId?: string
+  selectedPaneId?: number
   onSelectProject: (id: string | null) => void
   onCreateProject: () => void
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
+  onSelectLive: (paneId: number) => void
+  onCloseLive: (paneId: number) => void
   onNewTerminal: () => void
   /** undefined = no project selected → button disabled */
   onNewIsolated?: () => void
@@ -52,9 +60,7 @@ interface SidebarProps {
   /**
    * Run a project's start command — dev servers, in the focused session's
    * checkout when one is open on this project, otherwise its main checkout.
-   * Offered per project rather than for whatever section happens to be open:
-   * the scope is a project's start command, and the tab bar (where it used to
-   * live) can be showing a pane from a section you are not looking at.
+   * Offered per project because the scope is the project's configured command.
    */
   onRunStart: (projectId: string) => void
   /** The isolated checkout ▷ would use, so the button can say where it runs */
@@ -106,38 +112,48 @@ function NewSessionButton({ onNewTerminal }: { onNewTerminal: () => void }): Rea
 function SessionRow({
   session,
   selected,
-  live,
+  livePane,
   showProject,
   onSelect,
   actionIcon,
   actionTitle,
-  onAction
+  onAction,
+  onCloseLive
 }: {
   session: SessionMeta
   selected: boolean
   /** Already running — the row dims and a click focuses that pane rather than
    *  starting a second process on the same conversation */
-  live?: boolean
+  livePane?: LiveSessionPane
   showProject?: string
   onSelect: (s: SessionMeta) => void
   actionIcon?: React.ReactNode
   actionTitle?: string
   onAction?: (id: string) => void
+  onCloseLive?: (paneId: number) => void
 }): React.JSX.Element {
+  const live = !!livePane && !livePane.exited
   const trailing = (
     <>
-      {onAction && actionIcon && (
+      {(livePane && onCloseLive) || (onAction && actionIcon) ? (
         <IconButton
-          label={actionTitle ?? 'Action'}
+          label={
+            livePane
+              ? live
+                ? 'Close running session'
+                : 'Close session pane'
+              : (actionTitle ?? 'Action')
+          }
           dense
           onClick={(e) => {
             e.stopPropagation()
-            onAction(session.id)
+            if (livePane && onCloseLive) onCloseLive(livePane.paneId)
+            else onAction?.(session.id)
           }}
         >
-          {actionIcon}
+          {livePane ? <X size={14} strokeWidth={1.75} /> : actionIcon}
         </IconButton>
-      )}
+      ) : null}
     </>
   )
 
@@ -145,10 +161,18 @@ function SessionRow({
     <Row
       selected={selected}
       live={live}
-      className={live ? 'session-row--running' : undefined}
+      className={
+        livePane ? (live ? 'session-row--running' : 'session-row--exited') : undefined
+      }
       leading={<Badge source={session.source} />}
       trailing={trailing}
-      title={live ? 'Already open — click to focus it' : undefined}
+      title={
+        livePane
+          ? live
+            ? 'Already open — click to focus it'
+            : 'Process exited — click to view it'
+          : undefined
+      }
       onClick={() => onSelect(session)}
     >
       <span className="session-row-line">
@@ -163,9 +187,13 @@ function SessionRow({
 interface SessionGroupProps {
   sessions: SessionMeta[]
   selectedSessionId?: string
-  liveSessionIds: Set<string>
+  livePanes: LiveSessionPane[]
+  projectId: string | null
+  selectedPaneId?: number
   onSelect: (s: SessionMeta) => void
   onHideSession: (id: string) => void
+  onSelectLive: (paneId: number) => void
+  onCloseLive: (paneId: number) => void
   emptyText: string
 }
 
@@ -173,27 +201,64 @@ interface SessionGroupProps {
 function SessionGroup({
   sessions,
   selectedSessionId,
-  liveSessionIds,
+  livePanes,
+  projectId,
+  selectedPaneId,
   onSelect,
   onHideSession,
+  onSelectLive,
+  onCloseLive,
   emptyText
 }: SessionGroupProps): React.JSX.Element {
   const [visible, setVisible] = useState(INITIAL_VISIBLE)
+  const transcriptIds = useMemo(() => new Set(sessions.map((session) => session.id)), [sessions])
+  const placeholders = unrepresentedLivePanes(livePanes, transcriptIds, projectId)
   return (
     <div className="project-sessions">
+      {placeholders.map((pane) => (
+        <Row
+          key={`pane:${pane.paneId}`}
+          selected={pane.paneId === selectedPaneId}
+          live={!pane.exited}
+          className={pane.exited ? 'session-row--exited' : 'session-row--running'}
+          leading={<Badge source={pane.source} />}
+          trailing={
+            <IconButton
+              label={pane.exited ? 'Close session pane' : 'Close running session'}
+              dense
+              onClick={(event) => {
+                event.stopPropagation()
+                onCloseLive(pane.paneId)
+              }}
+            >
+              <X size={14} strokeWidth={1.75} />
+            </IconButton>
+          }
+          onClick={() => onSelectLive(pane.paneId)}
+        >
+          <span className="session-row-line">
+            <span className="session-row-title">{pane.title}</span>
+            {pane.pending && <span className="session-row-time">new</span>}
+          </span>
+          {pane.worktreeLabel && <span className="session-row-sub">{pane.worktreeLabel}</span>}
+        </Row>
+      ))}
       {sessions.slice(0, visible).map((s) => (
         <SessionRow
           key={`${s.source}:${s.id}`}
           session={s}
           selected={s.id === selectedSessionId}
-          live={liveSessionIds.has(s.id)}
+          livePane={livePaneBySession(livePanes, s.id)}
           onSelect={onSelect}
           actionIcon={<X size={14} strokeWidth={1.75} />}
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
+          onCloseLive={onCloseLive}
         />
       ))}
-      {sessions.length === 0 && <div className="session-list-empty">{emptyText}</div>}
+      {sessions.length === 0 && placeholders.length === 0 && (
+        <div className="session-list-empty">{emptyText}</div>
+      )}
       {sessions.length > visible && (
         <Button
           intent="ghost"
@@ -214,10 +279,8 @@ function SessionGroup({
  * there; a branch with nothing to resume opens the agent menu instead, so a
  * worktree whose pane was closed is never a dead end.
  *
- * No Ship button: the tab bar already has one, and it acts on the checkout you
- * are looking at. Shipping a branch with no pane open is opening it first —
- * which is what clicking this row does — rather than a second entry point to
- * keep in step with the first.
+ * No Ship button here: a worktree row can represent several sessions. Clicking
+ * it focuses a pane whose header owns checkout actions.
  */
 function WorktreeRow({
   worktree,
@@ -467,7 +530,7 @@ function SectionRow({
         <span className="section-row-line">
           <span className="section-row-name">{name}</span>
           {liveCount > 0 && (
-            <span className="section-live-count" title="Live terminals in this section">
+            <span className="section-live-count" title="Live sessions in this section">
               <Dot tone="live" />
               {liveCount}
             </span>
@@ -545,14 +608,17 @@ export function Sidebar({
   projects,
   worktrees,
   liveCounts,
-  liveSessionIds,
+  livePanes,
   selectedProjectId,
   selectedSessionId,
+  selectedPaneId,
   onSelectProject,
   onCreateProject,
   onHideSession,
   onRestoreSession,
   onSelect,
+  onSelectLive,
+  onCloseLive,
   onNewTerminal,
   onNewIsolated,
   liveWorktreeIds,
@@ -568,7 +634,7 @@ export function Sidebar({
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [hiddenExpanded, setHiddenExpanded] = useState(false)
-  // Home is a section like any project: selected ⟺ expanded ⟺ its tabs show
+  // Home is a section like any project: selected means expanded.
   const homeSelected = selectedProjectId === null
 
   const searching = query.trim().length > 0
@@ -626,8 +692,8 @@ export function Sidebar({
         <IconButton
           label={
             onNewIsolated
-              ? 'New isolated terminal — agent works on its own branch in a separate worktree'
-              : 'Select a project to start an isolated terminal'
+              ? 'New isolated session — agent works on its own branch in a separate worktree'
+              : 'Select a project to start an isolated session'
           }
           dense
           disabled={!onNewIsolated}
@@ -660,12 +726,13 @@ export function Sidebar({
               key={`${s.source}:${s.id}`}
               session={s}
               selected={s.id === selectedSessionId}
-              live={liveSessionIds.has(s.id)}
+              livePane={livePaneBySession(livePanes, s.id)}
               showProject={s.project ?? undefined}
               onSelect={onSelect}
               actionIcon={<X size={14} strokeWidth={1.75} />}
               actionTitle="Hide session"
               onAction={onHideSession}
+              onCloseLive={onCloseLive}
             />
           ))}
           {searchResults.length === 0 && <div className="session-list-empty">No sessions found</div>}
@@ -687,9 +754,13 @@ export function Sidebar({
               <SessionGroup
                 sessions={homeSessions}
                 selectedSessionId={selectedSessionId}
-                liveSessionIds={liveSessionIds}
+                livePanes={livePanes}
+                projectId={null}
+                selectedPaneId={selectedPaneId}
                 onSelect={onSelect}
                 onHideSession={onHideSession}
+                onSelectLive={onSelectLive}
+                onCloseLive={onCloseLive}
                 emptyText="No sessions started in your home folder"
               />
             )}
@@ -750,9 +821,13 @@ export function Sidebar({
                   <SessionGroup
                     sessions={projectSessions}
                     selectedSessionId={selectedSessionId}
-                    liveSessionIds={liveSessionIds}
+                    livePanes={livePanes}
+                    projectId={p.id}
+                    selectedPaneId={selectedPaneId}
                     onSelect={onSelect}
                     onHideSession={onHideSession}
+                    onSelectLive={onSelectLive}
+                    onCloseLive={onCloseLive}
                     emptyText="No sessions in this folder yet"
                   />
                 )}

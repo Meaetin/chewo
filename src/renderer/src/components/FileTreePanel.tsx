@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronRight, X } from 'lucide-react'
+import { ChevronRight, PanelLeftClose } from 'lucide-react'
 import type { DirEntry } from '../../../main/file-explorer'
+import type { FileDisposition } from '../fileTabs'
 import { ContextMenu, IconButton, type ContextMenuEntry } from './ui'
 
 interface FileTreePanelProps {
   visible: boolean
-  /** Effective root for the active tab — worktree path when isolated */
+  /** Effective root for the focused session — worktree path when isolated. */
   root: string
   /** Header text — basename of the root, ⎇-prefixed for worktrees */
   rootLabel: string
   activePath: string | null
-  onOpenFile: (path: string) => void
-  onClose: () => void
+  onOpenFile: (path: string, disposition: FileDisposition) => void
+  onCollapse: () => void
   onError: (message: string) => void
   /** Successful trash — App closes any chips at/under the path */
   onDeleted: (path: string) => void
@@ -69,7 +70,7 @@ export function FileTreePanel({
   rootLabel,
   activePath,
   onOpenFile,
-  onClose,
+  onCollapse,
   onError,
   onDeleted,
   onRenamed
@@ -380,7 +381,7 @@ export function FileTreePanel({
     }
     void loadDir(root, d.dir)
     if (d.isDir) expandDir(res.path)
-    else onOpenFile(res.path)
+    else onOpenFile(res.path, 'pinned')
   }
 
   const onPanelKeyDown = (e: React.KeyboardEvent): void => {
@@ -449,7 +450,7 @@ export function FileTreePanel({
     const path = entry?.path ?? root
     switch (id) {
       case 'open':
-        if (entry) onOpenFile(entry.path)
+        if (entry) onOpenFile(entry.path, 'pinned')
         break
       case 'newFile':
         startCreate(dirFor(entry), false)
@@ -566,10 +567,10 @@ export function FileTreePanel({
           onDragEnd={endDrag}
           onDragOver={(e) => onDragOverTarget(e, entry)}
           onDrop={(e) => onDropTarget(e, entry)}
-          onClick={() => {
+          onClick={(event) => {
             setSelected(entry)
             if (entry.isDir) toggleDir(entry.path)
-            else onOpenFile(entry.path)
+            else onOpenFile(entry.path, event.detail > 1 ? 'pinned' : 'preview')
           }}
           onContextMenu={(e) => openMenu(e, entry)}
         >
@@ -620,8 +621,8 @@ export function FileTreePanel({
         <span className="file-tree-root-label" title={root}>
           {rootLabel}
         </span>
-        <IconButton label="Hide files (⌘⇧E)" dense onClick={onClose}>
-          <X size={14} strokeWidth={1.75} />
+        <IconButton label="Collapse explorer (⌘⇧B)" dense onClick={onCollapse}>
+          <PanelLeftClose size={14} strokeWidth={1.75} />
         </IconButton>
       </div>
       <div

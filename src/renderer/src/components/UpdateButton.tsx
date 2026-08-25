@@ -18,11 +18,9 @@ interface UpdateButtonProps {
  * the default branch) or a merge of `origin/<default>` (on a task branch) —
  * main deciding which, from the checkout it is pointed at.
  *
- * Rendered only when the checkout is actually behind. The tab bar's width is
- * the tabs' to spend, and a button that is a no-op in the common case is the
- * cheapest thing in it to give back — a session cut minutes ago is level with
- * its base, and pressing this then fetches and merges nothing. The count it
- * used to carry as a badge *is* its visibility now.
+ * Rendered only when the checkout is actually behind; a session cut minutes
+ * ago is normally level with its base, and pressing this would fetch and merge
+ * nothing. Its visibility is the signal that an update is available.
  */
 export function UpdateButton({
   root,

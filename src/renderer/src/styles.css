@@ -269,8 +269,7 @@ body {
 /* Scrollbars. Chromium's default is a light grey overlay drawn for a light
    page, which reads as a bright white bar against every dark surface we have.
    Themed once here rather than per-pane so the sidebar, transcript, editor and
-   chat all scroll the same way; `.terminal-tabs::-webkit-scrollbar` is more
-   specific and still wins where the bar is hidden outright.
+   chat all scroll the same way.
 
    The thumb is a surface step, not a line colour, so it reads as a raised
    sliver of the panel rather than a border floating in space. The transparent
@@ -309,14 +308,15 @@ body {
 
 /* ---------- sidebar ---------- */
 
-/* Fixed left rail: workflow switcher on top, the active workflow's sidebar below */
+/* Project/session rail: workflow switcher on top, active workflow below. */
 .sidebar-column {
-  width: 300px;
-  min-width: 300px;
+  flex: none;
+  min-width: 0;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .sidebar {
@@ -514,95 +514,6 @@ body {
   min-width: 0;
   /* Positioning context for the full-screen settings overlay */
   position: relative;
-}
-
-.terminal-tab-bar {
-  display: flex;
-  /* Chrome-style: tabs bottom-align on the rail and pack together (dividers,
-     not gaps). The focused tab fills down into the terminal to merge. */
-  align-items: flex-end;
-  gap: 0;
-  padding: var(--space-6) var(--space-8) 0;
-  background: var(--bg-sidebar);
-  border-bottom: var(--border-hair);
-  min-height: 38px;
-}
-
-.terminal-tab {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-4) var(--space-12);
-  /* Borderless and same height whether focused or not, so content never shifts
-     and every tab's text stays on the same baseline. */
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-2) var(--radius-2) 0 0;
-  cursor: grab;
-  /* Chrome-style: share the rail by shrinking evenly down to a floor, and only
-     scroll past that. A tab that never shrinks pushes its neighbours off the
-     edge one at a time; the floor is what keeps a truncated label readable
-     instead of collapsing to a badge. */
-  min-width: 132px;
-  max-width: 220px;
-  color: var(--text-secondary);
-  position: relative;
-  transition:
-    background-color var(--dur-fast) var(--ease-standard),
-    color var(--dur-fast) var(--ease-standard);
-}
-
-.terminal-tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-/* Thin divider on the left of each tab (Chrome separators). Hidden on both
-   sides of the active or hovered tab so it reads as a clean solid shape. */
-.terminal-tab:not(:first-child)::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 1px;
-  background: var(--border-hairline);
-}
-
-.terminal-tab-active::before,
-.terminal-tab:hover::before,
-.terminal-tab-active + .terminal-tab::before,
-.terminal-tab:hover + .terminal-tab::before {
-  opacity: 0;
-}
-
-/* Focused session: filled with the terminal surface (--bg), rounded top, and
-   dropped 1px over the bar's border so it merges into the terminal below.
-   Same box as at rest — only the fill changes, so text doesn't move. */
-.terminal-tab-active {
-  background: var(--bg-canvas);
-  color: var(--text-primary);
-  margin-bottom: -1px;
-}
-
-.terminal-tab-exited {
-  opacity: 0.5;
-}
-
-.terminal-tab-dragging {
-  opacity: 0.55;
-}
-
-.terminal-tab:active {
-  cursor: grabbing;
-}
-
-.terminal-tab-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
 }
 
 /* worktree modals: header + scrollable body + fixed footer */
@@ -1171,11 +1082,12 @@ body {
   font-weight: var(--weight-semibold);
 }
 
-/* Tree panel + main content share a horizontal band under the tab bar */
+/* Tools and the focused session share the band below the session header. */
 .workspace-row {
   flex: 1;
   display: flex;
   min-height: 0;
+  min-width: 0;
 }
 
 .main-content {
@@ -1185,15 +1097,291 @@ body {
   min-width: 0;
 }
 
-/* ---------- file explorer ---------- */
+/* ---------- focused session header ---------- */
 
-.terminal-tab-bar > .tooltip:has(.file-tree-toggle) {
-  margin-right: var(--space-4);
+.session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 38px;
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
 }
 
+.session-header-live {
+  flex: none;
+}
+
+.session-header-title {
+  min-width: 0;
+  max-width: min(38vw, 460px);
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-header-checkout {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-header-spacer {
+  flex: 1;
+}
+
+.session-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: none;
+}
+
+/* ---------- resizable coding tools ---------- */
+
+.pane-resize-handle {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  outline: none;
+}
+
+.pane-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 2px;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.pane-resize-handle:hover::after,
+.pane-resize-handle:focus-visible::after,
+.pane-resizing .pane-resize-handle::after {
+  background: var(--accent);
+}
+
+.pane-resizing,
+.pane-resizing * {
+  cursor: col-resize !important;
+}
+
+.tools-column {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.tools-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.tool-activity-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-8);
+  margin-right: var(--space-2);
+  border-right: 1px solid var(--border);
+}
+
+.tool-activity-bar .icon-btn {
+  position: relative;
+}
+
+.tool-activity-git {
+  position: relative;
+}
+
+.tool-activity-count {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  min-width: 15px;
+  padding: 1px 3px;
+  border: 2px solid var(--bg-sidebar);
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: var(--bg-canvas);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: var(--weight-semibold);
+  line-height: 11px;
+  text-align: center;
+}
+
+.files-tool-workspace,
+.git-tool-workspace {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.file-explorer-column {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
+
+.file-explorer-collapsed-rail {
+  display: flex;
+  flex: 0 0 34px;
+  justify-content: center;
+  padding-top: var(--space-8);
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.file-editor-column,
+.git-diff-column {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-canvas);
+}
+
+.tools-empty,
+.shell-empty {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  padding: var(--space-20);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.shell-workspace {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: var(--space-4) var(--space-6);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  scrollbar-width: none;
+}
+
+.shell-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.shell-tab {
+  display: flex;
+  flex: 0 1 150px;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 80px;
+  max-width: 180px;
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-8);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: default;
+  font: inherit;
+  font-size: var(--fs-xs);
+}
+
+.shell-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.shell-tab-active {
+  background: var(--bg-selected);
+  color: var(--text-primary);
+}
+
+.shell-tab-exited {
+  opacity: 0.55;
+}
+
+.shell-tab-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-tab-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.shell-tab:hover .shell-tab-close,
+.shell-tab-active .shell-tab-close {
+  opacity: 1;
+}
+
+.shell-tab-close:hover {
+  background: var(--bg-selected);
+}
+
+.shell-tab-new {
+  flex: none;
+}
+
+.shell-pane-stack {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- file explorer ---------- */
+
 .file-tree-panel {
-  width: 264px;
-  min-width: 264px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
   flex-direction: column;
@@ -1318,52 +1506,12 @@ body {
   text-overflow: ellipsis;
 }
 
-/* ---------- git panel + diff layer ---------- */
-
-.terminal-tab-bar > .tooltip:has(.git-toggle) {
-  margin-right: var(--space-4);
-}
-
-/* The always-on dirty count on the git toggle — answers "did anything
-   change?" without opening the panel */
-.git-toggle {
-  position: relative;
-  overflow: visible;
-}
-
-.git-toggle-count {
-  position: absolute;
-  top: -3px;
-  right: -4px;
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: var(--weight-semibold);
-  line-height: 1;
-  color: var(--on-accent);
-  background: var(--accent);
-  border-radius: var(--radius-pill);
-  padding: 2px 4px;
-  min-width: 8px;
-  text-align: center;
-  pointer-events: none;
-}
-
-/* Passive per-worktree pill on session tabs (uncommitted work at a glance) */
-.terminal-tab-dirty {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: var(--weight-semibold);
-  line-height: 1;
-  color: var(--warning);
-  background: var(--warning-bg);
-  border-radius: var(--radius-pill);
-  padding: 2px 6px;
-}
+/* ---------- git panel + diff surface ---------- */
 
 .git-panel {
-  width: 264px;
-  min-width: 264px;
+  width: 240px;
+  min-width: 220px;
+  height: 100%;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
   flex-direction: column;
@@ -1720,11 +1868,12 @@ body {
   height: 5px;
 }
 
-/* Diff layer — covers the terminal inside .main-content like .file-editor */
 .git-diff-view {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   flex-direction: column;
   background: var(--bg-canvas);
 }
@@ -1957,11 +2106,12 @@ body {
   color: var(--c-diff-del);
 }
 
-/* Editor layer — covers the terminal inside .main-content; the session tab
-   stays highlighted for whatever is running underneath */
 .file-editor {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   flex-direction: column;
   background: var(--bg-canvas);
 }
@@ -1993,6 +2143,10 @@ body {
   transition:
     background-color var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
+}
+
+.file-chip-preview .file-chip-name {
+  font-style: italic;
 }
 
 .file-chip:active {
@@ -2195,8 +2349,20 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-8);
+  padding: var(--space-32) var(--space-24);
   color: var(--text-dim);
+  text-align: center;
+}
+
+/* The project path is one long unbroken token — cap the measure and let it
+   wrap anywhere, or it sets the paragraph's width and runs to both edges. */
+.empty-state p {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  overflow-wrap: anywhere;
 }
 /* ---------- rendered markdown (assistant messages) ---------- */
 
@@ -3657,9 +3823,7 @@ body {
   font-size: var(--fs-xs);
   line-height: var(--lh-xs);
 }
-/* ▷ run + ⚙ settings. ▷ came off the tab bar, which belongs to the focused
-   session — these shells run in the project's main checkout, so the project's
-   own row is where they were always addressed from. */
+/* Project-scoped run and settings actions. */
 .section-row-actions {
   display: flex;
   align-items: center;
@@ -3675,203 +3839,7 @@ body {
   line-height: var(--lh-2xs);
 }
 
-/* Terminal tab bar — live dot, ghost glyph + italic label, hover-revealed actions */
-.terminal-tab-dot {
-  flex: none;
-}
-.terminal-tab-ghost-glyph {
-  flex: none;
-  color: var(--text-tertiary);
-}
-.terminal-tab-dormant .terminal-tab-label {
-  font-style: italic;
-  color: var(--text-tertiary);
-}
-.terminal-tab-action {
-  flex: none;
-  opacity: 0;
-}
-.terminal-tab:hover .terminal-tab-action,
-.terminal-tab-active .terminal-tab-action {
-  opacity: 1;
-}
-.terminal-tab .icon-btn svg {
-  width: 14px;
-  height: 14px;
-}
-/* The file-tree toggle (left) and the play/new-shell actions (right) bottom-
-   align on the rail like the tabs. IconButtons are wrapped in Tooltip spans. */
-.terminal-tab-bar > .tooltip,
-.terminal-tab-actions .tooltip {
-  margin-bottom: var(--space-4);
-}
-/* Tabs scroll horizontally in their own strip so the action buttons never get
-   pushed off the rail; the strip flexes to fill, the actions stay pinned right. */
-.terminal-tabs {
-  display: flex;
-  align-items: flex-end;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  /* overflow-x:auto forces the y-axis to clip too, which would shear off the
-     active tab's -1px bleed. The 1px pad keeps that bleed inside the scrollport;
-     the matching -1px margin re-aligns the strip to the rail. */
-  padding-bottom: 1px;
-  margin-bottom: -1px;
-}
-.terminal-tabs::-webkit-scrollbar {
-  display: none;
-}
-/* Tabs shrink to their floor (see .terminal-tab's min-width) before the strip
-   scrolls — flex-basis auto so they shrink in proportion to their labels. */
-.terminal-tab {
-  flex: 0 1 auto;
-}
-
-/* The scrollport's frame. Fades are painted here rather than as a mask on the
-   scrollport itself: a mask clips to the element box, which would shear off
-   the active tab's -1px bleed into the terminal below. */
-.terminal-tabs-wrap {
-  position: relative;
-  display: flex;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.terminal-tabs-wrap::before,
-.terminal-tabs-wrap::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 28px;
-  /* Never intercept a click or a drag over the tabs underneath */
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-standard);
-  z-index: 1;
-}
-.terminal-tabs-wrap::before {
-  left: 0;
-  background: linear-gradient(to right, var(--bg-sidebar), transparent);
-}
-.terminal-tabs-wrap::after {
-  right: 0;
-  background: linear-gradient(to left, var(--bg-sidebar), transparent);
-}
-.terminal-tabs-fade-left::before,
-.terminal-tabs-fade-right::after {
-  opacity: 1;
-}
-
-/* ⌄ — every open session, when the strip can no longer show them all */
-.tab-overflow-button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex: none;
-  margin: 0 var(--space-4) var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-1);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.tab-overflow-button:hover,
-.tab-overflow-button-open {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.tab-overflow-count {
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  line-height: 1;
-  color: var(--text-tertiary);
-}
-.tab-overflow-menu {
-  position: fixed;
-  z-index: var(--z-popover);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: var(--space-4);
-  overflow-y: auto;
-  background: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-3);
-  box-shadow: var(--shadow-float);
-}
-.tab-overflow-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-6) var(--space-8);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-1);
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-sm);
-  text-align: left;
-  cursor: pointer;
-}
-.tab-overflow-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.tab-overflow-item-active {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-/* Fixed-width so the badges line up whether or not a row has a dot */
-.tab-overflow-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 12px;
-}
-.tab-overflow-ghost {
-  color: var(--text-tertiary);
-}
-.tab-overflow-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tab-overflow-label-dormant {
-  font-style: italic;
-  color: var(--text-tertiary);
-}
-.tab-overflow-dirty {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  color: var(--text-tertiary);
-}
-.terminal-tab-actions {
-  display: flex;
-  align-items: flex-end;
-  flex: none;
-}
-.new-shell-button.icon-btn svg {
-  width: 18px;
-  height: 18px;
-}
-.run-start-button.icon-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* ---------- update (tab bar, right of the tabs) ---------- */
-/* The branch chip that used to sit here is gone. It named the focused
-   session's branch beside a tab already labelled with the task that branch is
-   named after — the widest control on the one rail the tabs were being
-   squeezed off. Its detail lives in the tab's own tooltip and the git panel
-   header now. */
+/* ---------- update ---------- */
 
 /* Quiet next to Ship: this one only ever brings work in. */
 .update-button {
@@ -3914,7 +3882,7 @@ body {
 }
 
 /* ---------- ship (one-click commit + push + PR) ---------- */
-/* Accented rather than quiet: it is the only control in the bar that reaches
+/* Accented rather than quiet: it is the only header control that reaches
    the remote, and it does so without asking anything. */
 .ship-button {
   display: flex;
@@ -6813,6 +6781,10 @@ body {
 
 .session-row--running:hover .session-row-title {
   color: var(--text-secondary);
+}
+
+.session-row--exited {
+  opacity: 0.58;
 }
 
 /* Pull in the previous page of a resumed conversation */

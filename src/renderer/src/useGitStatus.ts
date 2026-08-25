@@ -82,31 +82,3 @@ export function useWorktreeState(
 
   return state
 }
-
-/**
- * Uncommitted-change count for a root, polled — no filesystem watcher. Cheap
- * enough for the passive per-worktree pills on session tabs, where a 15s lag
- * is fine and a recursive watcher per worktree would not be.
- */
-export function useGitDirtyCount(root: string | null): number {
-  const [count, setCount] = useState(0)
-
-  useEffect(() => {
-    setCount(0)
-    if (!root) return
-    let cancelled = false
-    const poll = (): void => {
-      void window.api.gitStatus(root).then((s) => {
-        if (!cancelled) setCount(s.ok && s.isRepo ? s.files.length : 0)
-      })
-    }
-    poll()
-    const timer = setInterval(poll, DIRTY_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [root])
-
-  return count
-}

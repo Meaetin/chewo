@@ -9,7 +9,7 @@ import type {
 } from '../../../main/git'
 import { Dot, IconButton } from './ui'
 
-/** What the diff layer is showing — drives row highlights here too */
+/** What the diff surface is showing — drives row highlights here too. */
 export type GitSelection =
   | { kind: 'file'; file: ChangedFile }
   | { kind: 'commit'; hash: string }
@@ -158,13 +158,13 @@ export function FileStat({
 
 interface GitPanelProps {
   visible: boolean
-  /** Effective repo root for the active tab — worktree path when isolated */
+  /** Effective repo root for the focused session — worktree path when isolated. */
   root: string
   /** Header text — basename of the root, ⎇-prefixed for worktrees */
   rootLabel: string
   /** Live status owned by App (also feeds the toggle badge) */
   status: RepoStatus | null
-  /** What the diff layer is showing, for row highlights */
+  /** What the diff surface is showing, for row highlights. */
   selection: GitSelection | null
   onShowFile: (file: ChangedFile) => void
   onShowCommit: (hash: string) => void
@@ -182,7 +182,7 @@ const LOG_LIMIT = 100
 
 /**
  * Git sidebar: Changes (live working-tree status) and History (recent
- * commits). Clicking a row opens the diff layer over the terminal.
+ * commits). Clicking a row opens it in the adjacent diff surface.
  *
  * Reading is all it does on its own. The one mutation reachable from here —
  * discarding a change — is raised to App as `onDiscard` rather than called,
@@ -250,8 +250,7 @@ export function GitPanel({
     <div className="git-panel" style={{ display: visible ? 'flex' : 'none' }}>
       <div className="git-panel-header">
         <GitBranch className="git-branch-icon" size={13} strokeWidth={1.75} />
-        {/* The panel is where the tab bar's branch chip's detail went, so this
-            carries the whole of it: which checkout, tracking what, how dirty */}
+        {/* This carries the checkout detail: branch, tracking state, and dirtiness. */}
         <span
           className="git-branch-name"
           title={[

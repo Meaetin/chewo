@@ -173,7 +173,7 @@ export function SectionSettingsModal({
             onChange={(e) => setRun(e.target.value)}
           />
           <div className="wt-field-hint">
-            The tab bar’s ▶ button launches these — one terminal per line. Defaults to{' '}
+            The project’s ▶ button launches these in Shell — one shell per line. Defaults to{' '}
             <code>npm run dev</code>.
           </div>
         </div>
