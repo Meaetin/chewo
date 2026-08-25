@@ -13,6 +13,7 @@ import {
 } from '../shared/adapter'
 import { scanCapabilities } from '../shared/capabilities/scan'
 import { listInstalledPlugins } from './plugins'
+import { claudeSlashCommands } from './claude-commands'
 import type { CopyDestination, ProjectTarget } from '../shared/capabilities/types'
 import {
   copyAgent,
@@ -314,6 +315,13 @@ function registerIpc(): void {
   ipcMain.on('chat:interrupt', (_e, { id }: { id: number }) => interruptChat(id))
   ipcMain.on('chat:kill', (_e, { id }: { id: number }) => killChat(id))
   ipcMain.handle('chat:sessionId', (_e, { id }: { id: number }) => chatSessionId(id))
+
+  // The command catalog for a checkout, for a pending pane that has no process
+  // to ask. Cached per cwd in main, so several pending panes on one project
+  // cost one spawn; failures return [] and the menu stays as it was.
+  ipcMain.handle('chat:commands', (_e, { cwd }: { cwd?: string | null }) =>
+    claudeSlashCommands(cwd)
+  )
 
   // Account-wide, cached in main — every pane asks, one request is made. Only
   // the parsed percentages cross this boundary; the token never does.

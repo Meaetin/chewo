@@ -85,8 +85,6 @@ interface ChatPaneProps {
   onError?: (message: string) => void
   /** Where the composer's `@`-mention picker reads files from */
   cwd?: string
-  /** Recent prompts for this project, offered while the pane is still blank */
-  suggested?: string[]
 }
 
 type Action =
@@ -132,8 +130,7 @@ export function ChatPane({
   notice,
   onSessionBound,
   onError,
-  cwd,
-  suggested
+  cwd
 }: ChatPaneProps): React.JSX.Element {
   const [state, dispatch] = useReducer(chatReducer, undefined, emptyChatState)
   /**
@@ -248,6 +245,28 @@ export function ChatPane({
    * offering something it can no longer do.
    */
   const [started, setStarted] = useState(false)
+
+  /**
+   * The `/` catalog for a pane that has not spawned anything yet. A pending
+   * pane never receives the CLI's `initialize` reply — there is no process to
+   * send it — so its menu was empty until the first message had already gone.
+   * Main answers this from a throwaway handshake in the same checkout and
+   * caches it per cwd; `[]` on any failure, which is where the menu was
+   * anyway. Only ever a fallback: the live session's own catalog replaces it
+   * below the moment `system/init` lands.
+   */
+  const [pendingCommands, setPendingCommands] = useState<string[]>([])
+  const unstartedClaude = !started && Boolean(setup) && setup?.source !== 'codex'
+  useEffect(() => {
+    if (!unstartedClaude) return
+    let live = true
+    window.api.chatCommands(cwd).then((commands) => {
+      if (live) setPendingCommands(commands)
+    })
+    return () => {
+      live = false
+    }
+  }, [unstartedClaude, cwd])
 
   /**
    * The one place a turn leaves this pane. `display` is what the bubble shows
@@ -404,7 +423,7 @@ export function ChatPane({
                 <Sparkles size={20} strokeWidth={1.6} aria-hidden="true" />
               </div>
               <h2>Ready when you are</h2>
-              <p>Type a task, or pick up something recent below.</p>
+              <p>Describe the task below, or type / for a command.</p>
             </div>
           )}
           {loadingHistory && (
@@ -455,11 +474,10 @@ export function ChatPane({
         // A parked permission request blocks the agent, so a typed message
         // would queue behind it with no sign of why nothing happened
         disabled={exited || awaiting.length > 0 || Boolean(notice)}
-        slashCommands={state.info?.slashCommands ?? []}
+        slashCommands={state.info?.slashCommands ?? pendingCommands}
         setup={started ? undefined : setup}
         usage={state.usage}
         cwd={cwd}
-        suggested={suggested}
         placeholder={
           exited
             ? 'Session ended'

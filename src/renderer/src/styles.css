@@ -6715,50 +6715,6 @@ body {
   white-space: nowrap;
 }
 
-/* ---- suggested prompts ----
-   Only shown on a blank, unstarted pane — a handful of recent prompts for
-   this project to fill the composer with instead of typing from scratch. */
-.chat-suggested {
-  margin-top: var(--space-16);
-}
-
-.chat-suggested-label {
-  padding: 0 var(--space-4) var(--space-6);
-  font-size: var(--fs-2xs);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.chat-suggested-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  padding: var(--space-6) var(--space-8);
-  border-radius: var(--radius-2);
-  background: none;
-  border: 0;
-  color: var(--text-tertiary);
-  font-size: var(--fs-base);
-  line-height: var(--lh-base);
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-suggested-row svg { flex-shrink: 0; color: var(--text-faint); }
-
-.chat-suggested-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-suggested-row:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 .chat-tool--cancelled .chat-tool-status { color: var(--text-faint); }
 .chat-tool--cancelled .chat-tool-name { color: var(--text-tertiary); }
 

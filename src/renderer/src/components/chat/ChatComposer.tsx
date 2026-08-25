@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, FileText, GitBranch, MessageCircle, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, GitBranch, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
@@ -377,8 +377,6 @@ interface ChatComposerProps {
   usage: ChatUsage
   /** Where `@`-mention file paths are read from. Absent in Home — no repo. */
   cwd?: string
-  /** Recent prompts for this project, offered while the pane is still blank */
-  suggested?: string[]
   onSend: (text: string, attachments: Attachment[]) => void
   onInterrupt: () => void
   /** A staging failure has nowhere else to surface from in here */
@@ -396,7 +394,6 @@ export function ChatComposer({
   setup,
   usage,
   cwd,
-  suggested,
   onSend,
   onInterrupt,
   onError
@@ -667,28 +664,6 @@ export function ChatComposer({
       </div>
 
       <UsageLine usage={usage} busy={busy} />
-
-      {/* Only while the pane is genuinely blank — the moment there is a draft
-          worth keeping, a list of other prompts is competing for the same
-          click rather than helping start one. */}
-      {setup && !value.trim() && suggested && suggested.length > 0 && (
-        <div className="chat-suggested">
-          <div className="chat-suggested-label">Suggested</div>
-          {suggested.map((text, i) => (
-            <button
-              key={i}
-              className="chat-suggested-row"
-              onClick={() => {
-                setValue(text)
-                areaRef.current?.focus()
-              }}
-            >
-              <MessageCircle size={14} strokeWidth={1.75} aria-hidden="true" />
-              <span>{text}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

@@ -155,6 +155,13 @@ const api = {
   /** The CLI conversation id, once bound — what "open in terminal" resumes */
   chatSessionId: (id: number) =>
     ipcRenderer.invoke('chat:sessionId', { id }) as Promise<string | undefined>,
+  /**
+   * Slash commands available in a checkout, for a session that has not started
+   * yet. Read by a throwaway CLI handshake in main and cached there; `[]`
+   * whenever that fails, which is the state a pending pane was already in.
+   */
+  chatCommands: (cwd?: string | null) =>
+    ipcRenderer.invoke('chat:commands', { cwd }) as Promise<string[]>,
   onChatEvent,
   /**
    * How much of each rate-limit window the account has spent. Null whenever the
