@@ -813,12 +813,12 @@ function TodoCardModal({
                   <span className="todo-modal-image-loading" />
                 )}
                 <IconButton
-                  label="Remove image"
+                  label="Delete image"
                   dense
                   className="todo-modal-image-remove"
                   onClick={() => setRemoved((r) => new Set(r).add(img.name))}
                 >
-                  <X size={12} strokeWidth={2} />
+                  <Trash2 size={13} strokeWidth={1.9} />
                 </IconButton>
               </figure>
             ))}
@@ -838,12 +838,12 @@ function TodoCardModal({
                     <img src={img.dataUrl} alt="" />
                   </button>
                   <IconButton
-                    label="Remove image"
+                    label="Delete image"
                     dense
                     className="todo-modal-image-remove"
                     onClick={() => setStaged((s) => s.filter((i) => i.key !== img.key))}
                   >
-                    <X size={12} strokeWidth={2} />
+                    <Trash2 size={13} strokeWidth={1.9} />
                   </IconButton>
                 </figure>
               )
