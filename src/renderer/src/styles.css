@@ -5568,11 +5568,59 @@ body {
   object-fit: cover;
 }
 
+.todo-modal-image-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.todo-modal-image-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .todo-modal-image-remove {
   position: absolute;
   top: 3px;
   right: 3px;
+  z-index: 1;
   background: var(--scrim);
+  border-radius: var(--radius-pill);
+}
+
+.todo-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-popover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-32);
+  background: rgba(0, 0, 0, 0.86);
+  cursor: zoom-out;
+}
+
+.todo-image-lightbox-image {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-overlay);
+  cursor: default;
+}
+
+.todo-image-lightbox-close {
+  position: absolute;
+  top: var(--space-16);
+  right: var(--space-16);
+  color: white;
+  background: rgba(0, 0, 0, 0.52);
   border-radius: var(--radius-pill);
 }
 

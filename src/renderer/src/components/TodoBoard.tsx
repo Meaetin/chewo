@@ -450,6 +450,77 @@ interface StagedImage {
   base64: string
 }
 
+interface ImagePreview {
+  src: string
+  label: string
+}
+
+/** Full-size preview layered over the card editor. */
+function ImageLightbox({
+  image,
+  onClose
+}: {
+  image: ImagePreview
+  onClose: () => void
+}): React.JSX.Element {
+  const lightboxRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef(document.activeElement as HTMLElement | null)
+
+  useEffect(() => {
+    const closeButton = lightboxRef.current?.querySelector<HTMLButtonElement>('button')
+    closeButton?.focus()
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Tab') {
+        event.preventDefault()
+        closeButton?.focus()
+        return
+      }
+      if (event.key !== 'Escape') return
+      // ModalShell also listens for Escape. Keep this press scoped to the
+      // preview so it doesn't close the card editor underneath it.
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      previousFocusRef.current?.focus()
+    }
+  }, [onClose])
+
+  return (
+    <div
+      ref={lightboxRef}
+      className="todo-image-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={image.label}
+      onClick={onClose}
+    >
+      <img
+        className="todo-image-lightbox-image"
+        src={image.src}
+        alt={image.label}
+        onClick={(event) => event.stopPropagation()}
+      />
+      <IconButton
+        label="Close image preview (Esc)"
+        tooltipSide="bottom"
+        className="todo-image-lightbox-close"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+        }}
+      >
+        <X size={20} strokeWidth={1.75} />
+      </IconButton>
+    </div>
+  )
+}
+
 /** Read a pasted image file as { dataUrl, base64 } for preview + IPC. */
 const readImage = (file: File): Promise<StagedImage> =>
   new Promise((resolve, reject) => {
@@ -589,6 +660,8 @@ function TodoCardModal({
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
+  const [preview, setPreview] = useState<ImagePreview | null>(null)
+  const closePreview = useCallback(() => setPreview(null), [])
 
   useEffect(() => {
     let alive = true
@@ -722,10 +795,20 @@ function TodoCardModal({
         />
         {(visibleExisting.length > 0 || staged.length > 0) && (
           <div className="todo-modal-images">
-            {visibleExisting.map((img) => (
+            {visibleExisting.map((img, index) => (
               <figure key={img.name} className="todo-modal-image">
                 {img.dataUrl ? (
-                  <img src={img.dataUrl} alt="" />
+                  <button
+                    type="button"
+                    className="todo-modal-image-open"
+                    aria-label={`Open attached image ${index + 1}`}
+                    title="Open full-size image"
+                    onClick={() =>
+                      setPreview({ src: img.dataUrl!, label: `Attached image ${index + 1}` })
+                    }
+                  >
+                    <img src={img.dataUrl} alt="" />
+                  </button>
                 ) : (
                   <span className="todo-modal-image-loading" />
                 )}
@@ -739,22 +822,36 @@ function TodoCardModal({
                 </IconButton>
               </figure>
             ))}
-            {staged.map((img) => (
-              <figure key={img.key} className="todo-modal-image">
-                <img src={img.dataUrl} alt="" />
-                <IconButton
-                  label="Remove image"
-                  dense
-                  className="todo-modal-image-remove"
-                  onClick={() => setStaged((s) => s.filter((i) => i.key !== img.key))}
-                >
-                  <X size={12} strokeWidth={2} />
-                </IconButton>
-              </figure>
-            ))}
+            {staged.map((img, index) => {
+              const imageNumber = visibleExisting.length + index + 1
+              return (
+                <figure key={img.key} className="todo-modal-image">
+                  <button
+                    type="button"
+                    className="todo-modal-image-open"
+                    aria-label={`Open attached image ${imageNumber}`}
+                    title="Open full-size image"
+                    onClick={() =>
+                      setPreview({ src: img.dataUrl, label: `Attached image ${imageNumber}` })
+                    }
+                  >
+                    <img src={img.dataUrl} alt="" />
+                  </button>
+                  <IconButton
+                    label="Remove image"
+                    dense
+                    className="todo-modal-image-remove"
+                    onClick={() => setStaged((s) => s.filter((i) => i.key !== img.key))}
+                  >
+                    <X size={12} strokeWidth={2} />
+                  </IconButton>
+                </figure>
+              )
+            })}
           </div>
         )}
       </div>
+      {preview && <ImageLightbox image={preview} onClose={closePreview} />}
     </ModalShell>
   )
 }
