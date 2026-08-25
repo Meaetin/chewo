@@ -316,6 +316,9 @@ export function App(): React.JSX.Element {
   workflowRef.current = workflow
   const activeToolRef = useRef<CodingTool | null>(null)
   activeToolRef.current = activeTool
+  // What ⌘⇧E reopens: the tool the panel was last showing, Files until then.
+  const lastToolRef = useRef<CodingTool>('files')
+  if (activeTool) lastToolRef.current = activeTool
   const notesSelRef = useRef<TopicRef | null>(null)
   notesSelRef.current = notesSel
   const sttModelRef = useRef(DEFAULT_STT_SETTINGS.model)
@@ -748,8 +751,6 @@ export function App(): React.JSX.Element {
   const gitRoot =
     workflow === 'code' && (activeWorktree || selectedProject) ? treeRoot : null
   const repoStatus = useGitStatus(gitRoot)
-  const gitRootRef = useRef<string | null>(null)
-  gitRootRef.current = gitRoot
   const dirtyCount = repoStatus?.ok && repoStatus.isRepo ? repoStatus.files.length : 0
 
   useEffect(() => {
@@ -889,21 +890,16 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
-  // ⌘⇧E and ⌘⇧G open/close the shared tools panel anywhere in Code, ⌘⇧B
-  // collapses the file explorer inside it — including with terminal focus
-  // (xterm doesn't swallow them; see TerminalPane key handler)
+  // ⌘⇧E opens and closes the shared tools panel anywhere in Code — whichever
+  // tool was last open, Files the first time — and ⌘⇧B collapses the file
+  // explorer inside it, including with terminal focus (xterm doesn't swallow
+  // them; see TerminalPane key handler)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault()
         if (workflowRef.current === 'code') {
-          setActiveTool((tool) => (tool === 'files' ? null : 'files'))
-        }
-      }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        if (workflowRef.current === 'code' && gitRootRef.current) {
-          setActiveTool((tool) => (tool === 'git' ? null : 'git'))
+          setActiveTool((tool) => (tool ? null : lastToolRef.current))
         }
       }
       // Explorer only: the tool stays open, its tree folds to the edge.

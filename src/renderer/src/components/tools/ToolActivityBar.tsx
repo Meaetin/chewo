@@ -32,7 +32,7 @@ export function ToolActivityBar({
         <FolderTree size={15} strokeWidth={1.75} />
       </IconButton>
       <IconButton
-        label={gitEnabled ? 'Git — changes & history (⌘⇧G)' : 'Git — select a project first'}
+        label={gitEnabled ? 'Git — changes & history' : 'Git — select a project first'}
         dense
         active={active === 'git'}
         disabled={!gitEnabled}

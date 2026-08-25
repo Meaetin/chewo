@@ -275,7 +275,7 @@ export function GitPanel({
             ↑{repo.ahead} ↓{repo.behind}
           </span>
         )}
-        <IconButton label="Hide git (⌘⇧G)" dense onClick={onClose}>
+        <IconButton label="Close panel (⌘⇧E)" dense onClick={onClose}>
           <X size={14} strokeWidth={1.75} />
         </IconButton>
       </div>
