@@ -11,10 +11,10 @@ import type { ChatUsage } from '../../shared/agent-chat'
  *
  * The two halves come from different places and fail independently. Context is
  * on the chat stream and is always available once a turn has run. Percentages
- * are *not* on the stream at all — they come from the account call in
- * `claude-usage.ts`, which can come back empty — so when they are missing the
- * limit chip falls back to naming the window and its reset. It never guesses a
- * percentage: a number on screen is read as measured.
+ * are *not* on the stream at all — they come from a provider-specific account
+ * call, which can come back empty — so when they are missing the limit chip
+ * falls back to naming the window and its reset. It never guesses a percentage:
+ * a number on screen is read as measured.
  */
 
 export interface UsageChip {
@@ -87,14 +87,18 @@ export function usageChips(
   }
 
   const windows = (account?.windows ?? []).filter(
-    (w) => ALWAYS_SHOWN.includes(w.type) || w.used >= NOTEWORTHY
+    (w) => ALWAYS_SHOWN.includes(w.type) || w.priority !== undefined || w.used >= NOTEWORTHY
   )
   // Fixed order, so the 5h figure does not swap places with the weekly one
   // between polls and make the line jump under the reader's eye
   windows.sort((a, b) => {
     const rank = (t: string): number =>
       ALWAYS_SHOWN.indexOf(t) === -1 ? ALWAYS_SHOWN.length : ALWAYS_SHOWN.indexOf(t)
-    return rank(a.type) - rank(b.type) || a.type.localeCompare(b.type)
+    return (
+      rank(a.type) - rank(b.type) ||
+      (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER) ||
+      a.type.localeCompare(b.type)
+    )
   })
 
   for (const window of windows) {

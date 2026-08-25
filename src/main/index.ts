@@ -68,7 +68,8 @@ import { loadSettings, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
 import { nextPaneId } from './pane-ids'
 import { dispatchableAgents, orchestratorPrompt } from './roster'
-import { accountUsage } from './claude-usage'
+import { accountUsage as claudeAccountUsage } from './claude-usage'
+import { codexAccountUsage } from './codex-usage'
 import { pruneAttachments, stageImage } from './attachments'
 import type { AgentId } from '../shared/agents'
 import type { SettingsFile } from '../shared/appearance'
@@ -345,14 +346,18 @@ function registerIpc(): void {
   // The command catalog for a checkout, for a pending pane that has no process
   // to ask. Cached per cwd in main, so several pending panes on one project
   // cost one spawn; failures return [] and the menu stays as it was.
-  ipcMain.handle('chat:commands', (_e, { cwd }: { cwd?: string | null }) =>
-    claudeSlashCommands(cwd)
+  ipcMain.handle(
+    'chat:commands',
+    (_e, { source, cwd }: { source: Source; cwd?: string | null }) =>
+      source === 'claude' ? claudeSlashCommands(cwd) : []
   )
 
-  // Account-wide, cached in main — every pane asks, one request is made. Only
-  // the parsed percentages cross this boundary; the token never does.
-  ipcMain.handle('usage:account', (_e, { force }: { force?: boolean } = {}) =>
-    accountUsage(force === true)
+  // Account-wide and provider-specific, cached in main. Only normalized
+  // percentages cross this boundary; credentials stay inside the CLIs/main.
+  ipcMain.handle(
+    'usage:account',
+    (_e, { source, force }: { source: Source; force?: boolean }) =>
+      source === 'codex' ? codexAccountUsage(force === true) : claudeAccountUsage(force === true)
   )
 
   ipcMain.handle('capabilities:scan', async (_e, projects: ProjectTarget[]) =>

@@ -256,17 +256,17 @@ export function ChatPane({
    * below the moment `system/init` lands.
    */
   const [pendingCommands, setPendingCommands] = useState<string[]>([])
-  const unstartedClaude = !started && Boolean(setup) && setup?.source !== 'codex'
   useEffect(() => {
-    if (!unstartedClaude) return
+    if (started || !setup) return
     let live = true
-    window.api.chatCommands(cwd).then((commands) => {
+    setPendingCommands([])
+    window.api.chatCommands(source, cwd).then((commands) => {
       if (live) setPendingCommands(commands)
     })
     return () => {
       live = false
     }
-  }, [unstartedClaude, cwd])
+  }, [started, setup, source, cwd])
 
   /**
    * The one place a turn leaves this pane. `display` is what the bubble shows
@@ -423,7 +423,11 @@ export function ChatPane({
                 <Sparkles size={20} strokeWidth={1.6} aria-hidden="true" />
               </div>
               <h2>Ready when you are</h2>
-              <p>Describe the task below, or type / for a command.</p>
+              <p>
+                {source === 'claude'
+                  ? 'Describe the task below, or type / for a command.'
+                  : 'Describe the task below.'}
+              </p>
             </div>
           )}
           {loadingHistory && (
@@ -470,6 +474,7 @@ export function ChatPane({
       </div>
 
       <ChatComposer
+        source={source}
         busy={state.busy}
         // A parked permission request blocks the agent, so a typed message
         // would queue behind it with no sign of why nothing happened

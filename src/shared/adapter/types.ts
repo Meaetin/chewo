@@ -30,6 +30,10 @@ export interface NormalizedMessage {
   /** Set when this is a slash-command invocation (e.g. "/clear") — render as a chip */
   commandName?: string
   toolName?: string
+  /** Human label for the tool chip when the wire name is implementation detail. */
+  toolDisplayName?: string
+  /** Structured arguments for the tool chip's one-line summary. */
+  toolInput?: unknown
   /** Output of the tool call, when recoverable — capped, render collapsed */
   toolResult?: string
   /** The diff a file-editing tool applied, when the record kept one */

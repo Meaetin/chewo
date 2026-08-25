@@ -149,6 +149,34 @@ describe('codex adapter', () => {
     expect(tool.toolResult).toBe('sourdough.md')
   })
 
+  test('custom tool calls preserve shell activity and edited file names', () => {
+    const { messages } = parseCodexSession(fixture('codex/v0.144-custom-tools.jsonl'))
+    const tools = messages.filter((m) => m.role === 'tool')
+    expect(tools).toHaveLength(2)
+    expect(tools[0]).toMatchObject({
+      toolName: 'shell',
+      toolDisplayName: 'Shell',
+      toolInput: { command: 'npm run typecheck' },
+      toolResult: 'Script completed\nOutput:\nTypes passed'
+    })
+    expect(tools[1]).toMatchObject({
+      toolName: 'apply_patch',
+      toolDisplayName: 'Edit',
+      toolInput: {
+        path: '/Users/test/chewo/src/main/chat.ts',
+        paths: [
+          '/Users/test/chewo/src/main/chat.ts',
+          '/Users/test/chewo/tests/chat.test.ts'
+        ]
+      },
+      filesTouched: [
+        '/Users/test/chewo/src/main/chat.ts',
+        '/Users/test/chewo/tests/chat.test.ts'
+      ],
+      toolResult: '{}'
+    })
+  })
+
   test('AGENTS.md injection (markdown header, no tag) is filtered', () => {
     const { meta, messages } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
     expect(messages.some((m) => m.text.includes('AGENTS.md'))).toBe(false)

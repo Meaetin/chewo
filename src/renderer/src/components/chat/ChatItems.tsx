@@ -392,11 +392,12 @@ function ApprovalCard({
   const requestId = call.requestId ?? ''
 
   const suggestionLabel =
-    suggestion?.type === 'setMode' && suggestion.mode === 'acceptEdits'
+    suggestion?.label ??
+    (suggestion?.type === 'setMode' && suggestion.mode === 'acceptEdits'
       ? 'Allow edits for this session'
       : suggestion?.type === 'setMode' && suggestion.mode
         ? `Switch to ${suggestion.mode}`
-        : 'Always allow'
+        : 'Always allow')
 
   return (
     <div className="chat-approval">

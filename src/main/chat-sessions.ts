@@ -5,6 +5,15 @@ import type { BrowserWindow } from 'electron'
 import type { AgentChatEvent, ApprovalDecision } from '../shared/agent-chat'
 import { imageBlocks } from './attachments'
 import { claudeChatArgs, createClaudeNormalizer } from './claude-chat'
+import {
+  CODEX_THREAD_ID,
+  codexApprovalMessage,
+  codexInterruptMessage,
+  codexStartupMessages,
+  codexTurnMessage,
+  createCodexNormalizer,
+  type CodexPendingRequest
+} from './codex-chat'
 import { nextPaneId } from './pane-ids'
 import { safeSend } from './safe-send'
 import { buildPtyEnv } from './terminals'
@@ -21,7 +30,7 @@ import { buildPtyEnv } from './terminals'
  *
  * 1. The child is spawned through a login shell for PATH (a packaged Electron
  *    app inherits none), but the argv is passed *through* zsh rather than
- *    interpolated into a command string: `zsh -ilc 'claude "$@"' chewo …`.
+ *    interpolated into a command string: `zsh -ilc '<binary> "$@"' chewo …`.
  *    Nothing needs shell-quoting, so a project path with a quote in it cannot
  *    turn into a command injection the way string building invites.
  * 2. `buildPtyEnv` scrubs the inherited CLAUDE env vars, same as the ptys do —
@@ -33,14 +42,16 @@ import { buildPtyEnv } from './terminals'
 
 interface ChatRecord {
   proc: ChildProcessWithoutNullStreams
-  normalize: (raw: unknown) => AgentChatEvent[]
+  source: 'claude' | 'codex'
+  normalize?: (raw: unknown) => AgentChatEvent[]
+  codex?: ReturnType<typeof createCodexNormalizer>
   cwd: string
-  /** Bound from the CLI's `system/init`; the id the sidebar and `--resume` use */
+  /** Bound from the provider's startup response; the id the sidebar and resume use. */
   sessionId?: string
   /** stdout arrives in arbitrary chunks; JSON is newline-delimited */
   buffer: string
   /** can_use_tool requests parked on the user: request id → the tool they gate */
-  awaiting: Map<string, string>
+  awaiting: Map<string, { toolUseId: string; codex?: CodexPendingRequest }>
   /** Set by `interruptChat`, cleared by the turn it stops. The CLI reports an
    *  interrupted turn the same way it reports a failure, so this is the only
    *  way to tell "you pressed stop" from "something broke". */
@@ -48,6 +59,16 @@ interface ChatRecord {
   /** True until the agent's first line of JSON. While it holds, stderr is the
    *  setup script talking and every line is surfaced, not just failures. */
   setupPhase: boolean
+  /** JSON-RPC ids Chewo owns; server-initiated approval ids are echoed as-is. */
+  nextRequestId: number
+  /** What each client request does, so an RPC rejection can settle the turn. */
+  codexRequests: Map<number, 'turn' | 'interrupt'>
+  /** Stop can be pressed before app-server announces the turn id. */
+  codexInterruptPending: boolean
+  effort?: string
+  /** A card run can submit the moment the pane mounts, before app-server has
+   *  answered thread/start. Hold it rather than racing turn/start ahead. */
+  pendingTurns: Array<{ text: string; images: string[] }>
 }
 
 const chats = new Map<number, ChatRecord>()
@@ -56,13 +77,13 @@ const chats = new Map<number, ChatRecord>()
 const INIT_REQUEST_ID = 'chewo-init'
 
 export interface CreateChatOptions {
-  /** Only 'claude' today; 'codex' arrives with the app-server backend */
-  source: 'claude'
+  source: 'claude' | 'codex'
   cwd?: string | null
   sessionId?: string
   model?: string
   effort?: string
   permissionMode?: string
+  approvalPolicy?: string
   extraDirs?: string[]
   /** Worktree setup (env copy, install) that must succeed before the agent
    *  starts. The user's own script, so it is shell by design — same contract
@@ -83,22 +104,26 @@ function emit(win: BrowserWindow, id: number, event: AgentChatEvent): void {
 
 export function createChat(win: BrowserWindow, opts: CreateChatOptions): number {
   const cwd = opts.cwd && existsSync(opts.cwd) ? opts.cwd : homedir()
-  const args = claudeChatArgs({
-    model: opts.model,
-    effort: opts.effort,
-    permissionMode: opts.permissionMode,
-    sessionId: opts.sessionId,
-    extraDirs: opts.extraDirs,
-    appendSystemPrompt: opts.appendSystemPrompt,
-    forwardSubagentText: opts.forwardSubagentText
-  })
+  const claude = opts.source === 'claude'
+  const args = claude
+    ? claudeChatArgs({
+        model: opts.model,
+        effort: opts.effort,
+        permissionMode: opts.permissionMode,
+        sessionId: opts.sessionId,
+        extraDirs: opts.extraDirs,
+        appendSystemPrompt: opts.appendSystemPrompt,
+        forwardSubagentText: opts.forwardSubagentText
+      })
+    : ['app-server']
 
   // A setup script runs first and the agent only starts if it succeeds, same
   // as the pty path. Its stdout is redirected to stderr so it cannot corrupt
   // the JSON stream we parse, and `exec` hands the process straight to the
   // agent afterwards rather than leaving a shell in the middle.
   const setup = opts.setupCommand?.trim()
-  const script = setup ? `{ ${setup} } 1>&2 && exec claude "$@"` : 'claude "$@"'
+  const binary = claude ? 'claude' : 'codex'
+  const script = setup ? `{ ${setup} } 1>&2 && exec ${binary} "$@"` : `${binary} "$@"`
 
   // `$0` is a label only; the args after it become "$@" verbatim
   const proc = spawn('/bin/zsh', ['-ilc', script, 'chewo', ...args], {
@@ -109,13 +134,31 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
   const id = nextPaneId()
   const record: ChatRecord = {
     proc,
-    normalize: createClaudeNormalizer(),
+    source: opts.source,
+    ...(claude
+      ? { normalize: createClaudeNormalizer() }
+      : {
+          codex: createCodexNormalizer({
+            cwd,
+            sessionId: opts.sessionId,
+            model: opts.model,
+            effort: opts.effort,
+            approvalPolicy: opts.approvalPolicy,
+            extraDirs: opts.extraDirs,
+            developerInstructions: opts.appendSystemPrompt
+          })
+        }),
     cwd,
     sessionId: opts.sessionId,
     buffer: '',
     awaiting: new Map(),
     interrupted: false,
-    setupPhase: Boolean(setup)
+    setupPhase: Boolean(setup),
+    nextRequestId: 10,
+    codexRequests: new Map(),
+    codexInterruptPending: false,
+    effort: opts.effort,
+    pendingTurns: []
   }
   chats.set(id, record)
 
@@ -137,13 +180,13 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
         continue
       }
 
-      // Answer to our startup handshake — the only place slash commands are
-      // available before the first turn (see INIT_REQUEST_ID below)
+      // Answer to Claude's startup handshake — the only place its slash
+      // commands are available before the first turn (see INIT_REQUEST_ID).
       const reply = raw as {
         type?: string
         response?: { request_id?: string; response?: { commands?: Array<{ name?: string }> } }
       }
-      if (reply.type === 'control_response' && reply.response?.request_id === INIT_REQUEST_ID) {
+      if (claude && reply.type === 'control_response' && reply.response?.request_id === INIT_REQUEST_ID) {
         const commands = (reply.response.response?.commands ?? [])
           .map((c) => c.name)
           .filter((n): n is string => Boolean(n))
@@ -163,11 +206,44 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
         parsed.request?.subtype === 'can_use_tool' &&
         parsed.request_id
       )
-        record.awaiting.set(parsed.request_id, parsed.request.tool_use_id ?? '')
+        record.awaiting.set(parsed.request_id, { toolUseId: parsed.request.tool_use_id ?? '' })
 
-      for (const event of record.normalize(raw)) {
+      const rpc = raw as { id?: unknown; error?: { message?: string } }
+      const requestId = typeof rpc.id === 'number' ? rpc.id : undefined
+      const requestKind = requestId === undefined ? undefined : record.codexRequests.get(requestId)
+      if (requestId !== undefined) record.codexRequests.delete(requestId)
+
+      const normalized = record.codex?.normalize(raw)
+      if (normalized?.pending)
+        record.awaiting.set(normalized.pending.key, {
+          toolUseId: normalized.pending.toolUseId,
+          codex: normalized.pending
+        })
+      const events = normalized?.events ?? record.normalize?.(raw) ?? []
+      if (requestKind === 'turn' && rpc.error) {
+        events.push({ type: 'turn_end', stats: { isError: true } })
+      } else if (rpc.id === CODEX_THREAD_ID && rpc.error && record.pendingTurns.length) {
+        record.pendingTurns = []
+        events.push({ type: 'turn_end', stats: { isError: true } })
+      }
+
+      if (record.codexInterruptPending && record.codex) {
+        const threadId = record.codex.threadId()
+        const turnId = record.codex.turnId()
+        if (threadId && turnId) sendCodexInterrupt(record, threadId, turnId)
+      }
+
+      for (const event of events) {
         if (event.type === 'session') record.sessionId = event.info.sessionId
-        if (event.type === 'turn_end' && record.interrupted) {
+        if (event.type === 'session' && record.codex && record.pendingTurns.length) {
+          const threadId = record.codex.threadId()
+          if (threadId) {
+            for (const turn of record.pendingTurns) startCodexTurn(record, threadId, turn)
+            record.pendingTurns = []
+          }
+        }
+        if (event.type === 'turn_end') record.codexInterruptPending = false
+        if (record.source === 'claude' && event.type === 'turn_end' && record.interrupted) {
           record.interrupted = false
           emit(win, id, { type: 'turn_end', stats: { ...event.stats, cancelled: true } })
           continue
@@ -188,8 +264,13 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
       emit(win, id, { type: 'notice', tone: 'error', text: text.slice(0, 500) })
   })
 
+  // A missing CLI can close between spawn and the startup writes below. The
+  // process close/error handlers own the user-facing failure; do not let an
+  // EPIPE on stdin become an uncaught main-process error first.
+  proc.stdin.on('error', () => undefined)
+
   proc.on('error', (err) => {
-    emit(win, id, { type: 'notice', tone: 'error', text: `Could not start claude: ${err.message}` })
+    emit(win, id, { type: 'notice', tone: 'error', text: `Could not start ${opts.source}: ${err.message}` })
     emit(win, id, { type: 'exit', code: -1 })
     chats.delete(id)
   })
@@ -204,37 +285,72 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
   // listener. Spawn-time facts (cwd) reach the pane as props instead; anything
   // the child tells us later arrives long after mount.
 
-  // The SDK-style handshake answers immediately with the command catalog,
-  // which is what makes the composer's `/` palette work on the first turn.
-  proc.stdin.write(
-    JSON.stringify({
+  if (claude)
+    // The SDK-style handshake answers immediately with Claude's command catalog.
+    writeJson(record, {
       type: 'control_request',
       request_id: INIT_REQUEST_ID,
       request: { subtype: 'initialize', hooks: {} }
-    }) + '\n'
-  )
+    })
+  else
+    for (const message of codexStartupMessages({
+      cwd,
+      sessionId: opts.sessionId,
+      model: opts.model,
+      effort: opts.effort,
+      approvalPolicy: opts.approvalPolicy,
+      extraDirs: opts.extraDirs,
+      developerInstructions: opts.appendSystemPrompt
+    }))
+      writeJson(record, message)
 
   return id
+}
+
+function writeJson(record: ChatRecord, message: unknown): void {
+  record.proc.stdin.write(`${JSON.stringify(message)}\n`)
+}
+
+function startCodexTurn(
+  record: ChatRecord,
+  threadId: string,
+  turn: { text: string; images: string[] }
+): void {
+  const requestId = record.nextRequestId++
+  record.codexRequests.set(requestId, 'turn')
+  writeJson(record, codexTurnMessage(requestId, threadId, turn.text, turn.images, record.effort))
+}
+
+function sendCodexInterrupt(record: ChatRecord, threadId: string, turnId: string): void {
+  const requestId = record.nextRequestId++
+  record.codexRequests.set(requestId, 'interrupt')
+  record.codexInterruptPending = false
+  writeJson(record, codexInterruptMessage(requestId, threadId, turnId))
 }
 
 /**
  * Send a user turn. Returns false when the pane's process is already gone.
  *
- * `images` are staged attachment paths, read here and inlined as base64
- * content blocks. A plain turn keeps sending a bare string rather than a
- * one-element array — same thing on the wire, but it keeps the common case
- * exactly as it was.
+ * `images` are staged attachment paths. Claude gets inlined base64 content;
+ * Codex app-server gets localImage inputs. A plain Claude turn keeps sending a
+ * bare string rather than a one-element array, preserving its common wire case.
  */
 export function sendChat(win: BrowserWindow, id: number, text: string, images?: string[]): boolean {
   const record = chats.get(id)
   if (!record) return false
+  if (record.codex) {
+    const turn = { text, images: images ?? [] }
+    const threadId = record.codex.threadId()
+    if (threadId) startCodexTurn(record, threadId, turn)
+    else record.pendingTurns.push(turn)
+    emit(win, id, { type: 'busy', busy: true })
+    return true
+  }
   const blocks = images?.length ? imageBlocks(images) : []
   const content = blocks.length
     ? [...(text ? [{ type: 'text', text }] : []), ...blocks]
     : text
-  record.proc.stdin.write(
-    JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n'
-  )
+  writeJson(record, { type: 'user', message: { role: 'user', content } })
   emit(win, id, { type: 'busy', busy: true })
   return true
 }
@@ -252,8 +368,16 @@ export function respondChat(
 ): void {
   const record = chats.get(id)
   if (!record || !record.awaiting.has(requestId)) return
-  const toolUseId = record.awaiting.get(requestId) ?? ''
+  const awaiting = record.awaiting.get(requestId)!
+  const toolUseId = awaiting.toolUseId
   record.awaiting.delete(requestId)
+
+  if (awaiting.codex) {
+    writeJson(record, codexApprovalMessage(awaiting.codex, decision))
+    if (decision.behavior === 'deny' && toolUseId)
+      emit(win, id, { type: 'tool_denied', toolUseId })
+    return
+  }
 
   // `suggestion` is the CLI's own proposal echoed back verbatim (e.g. "switch
   // this session to acceptEdits"). Returning it in `updatedPermissions` is what
@@ -268,12 +392,10 @@ export function respondChat(
         }
       : { behavior: 'deny', message: decision.message ?? 'Denied by the user.' }
 
-  record.proc.stdin.write(
-    JSON.stringify({
-      type: 'control_response',
-      response: { subtype: 'success', request_id: requestId, response }
-    }) + '\n'
-  )
+  writeJson(record, {
+    type: 'control_response',
+    response: { subtype: 'success', request_id: requestId, response }
+  })
 
   // The CLI reports a denial as an error tool_result; mark the chip first so it
   // reads "denied" rather than looking like the tool broke.
@@ -285,14 +407,19 @@ export function respondChat(
 export function interruptChat(id: number): void {
   const record = chats.get(id)
   if (!record) return
+  if (record.codex) {
+    const threadId = record.codex.threadId()
+    const turnId = record.codex.turnId()
+    if (threadId && turnId) sendCodexInterrupt(record, threadId, turnId)
+    else record.codexInterruptPending = true
+    return
+  }
   record.interrupted = true
-  record.proc.stdin.write(
-    JSON.stringify({
-      type: 'control_request',
-      request_id: `interrupt-${Date.now()}`,
-      request: { subtype: 'interrupt' }
-    }) + '\n'
-  )
+  writeJson(record, {
+    type: 'control_request',
+    request_id: `interrupt-${Date.now()}`,
+    request: { subtype: 'interrupt' }
+  })
 }
 
 export function killChat(id: number): void {

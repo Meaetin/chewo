@@ -26,6 +26,7 @@ interface CodexRecord {
     content?: Array<{ type?: string; text?: string }>
     name?: string
     arguments?: string
+    input?: string
     action?: { command?: string[] }
     call_id?: string
     output?: unknown
@@ -34,16 +35,40 @@ interface CodexRecord {
 
 const RESULT_CAP = 4000
 
-/** function_call_output payloads wrap text in JSON ({"output": "..."}) as often as not */
-function outputText(output: unknown): string {
-  if (typeof output !== 'string') return ''
-  try {
-    const parsed = JSON.parse(output)
-    if (typeof parsed?.output === 'string') return parsed.output.slice(0, RESULT_CAP)
-  } catch {
-    /* raw string output */
+/** Tool outputs range from raw strings to JSON wrappers and typed content arrays. */
+function outputValue(output: unknown): string {
+  if (typeof output === 'string') {
+    try {
+      return outputValue(JSON.parse(output))
+    } catch {
+      return output
+    }
   }
-  return output.slice(0, RESULT_CAP)
+  if (Array.isArray(output)) return output.map(outputValue).filter(Boolean).join('\n')
+  if (!output || typeof output !== 'object') return output == null ? '' : String(output)
+  const value = output as Record<string, unknown>
+  if (value.output !== undefined) return outputValue(value.output)
+  if (typeof value.text === 'string') return value.text
+  try {
+    return JSON.stringify(output, null, 2)
+  } catch {
+    return String(output)
+  }
+}
+
+function outputText(output: unknown): string {
+  return outputValue(output).slice(0, RESULT_CAP)
+}
+
+/** Recover the outer patch string without mistaking patch-looking fixture text inside it. */
+function patchText(source: string): string {
+  const literal = /\b(?:const|let|var)\s+patch\s*=\s*("(?:\\.|[^"\\])*")/.exec(source)?.[1]
+  if (!literal) return source
+  try {
+    return JSON.parse(literal) as string
+  } catch {
+    return source
+  }
 }
 
 const KNOWN_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted'])
@@ -101,7 +126,70 @@ function responseItemToMessage(
       timestamp
     }
   }
-  // reasoning / function_call_output / web_search_call etc. — dropped in v1
+  if (payload.type === 'custom_tool_call') {
+    const source = payload.input ?? ''
+    const nested = [...source.matchAll(/\btools\.([A-Za-z0-9_]+)\s*\(/g)].map((m) => m[1])
+    const operation = nested[0] ?? payload.name ?? 'tool'
+    const filesTouched = [
+      ...patchText(source).matchAll(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/gm)
+    ]
+      .map((m) => m[1].trim())
+      .filter(Boolean)
+
+    if (operation === 'apply_patch' || filesTouched.length) {
+      const input = filesTouched.length
+        ? { path: filesTouched[0], ...(filesTouched.length > 1 ? { paths: filesTouched } : {}) }
+        : {}
+      return {
+        role: 'tool',
+        toolName: 'apply_patch',
+        toolDisplayName: 'Edit',
+        text: filesTouched[0] ?? 'Patch',
+        toolInput: input,
+        filesTouched,
+        toolResult: payload.call_id ? results.get(payload.call_id) : undefined,
+        timestamp
+      }
+    }
+
+    if (operation === 'exec_command') {
+      const rawCommand = /\bcmd\s*:\s*("(?:\\.|[^"\\])*")/.exec(source)?.[1]
+      let command = 'Command'
+      if (rawCommand) {
+        try {
+          command = JSON.parse(rawCommand) as string
+        } catch {
+          command = rawCommand.slice(1, -1)
+        }
+      }
+      return {
+        role: 'tool',
+        toolName: 'shell',
+        toolDisplayName: 'Shell',
+        text: command,
+        toolInput: { command },
+        toolResult: payload.call_id ? results.get(payload.call_id) : undefined,
+        timestamp
+      }
+    }
+
+    const displayName: Record<string, string> = {
+      view_image: 'View image',
+      web__run: 'Web',
+      update_plan: 'Plan',
+      read_mcp_resource: 'Read resource'
+    }
+    return {
+      role: 'tool',
+      toolName: operation,
+      toolDisplayName: displayName[operation],
+      text: source.slice(0, 300),
+      toolInput: source ? { command: source.slice(0, 300) } : {},
+      toolResult: payload.call_id ? results.get(payload.call_id) : undefined,
+      timestamp
+    }
+  }
+  // reasoning / tool output / web_search_call etc. — outputs are folded into calls
   return null
 }
 
@@ -135,7 +223,12 @@ export function parseCodexSession(
   for (const rec of records) {
     const p = rec.payload
     if (rec.type !== 'response_item' || !p) continue
-    if ((p.type === 'function_call_output' || p.type === 'local_shell_call_output') && p.call_id) {
+    if (
+      (p.type === 'function_call_output' ||
+        p.type === 'local_shell_call_output' ||
+        p.type === 'custom_tool_call_output') &&
+      p.call_id
+    ) {
       const text = outputText(p.output)
       if (text) toolResults.set(p.call_id, text)
     }

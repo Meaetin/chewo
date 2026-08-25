@@ -132,12 +132,13 @@ const api = {
   onTermExit,
 
   createChat: (opts: {
-    source: 'claude'
+    source: 'claude' | 'codex'
     cwd?: string | null
     sessionId?: string
     model?: string
     effort?: string
     permissionMode?: string
+    approvalPolicy?: string
     extraDirs?: string[]
     setupCommand?: string
     /** Run as a lead: main resolves the roster and appends the brief */
@@ -158,19 +159,18 @@ const api = {
     ipcRenderer.invoke('chat:sessionId', { id }) as Promise<string | undefined>,
   /**
    * Slash commands available in a checkout, for a session that has not started
-   * yet. Read by a throwaway CLI handshake in main and cached there; `[]`
-   * whenever that fails, which is the state a pending pane was already in.
+   * yet. Claude is read by a throwaway CLI handshake in main and cached there;
+   * Codex returns `[]` because app-server does not advertise TUI commands.
    */
-  chatCommands: (cwd?: string | null) =>
-    ipcRenderer.invoke('chat:commands', { cwd }) as Promise<string[]>,
+  chatCommands: (source: 'claude' | 'codex', cwd?: string | null) =>
+    ipcRenderer.invoke('chat:commands', { source, cwd }) as Promise<string[]>,
   onChatEvent,
   /**
-   * How much of each rate-limit window the account has spent. Null whenever the
-   * figures cannot be had (no credentials, expired token, endpoint unreachable)
-   * — the composer then names the window instead of inventing a percentage.
+   * How much of each provider's rate-limit windows the account has spent. Null
+   * whenever the figures cannot be read; the composer never invents a number.
    */
-  accountUsage: (force = false) =>
-    ipcRenderer.invoke('usage:account', { force }) as Promise<AccountUsage | null>,
+  accountUsage: (source: 'claude' | 'codex', force = false) =>
+    ipcRenderer.invoke('usage:account', { source, force }) as Promise<AccountUsage | null>,
   onTermBound: (cb: (e: TermBoundEvent) => void) => {
     const listener = (_e: IpcRendererEvent, payload: TermBoundEvent): void => cb(payload)
     ipcRenderer.on('terminal:session-bound', listener)

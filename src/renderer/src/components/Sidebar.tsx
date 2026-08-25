@@ -3,6 +3,7 @@ import {
   Blocks,
   ChevronDown,
   ChevronRight,
+  Eye,
   GitBranch,
   Play,
   Plus,
@@ -250,7 +251,7 @@ function SessionGroup({
           selected={s.id === selectedSessionId}
           livePane={livePaneBySession(livePanes, s.id)}
           onSelect={onSelect}
-          actionIcon={<X size={14} strokeWidth={1.75} />}
+          actionIcon={<Eye size={14} strokeWidth={1.75} />}
           actionTitle="Hide session (file stays on disk; restore from Hidden below)"
           onAction={onHideSession}
           onCloseLive={onCloseLive}
@@ -729,7 +730,7 @@ export function Sidebar({
               livePane={livePaneBySession(livePanes, s.id)}
               showProject={s.project ?? undefined}
               onSelect={onSelect}
-              actionIcon={<X size={14} strokeWidth={1.75} />}
+              actionIcon={<Eye size={14} strokeWidth={1.75} />}
               actionTitle="Hide session"
               onAction={onHideSession}
               onCloseLive={onCloseLive}

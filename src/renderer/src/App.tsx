@@ -1089,7 +1089,7 @@ export function App(): React.JSX.Element {
    */
   const openChat = useCallback(
     async (opts: {
-      source: 'claude'
+      source: 'claude' | 'codex'
       cwd?: string | null
       projectId: string | null
       sessionId?: string
@@ -1104,7 +1104,7 @@ export function App(): React.JSX.Element {
       extraDirs?: string[]
       orchestrate?: boolean
     }): Promise<number> => {
-      const { claudeMode } = settingsForSection(opts.projectId)
+      const { claudeMode, codexApproval } = settingsForSection(opts.projectId)
       const chatId = await window.api.createChat({
         source: opts.source,
         cwd: opts.cwd,
@@ -1112,6 +1112,7 @@ export function App(): React.JSX.Element {
         model: opts.model,
         effort: opts.effort,
         permissionMode: claudeMode,
+        approvalPolicy: codexApproval,
         setupCommand: opts.setupCommand,
         extraDirs: opts.extraDirs,
         // Main resolves the roster and the brief — a spawn flag, so this is
@@ -1148,14 +1149,8 @@ export function App(): React.JSX.Element {
    * runs, so every caller — resume, worktrees, and card runs —
    * gets the same answer.
    *
-   * Claude runs as a chat pane; that is the UI now, and the pty is reached
-   * only through a pane's own "Terminal" button (`forceTerminal`), which
-   * exists for the things the JSON protocol cannot do: `claude auth`, an
-   * interactive `/config`, or a CLI update that breaks the wire format.
-   *
-   * Codex still runs as a pty because there is no chat backend for it yet —
-   * `codex app-server` is the next piece of work, and until it lands this
-   * function is the only file that needs to change.
+   * Both agents run as chat panes by default. A caller can still force a pty
+   * for authentication, interactive CLI configuration, or protocol recovery.
    */
   const openAgent = useCallback(
     (opts: {
@@ -1188,10 +1183,14 @@ export function App(): React.JSX.Element {
       forceTerminal?: boolean
     }): Promise<number> => {
       const images = opts.images ?? []
-      if (opts.source === 'claude' && !opts.forceTerminal)
-        // A chat pane inlines the bytes as base64 content blocks, so the files
-        // need no unlocking and no mention in the prompt
-        return openChat({ ...opts, source: 'claude', initialImages: images })
+      if (!opts.forceTerminal)
+        // Claude inlines the bytes; Codex app-server accepts the same staged
+        // paths as localImage inputs. Either way the renderer carries paths.
+        return openChat({
+          ...opts,
+          source: opts.source,
+          initialImages: [...images, ...(opts.attachImages ?? [])]
+        })
 
       // The two pty paths, diverging exactly as `promptFlags` describes:
       // claude reads image paths it finds in the prompt, so the staging folder
@@ -1518,20 +1517,17 @@ export function App(): React.JSX.Element {
   const startChosenSession = useCallback(
     (tab: TerminalTab, text: string, images: string[]): boolean => {
       const source = tab.source === 'shell' ? 'claude' : tab.source
-      // Codex has no chat backend yet (`codex app-server` is the next piece of
-      // work), so choosing it means the pane becomes a pty
-      const movingRuntime = tab.mode === 'chat' && source !== 'claude'
       const project = projects.find((p) => p.id === tab.projectId) ?? null
       const wantsBranch = tab.branchMode === 'separate' && !tab.worktreeId
       const isolating = wantsBranch && !!project
       const { model, effort } = paneChoice(source, tab.model, tab.effort)
 
-      if (wantsBranch && !project && !tab.pending && !movingRuntime) {
+      if (wantsBranch && !project && !tab.pending) {
         showToast('Isolated branches need a project — this session is in Home.')
         return false
       }
       // A pending pane has nothing running, so there is always something to do
-      if (!tab.pending && !isolating && !movingRuntime) return false
+      if (!tab.pending && !isolating) return false
 
       const inPlace = (): Parameters<typeof openAgent>[0] => ({
         source,
@@ -1728,8 +1724,8 @@ export function App(): React.JSX.Element {
           {
             termId,
             projectId: project?.id ?? null,
-            // Claude only as the row's starting position — picking Codex before
-            // the first message opens a pty instead
+            // Claude only as the row's starting position; either choice opens
+            // the same chat UI once the first message commits the selection.
             source: 'claude',
             mode: 'chat',
             // Not the agent's name: which agent is still a choice, and the

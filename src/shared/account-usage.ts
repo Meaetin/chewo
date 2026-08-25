@@ -3,9 +3,9 @@
  *
  * Deliberately separate from `ChatUsage`, which is per pane and comes off the
  * chat stream. These figures are account-wide and come from somewhere else
- * entirely — an authenticated call main makes (`claude-usage.ts`) — because the
- * stream carries no percentage at all: `rate_limit_event` reports a status and
- * a reset time and nothing more. Every pane shows the same numbers.
+ * entirely. Claude uses its authenticated usage endpoint; Codex uses the
+ * app-server's `account/rateLimits/read`. The renderer only receives these
+ * normalized windows, never either provider's credentials.
  *
  * Renderer-safe: no node imports in this file.
  */
@@ -27,6 +27,8 @@ export interface RateWindow {
   used: number
   /** Unix seconds, when the response gave one */
   resetsAt?: number
+  /** Provider-declared primary/secondary windows stay visible even when quiet. */
+  priority?: number
 }
 
 export interface AccountUsage {

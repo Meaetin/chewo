@@ -3,9 +3,9 @@
  * pty panes in `terminals.ts`.
  *
  * Same doctrine as `adapter/types.ts` and `agent-runner.ts`: the renderer never
- * sees a CLI's own wire format. Main translates (`claude-chat.ts` today,
- * `codex app-server` next) into the events below, so feature code never
- * branches on the agent — see AGENTS.md, 2026-07-29.
+ * sees a CLI's own wire format. Main translates through `claude-chat.ts` or
+ * `codex-chat.ts` into the events below, so feature code never branches on the
+ * agent — see AGENTS.md, 2026-07-29.
  *
  * Renderer-safe: no node imports in this file.
  *
@@ -33,6 +33,9 @@ export interface PermissionSuggestion {
   destination?: string
   /** Rule payloads vary by type; kept opaque and echoed back verbatim */
   rules?: unknown
+  /** Provider-supplied wording for a suggestion whose semantics are not one
+   *  of Claude's permission modes. */
+  label?: string
 }
 
 export type ApprovalDecision =
@@ -86,17 +89,13 @@ export interface ChatTurnStats {
  * The two budgets a session spends: the context window it is filling, and the
  * account's rate-limit window.
  *
- * Every field is optional and arrives from a *different* message — the prompt
- * size from each assistant message, the window from the turn's `result`, the
- * limit from a `rate_limit_event` that may never come — so `reduceChat` merges
- * these rather than replacing, and the UI renders whichever half it has.
+ * Every field is optional and may arrive from a *different* message, so
+ * `reduceChat` merges these rather than replacing and the UI renders whichever
+ * half it has. Provider adapters own the wire-specific accounting.
  *
  * What is deliberately absent is a *percentage* for the rate-limit window.
- * Nothing on the wire carries one: `rate_limit_event` reports a status and a
- * reset time and nothing else (verified against CLI 2.1.220 and against stored
- * session logs). The numbers `/usage` prints come from a separate authenticated
- * call the CLI makes to `/api/oauth/usage`, which Chewo does not make — so this
- * says when the window rolls over, never how much of it is left.
+ * Account-wide percentages live in `AccountUsage`, fetched separately for each
+ * provider; this structure only carries what the active chat stream reports.
  */
 export interface ChatUsage {
   /**
@@ -198,6 +197,9 @@ export type AgentChatEvent =
   | { type: 'busy'; busy: boolean }
   /** A patch, never a whole picture — see `ChatUsage` */
   | { type: 'usage'; usage: ChatUsage }
+  /** The provider's current plan as one authoritative list. Codex app-server
+   *  sends this directly; Claude reaches the same state through Task* tools. */
+  | { type: 'tasks'; tasks: AgentTask[] }
   | { type: 'turn_end'; stats: ChatTurnStats }
   | { type: 'notice'; tone: 'error' | 'info'; text: string }
   | { type: 'exit'; code: number }
@@ -382,6 +384,9 @@ export function reduceChat(state: ChatState, event: AgentChatEvent): ChatState {
       // absent field means "no news", not "no longer true".
       return { ...state, usage: { ...state.usage, ...event.usage } }
 
+    case 'tasks':
+      return { ...state, tasks: event.tasks }
+
     case 'turn_end': {
       // A tool in flight when the turn ends never gets its result — after an
       // interrupt the CLI simply stops. Without this its chip spins forever.
@@ -442,7 +447,8 @@ export function seedItems(messages: NormalizedMessage[]): ChatItem[] {
           // approved or cancelled after the fact
           toolUseId: id,
           name: m.toolName ?? 'tool',
-          input: m.text ? { command: m.text } : {},
+          displayName: m.toolDisplayName,
+          input: m.toolInput ?? (m.text ? { command: m.text } : {}),
           status: 'ok',
           result: m.toolResult,
           patch: m.toolPatch,

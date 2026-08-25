@@ -174,12 +174,23 @@ describe('resumed history', () => {
     const items = seedItems([
       { role: 'user', text: 'add a test' },
       { role: 'assistant', text: 'On it.' },
-      { role: 'tool', text: 'src/a.ts', toolName: 'Read', toolResult: 'contents' },
+      {
+        role: 'tool',
+        text: 'src/a.ts',
+        toolName: 'apply_patch',
+        toolDisplayName: 'Edit',
+        toolInput: { path: 'src/a.ts' },
+        toolResult: 'contents'
+      },
       { role: 'assistant', text: 'Done.' }
     ])
     expect(items.map((i) => i.kind)).toEqual(['user', 'text', 'tool', 'text'])
-    const tool = items[2] as { call: { name: string; status: string; result?: string } }
-    expect(tool.call.name).toBe('Read')
+    const tool = items[2] as {
+      call: { name: string; displayName?: string; input: unknown; status: string; result?: string }
+    }
+    expect(tool.call.name).toBe('apply_patch')
+    expect(tool.call.displayName).toBe('Edit')
+    expect(tool.call.input).toEqual({ path: 'src/a.ts' })
     // Nothing historical can be approved or cancelled after the fact
     expect(tool.call.status).toBe('ok')
     expect(tool.call.result).toBe('contents')

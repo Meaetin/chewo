@@ -283,8 +283,16 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
  * being written — and below rather than above, so a growing input never pushes
  * them around mid-sentence.
  */
-function UsageLine({ usage, busy }: { usage: ChatUsage; busy: boolean }): React.JSX.Element | null {
-  const chips = usageChips(usage, useAccountUsage(busy))
+function UsageLine({
+  source,
+  usage,
+  busy
+}: {
+  source: 'claude' | 'codex'
+  usage: ChatUsage
+  busy: boolean
+}): React.JSX.Element | null {
+  const chips = usageChips(usage, useAccountUsage(source, busy))
   if (chips.length === 0) return null
   return (
     <div className="chat-usage">
@@ -366,6 +374,7 @@ function AttachmentChipView({
 }
 
 interface ChatComposerProps {
+  source: 'claude' | 'codex'
   busy: boolean
   disabled: boolean
   /** Names only, no leading slash */
@@ -387,6 +396,7 @@ interface ChatComposerProps {
 type MentionFiles = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; paths: string[] }
 
 export function ChatComposer({
+  source,
   busy,
   disabled,
   slashCommands,
@@ -663,7 +673,7 @@ export function ChatComposer({
         {setup && <SessionSetupRow setup={setup} />}
       </div>
 
-      <UsageLine usage={usage} busy={busy} />
+      <UsageLine source={source} usage={usage} busy={busy} />
     </div>
   )
 }
