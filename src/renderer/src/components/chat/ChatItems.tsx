@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import type { ApprovalDecision, ChatItem, ToolCall } from '../../../../shared/agent-chat'
 import { launchedAgent } from '../../../../shared/subagent'
+import { groupSummary, type ChatRow } from '../../../../shared/chat-groups'
+import { toolInputText, toolLabel } from '../../../../shared/tool-label'
 import { AgentChip } from './AgentChip'
 import {
   composeAnswers,
@@ -36,17 +38,6 @@ import { MD_LINKS } from '../../markdownLinks'
  * Reuses the transcript layer's `.message-markdown` so a live reply and the
  * same reply re-read later from the session file look identical.
  */
-
-/** One-line gist of a tool call, from the argument that carries the meaning. */
-export function toolSummary(call: ToolCall): string {
-  if (call.description) return call.description
-  const input = (call.input ?? {}) as Record<string, unknown>
-  for (const key of ['file_path', 'path', 'command', 'pattern', 'url', 'query', 'prompt']) {
-    const value = input[key]
-    if (typeof value === 'string' && value.trim()) return value
-  }
-  return ''
-}
 
 /** Home-relative paths read better than absolute ones in a narrow chip. */
 function shorten(text: string, home: string): string {
@@ -72,6 +63,36 @@ const STATUS_TITLE: Partial<Record<ToolCall['status'], string>> = {
 /** Rows shown before the diff folds. Long enough for an ordinary edit to arrive
  *  whole, short enough that a rewritten file does not bury the conversation. */
 const DIFF_PREVIEW_ROWS = 24
+
+/** Lines of raw tool output rendered before it folds. The box is 320px tall and
+ *  scrolls, so about eighteen of these are ever on screen — but the browser
+ *  lays out every line it is given, and a `Read` of a large file hands us
+ *  thousands. Well past what the scrollbar suggests, far short of a whole file. */
+const OUTPUT_PREVIEW_LINES = 120
+
+/**
+ * What a tool printed. Folded rather than truncated: a result that quietly
+ * stops reads as the whole result, which is the same reason `DiffView` never
+ * cuts silently.
+ */
+function ToolOutput({ text }: { text: string }): React.JSX.Element {
+  const [showAll, setShowAll] = useState(false)
+  const lines = text.split('\n')
+  const hidden = showAll ? 0 : Math.max(0, lines.length - OUTPUT_PREVIEW_LINES)
+
+  return (
+    <>
+      <pre className="chat-tool-output">
+        {hidden > 0 ? lines.slice(0, OUTPUT_PREVIEW_LINES).join('\n') : text}
+      </pre>
+      {hidden > 0 && (
+        <button className="chat-diff-more" onClick={() => setShowAll(true)}>
+          Show {hidden} more {hidden === 1 ? 'line' : 'lines'}
+        </button>
+      )}
+    </>
+  )
+}
 
 /**
  * The change itself, rendered by the same `DiffBody` the git panel uses — so a
@@ -126,19 +147,38 @@ function ToolImages({ images }: { images: ToolImage[] }): React.JSX.Element {
   )
 }
 
-function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.Element {
+/**
+ * Memoized on the call, which `reduceChat` keeps identity-stable for anything
+ * it did not touch (`replaceAt`/`patchTool` copy the array, not the items). One
+ * chip changing must not re-render the forty above it.
+ */
+const ToolChip = memo(function ToolChip({
+  call,
+  home
+}: {
+  call: ToolCall
+  home: string
+}): React.JSX.Element {
   // `null` means "not decided yet", so a diff can open by default while a
   // click still wins — the patch arrives after the chip mounts, so an
   // initial-state default would always be computed before there is one.
   const [toggled, setToggled] = useState<boolean | null>(null)
   const dispatched = launchedAgent(call.name, call.input)
-  const summary = toolSummary(call)
+  const { title, detail } = toolLabel(call)
   const patch = call.patch
   const images = call.images ?? []
-  const expandable = Boolean(call.result || patch || images.length)
+  // A patch is a better account of an edit than the arguments that produced it,
+  // so it stands in for them; everything else shows what it was asked to do.
+  const inputText = patch ? null : toolInputText(call)
+  const expandable = Boolean(call.result || patch || images.length || inputText)
   // A picture is the whole point of the call that produced it, so it opens like
   // a diff rather than hiding behind a chevron.
-  const open = toggled ?? Boolean(patch || images.length)
+  const auto = Boolean(patch || images.length)
+  const open = toggled ?? auto
+  // A chip that opened itself shows the picture, not the arguments that asked
+  // for it — printing a screenshot tool's JSON above every screenshot is the
+  // clutter this pass exists to remove. Expanding it by hand still shows them.
+  const showInput = Boolean(inputText) && (toggled === true || !auto)
   const stats = patch ? patchStats(patch) : null
 
   return (
@@ -146,7 +186,7 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
       <div
         className={`chat-tool-head${expandable ? ' chat-tool-head--expandable' : ''}`}
         onClick={expandable ? () => setToggled(!open) : undefined}
-        title={expandable ? (patch ? patch.filePath : 'Show tool output') : undefined}
+        title={expandable ? (patch ? patch.filePath : 'Show the call and its output') : undefined}
       >
         {expandable && (
           <span className="chat-tool-chevron">
@@ -163,12 +203,9 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
         {/* A dispatch is the one tool call whose subject is another agent, so
             it is named after that agent rather than after the launcher — a row
             reading "Agent" tells you nothing about who is working. */}
-        {dispatched ? (
-          <AgentChip name={dispatched} />
-        ) : (
-          <span className="chat-tool-name">{call.displayName ?? call.name}</span>
-        )}
-        {summary && <code className="chat-tool-summary">{shorten(summary, home)}</code>}
+        {dispatched && <AgentChip name={dispatched} />}
+        <span className={`chat-tool-name${detail ? ' chat-tool-name--capped' : ''}`}>{title}</span>
+        {detail && <code className="chat-tool-summary">{shorten(detail, home)}</code>}
         {stats && (
           <span className="chat-diff-stat">
             {stats.added > 0 && <span className="chat-diff-stat-add">+{stats.added}</span>}
@@ -176,17 +213,72 @@ function ToolChip({ call, home }: { call: ToolCall; home: string }): React.JSX.E
           </span>
         )}
       </div>
-      {/* The diff supersedes the prose it describes: "the file has been updated
-          successfully" says nothing the chip's own tick does not. */}
       {open && (
         <>
+          {/* What was asked, before what came back — a chip that only ever
+              showed the result could not answer "what did you send it?", which
+              on a subagent dispatch is the entire content of the call. */}
+          {showInput && <pre className="chat-tool-input">{inputText}</pre>}
           {images.length > 0 && <ToolImages images={images} />}
+          {/* The diff supersedes the prose it describes: "the file has been
+              updated successfully" says nothing the chip's own tick does not. */}
           {patch ? (
             <DiffView patch={patch} />
           ) : call.result ? (
-            <pre className="chat-tool-output">{call.result}</pre>
+            <ToolOutput text={call.result} />
           ) : null}
         </>
+      )}
+    </div>
+  )
+})
+
+/**
+ * A folded run of tool calls. Which calls end up here is decided by
+ * `groupChatItems`, not by this component — an approval, a diff, an image or a
+ * failure is never swallowed.
+ *
+ * It opens itself while anything inside is still running, and folds again when
+ * the run finishes: during a turn the useful reading is what the agent is doing
+ * right now, and afterwards it is what it said.
+ */
+function ToolGroup({
+  calls,
+  home,
+  unfold
+}: {
+  calls: Array<{ id: string; call: ToolCall }>
+  home: string
+  /** Bumped when find opens. A collapsed group has no DOM, and find walks the
+   *  DOM — so ⌘F expands the thread here for the same reason it drops the
+   *  paging window in `ChatPane`, or it silently searches half a conversation. */
+  unfold: number
+}): React.JSX.Element {
+  const [toggled, setToggled] = useState<boolean | null>(null)
+  const live = calls.some((c) => c.call.status === 'running')
+  const open = toggled ?? live
+
+  useEffect(() => {
+    if (unfold > 0) setToggled(true)
+  }, [unfold])
+
+  return (
+    <div className={`chat-tool-group${open ? ' chat-tool-group--open' : ''}`}>
+      <button className="chat-tool-group-head" onClick={() => setToggled(!open)}>
+        {open ? (
+          <ChevronDown size={13} strokeWidth={1.75} />
+        ) : (
+          <ChevronRight size={13} strokeWidth={1.75} />
+        )}
+        <span>{groupSummary(calls.map((c) => c.call))}</span>
+        {live && <Loader size={12} strokeWidth={1.75} className="chat-tool-spin" />}
+      </button>
+      {open && (
+        <div className="chat-tool-group-body">
+          {calls.map((c) => (
+            <ToolChip key={c.id} call={c.call} home={home} />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -387,7 +479,7 @@ function ApprovalCard({
   home: string
   onDecide: (requestId: string, decision: ApprovalDecision) => void
 }): React.JSX.Element {
-  const summary = toolSummary(call)
+  const { title, detail } = toolLabel(call)
   const suggestion = call.suggestions?.[0]
   const requestId = call.requestId ?? ''
 
@@ -406,8 +498,13 @@ function ApprovalCard({
         <span className="chat-approval-title">
           Allow <strong>{call.displayName ?? call.name}</strong>?
         </span>
+        {/* The mechanism is named above because that is what is being allowed;
+            this is what it is for, which is what the answer turns on. */}
+        {title && title !== (call.displayName ?? call.name) && (
+          <span className="chat-approval-intent">{title}</span>
+        )}
       </div>
-      {summary && <code className="chat-approval-target">{shorten(summary, home)}</code>}
+      {detail && <code className="chat-approval-target">{shorten(detail, home)}</code>}
       <ApprovalInput call={call} />
       <div className="chat-approval-actions">
         <Button
@@ -511,7 +608,22 @@ function AssistantText({ text, done }: { text: string; done: boolean }): React.J
   )
 }
 
-export function ChatItemView({
+/**
+ * One item of the thread.
+ *
+ * Memoized, and that is a performance fix rather than a tidy-up: every render
+ * of `ChatPane` runs `ReactMarkdown` over every message it is showing, and
+ * remark re-parses the whole string each time. On a 205-row conversation that
+ * measured ~130ms of blocked main thread per render — paid on *every* streamed
+ * token, for messages that finished minutes ago.
+ *
+ * What makes it safe is that `reduceChat` never rebuilds an item it did not
+ * change: `replaceAt` and `patchTool` copy the array and leave the other
+ * elements alone. So identity means "this message is unchanged", and the two
+ * other props are stable by construction — `home` is a constant string and
+ * `onDecide` is a `useCallback` keyed on the pane id.
+ */
+export const ChatItemView = memo(function ChatItemView({
   item,
   home,
   onDecide
@@ -585,4 +697,24 @@ export function ChatItemView({
         <div className="chat-notice chat-notice--error">The turn ended with an error.</div>
       ) : null
   }
+})
+
+/**
+ * One row of the thread — either a chat item, or a folded run of tool calls.
+ * `ChatPane` renders these rather than items so that what folds is decided by
+ * one pure function (`groupChatItems`) instead of by the pane's render loop.
+ */
+export function ChatRowView({
+  row,
+  home,
+  unfold,
+  onDecide
+}: {
+  row: ChatRow
+  home: string
+  unfold: number
+  onDecide: (requestId: string, decision: ApprovalDecision) => void
+}): React.JSX.Element | null {
+  if (row.kind === 'tools') return <ToolGroup calls={row.items} home={home} unfold={unfold} />
+  return <ChatItemView item={row.item} home={home} onDecide={onDecide} />
 }

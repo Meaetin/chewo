@@ -5886,7 +5886,22 @@ body {
 .chat-tool-name {
   font-weight: var(--weight-semibold);
   color: var(--text-secondary);
-  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The title is the point of the chip and the command beside it is the
+     evidence, so the command yields first: shrinking these two in proportion
+     to their widths turns "Lint the new page" into "Lint the ne…" while the
+     eslint invocation keeps three quarters of the row. */
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Only when something shares the row: half of it, so a long written
+   description gives ground rather than crowding the target out entirely. A
+   dispatch has no target beside it and gets the whole width. */
+.chat-tool-name--capped {
+  max-width: 50%;
 }
 
 .chat-tool-summary {
@@ -5896,6 +5911,58 @@ body {
   text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: var(--fs-mono-sm);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* What the call was asked to do, above what it returned. Same shape as
+   .chat-tool-output so the pair reads as one exchange, and tinted apart so
+   which half you are looking at is never in question. */
+.chat-tool-input {
+  margin-top: var(--space-4);
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-panel);
+  border: var(--border-hair);
+  border-radius: var(--radius-3);
+  padding: var(--space-12);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- a folded run of tool calls ----
+   The header carries the count; the chips live behind it. Indented under their
+   own hairline, like .chat-thinking-body, so an open group reads as one thing
+   the agent did rather than as the thread resuming. */
+
+.chat-tool-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+}
+
+.chat-tool-group-head:hover {
+  color: var(--text-secondary);
+}
+
+.chat-tool-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding-left: var(--space-12);
+  border-left: 2px solid var(--border-hairline);
 }
 
 /* ---- pictures a tool handed back ---- */
@@ -6341,6 +6408,12 @@ body {
 
 .chat-approval-title {
   color: var(--text-primary);
+}
+
+.chat-approval-intent {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
 }
 
 .chat-approval-target {

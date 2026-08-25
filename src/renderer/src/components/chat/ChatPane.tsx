@@ -13,6 +13,7 @@ import {
 } from '../../../../shared/agent-chat'
 import type { NormalizedMessage } from '../../../../shared/adapter/types'
 import type { AgentTask } from '../../../../shared/tool-tasks'
+import { groupChatItems } from '../../../../shared/chat-groups'
 import {
   chipOf,
   chipsForPaths,
@@ -24,7 +25,7 @@ import {
 import { WorkingText } from '../ui'
 import { ChatComposer, type SessionSetup } from './ChatComposer'
 import { FindBar } from './FindBar'
-import { ChatItemView } from './ChatItems'
+import { ChatRowView } from './ChatItems'
 import { TaskPanel } from './TaskPanel'
 import { useElapsed } from './useElapsed'
 
@@ -140,6 +141,9 @@ export function ChatPane({
    * nothing scrolls out of view from above as the agent talks.
    */
   const [hidden, setHidden] = useState(0)
+  /** Bumped when find opens, so every folded tool group renders its chips —
+   *  find walks the DOM and cannot see what is not in it. */
+  const [unfold, setUnfold] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Ref so the subscription is keyed on chatId alone — a new callback identity
   // from App re-rendering must not tear down and re-add the listener
@@ -380,6 +384,9 @@ export function ChatPane({
   }, [active, state.busy, interrupt])
 
   const shown = hidden > 0 ? state.items.slice(hidden) : state.items
+  // Folded after the paging window is applied, so a group never reaches across
+  // the "load earlier" boundary into items that are not rendered.
+  const rows = groupChatItems(shown)
   const awaiting = pendingApprovals(state)
   const exited = state.exitCode !== null
   const elapsed = useElapsed(state.busy, active)
@@ -403,7 +410,10 @@ export function ChatPane({
         containerRef={scrollRef}
         active={active}
         revision={`${state.items.length}:${hidden}`}
-        onOpen={() => setHidden(0)}
+        onOpen={() => {
+          setHidden(0)
+          setUnfold((n) => n + 1)
+        }}
       />
 
       <div
@@ -441,11 +451,12 @@ export function ChatPane({
               <span className="chat-load-earlier-count">{hidden} above</span>
             </button>
           )}
-          {shown.map((item) => (
-            <ChatItemView
-              key={item.id}
-              item={item}
+          {rows.map((row) => (
+            <ChatRowView
+              key={row.id}
+              row={row}
               home={window.api.homeDir}
+              unfold={unfold}
               onDecide={decide}
             />
           ))}

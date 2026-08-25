@@ -150,6 +150,11 @@ function recordToMessages(rec: ClaudeRecord, results: Map<string, ToolOutcome>):
         role: 'tool',
         toolName: block.name ?? 'unknown',
         text: summarizeToolInput(block.input),
+        // The arguments themselves, not just the one-line gist of them. A
+        // resumed pane names a call from its own `description` and shows what a
+        // subagent was briefed with; without this it can only re-read the gist,
+        // which is the command with everything that explains it thrown away.
+        toolInput: block.input,
         filesTouched: extractFiles(block.input),
         toolResult: outcome?.text || undefined,
         toolPatch: outcome?.patch,
