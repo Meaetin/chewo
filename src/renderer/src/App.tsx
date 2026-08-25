@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PanelLeftOpen, Settings, Terminal } from 'lucide-react'
 import { ChatPane } from './components/chat/ChatPane'
 import {
   DEFAULT_APPEARANCE,
   DEFAULT_LAYOUT,
   type AppearanceSettings,
-  type LayoutSettings
+  type LayoutSettings,
+  type SettingsFile
 } from '../../shared/appearance'
 import {
   agentDef,
@@ -281,6 +282,8 @@ export function App(): React.JSX.Element {
   /** Recordings whose stream died; their audio is still on disk */
   const [sttPending, setSttPending] = useState<PendingRecovery[]>([])
   const settingsLoaded = useRef(false)
+  const [startupLoaded, setStartupLoaded] = useState(false)
+  const startupReadySent = useRef(false)
   /** `action` turns the toast into an offer — "Open PR" after a ship */
   const [toast, setToast] = useState<{
     text: string
@@ -444,26 +447,28 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void refresh()
     void refreshNotes()
-    void window.api.loadProjects().then((file: ProjectsFile) => {
-      setProjects(file.projects)
-      setSelectedProjectId(file.selectedProjectId)
-      setHiddenIds(new Set(file.hiddenSessionIds))
-      setHomeTerminals(file.homeTerminals)
-      setHomeSettings(file.homeSettings)
-      setWorktrees(file.worktrees)
-      setWorkflow(file.workflow ?? 'code')
-      setTodoRunAgent(file.todoRunAgent ?? 'claude')
-      notesRoot.current = file.notesRoot
-      todoHotkey.current = file.todoHotkey
-      loaded.current = true
-    })
-    void window.api.loadSettings().then((file) => {
-      setAppearance(file.appearance)
-      setAgents(file.agents)
-      setStt(file.stt)
-      setLayout(normalizeLayout(file.layout, window.innerWidth))
-      settingsLoaded.current = true
-    })
+    void Promise.all([window.api.loadProjects(), window.api.loadSettings()]).then(
+      ([projectsFile, settingsFile]: [ProjectsFile, SettingsFile]) => {
+        setProjects(projectsFile.projects)
+        setSelectedProjectId(projectsFile.selectedProjectId)
+        setHiddenIds(new Set(projectsFile.hiddenSessionIds))
+        setHomeTerminals(projectsFile.homeTerminals)
+        setHomeSettings(projectsFile.homeSettings)
+        setWorktrees(projectsFile.worktrees)
+        setWorkflow(projectsFile.workflow ?? 'code')
+        setTodoRunAgent(projectsFile.todoRunAgent ?? 'claude')
+        notesRoot.current = projectsFile.notesRoot
+        todoHotkey.current = projectsFile.todoHotkey
+        loaded.current = true
+
+        setAppearance(settingsFile.appearance)
+        setAgents(settingsFile.agents)
+        setStt(settingsFile.stt)
+        setLayout(normalizeLayout(settingsFile.layout, window.innerWidth))
+        settingsLoaded.current = true
+        setStartupLoaded(true)
+      }
+    )
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offStt = window.api.onSttEvent((ev) => {
       switch (ev.event) {
@@ -674,7 +679,12 @@ export function App(): React.JSX.Element {
 
   // Live re-theme: CSS tokens for the whole UI, plus derived themes for the
   // two JS-painted surfaces (xterm, CodeMirror)
-  useEffect(() => applyAppearance(appearance), [appearance])
+  useLayoutEffect(() => applyAppearance(appearance), [appearance])
+  useEffect(() => {
+    if (!startupLoaded || startupReadySent.current) return
+    startupReadySent.current = true
+    window.api.appReady()
+  }, [startupLoaded])
   const terminalTheme = useMemo(() => makeTerminalTheme(appearance), [appearance])
   const editorTheme = useMemo(() => makeEditorTheme(appearance), [appearance])
 

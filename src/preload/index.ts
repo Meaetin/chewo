@@ -96,6 +96,7 @@ const onTermExit = channelFanout<TermExitEvent>('terminal:exit')
 const onChatEvent = channelFanout<{ id: number; event: AgentChatEvent }>('chat:event')
 
 const api = {
+  appReady: () => ipcRenderer.send('app:ready'),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   getSession: (ref: { source: string; filePath: string }) =>
     ipcRenderer.invoke('sessions:get', ref),

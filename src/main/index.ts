@@ -173,12 +173,25 @@ if (!app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null
+const STARTUP_REVEAL_TIMEOUT_MS = 10_000
+const startupRevealTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
+function revealWindow(win: BrowserWindow): void {
+  const timer = startupRevealTimers.get(win.webContents.id)
+  if (timer) clearTimeout(timer)
+  startupRevealTimers.delete(win.webContents.id)
+  if (!win.isDestroyed()) win.show()
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     title: 'Chewo',
+    // React first renders with dependency-free defaults, then hydrates the
+    // user's projects and appearance over IPC. Keep that placeholder frame
+    // off-screen; the renderer reveals the window once both files are applied.
+    show: false,
     // User's base color — resize flashes match the theme, not stock graphite
     backgroundColor: loadSettings().appearance.base,
     // Frameless-inset: traffic lights float over the sidebar's top drag strip
@@ -194,6 +207,14 @@ function createWindow(): void {
       // Chromium's built-in PDF viewer — the editor's .pdf preview iframe
       plugins: true
     }
+  })
+
+  const win = mainWindow
+  const revealTimer = setTimeout(() => revealWindow(win), STARTUP_REVEAL_TIMEOUT_MS)
+  startupRevealTimers.set(win.webContents.id, revealTimer)
+  win.once('closed', () => {
+    clearTimeout(revealTimer)
+    startupRevealTimers.delete(win.webContents.id)
   })
 
   // fs and git watches are created on demand by the renderer and closed by its
@@ -254,6 +275,11 @@ function openInBrowser(url: string): boolean {
 }
 
 function registerIpc(): void {
+  ipcMain.on('app:ready', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && win === mainWindow) revealWindow(win)
+  })
+
   ipcMain.handle('sessions:list', () => scanAll())
 
   ipcMain.handle('sessions:get', (_e, ref: { source: Source; filePath: string }) =>
