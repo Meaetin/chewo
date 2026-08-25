@@ -529,12 +529,18 @@ export function createCodexNormalizer(opts: CodexChatOptions): {
   }
 }
 
+/**
+ * `model` and `effort` are overrides the app-server applies to this turn *and
+ * every turn after it* — its own wording in the generated protocol schema. So
+ * a live change costs no restart: it is put on the next turn and stays.
+ */
 export function codexTurnMessage(
   id: number,
   threadId: string,
   text: string,
   images: string[],
-  effort?: string
+  effort?: string,
+  model?: string
 ): unknown {
   return {
     method: 'turn/start',
@@ -545,7 +551,8 @@ export function codexTurnMessage(
         ...(text ? [{ type: 'text', text, text_elements: [] }] : []),
         ...images.map((path) => ({ type: 'localImage', path }))
       ],
-      ...(effort ? { effort } : {})
+      ...(effort ? { effort } : {}),
+      ...(model ? { model } : {})
     }
   }
 }

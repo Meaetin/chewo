@@ -29,6 +29,9 @@ interface CodexRecord {
     input?: string
     action?: { command?: string[] }
     call_id?: string
+    /** `turn_context` only: what that turn ran on */
+    model?: string
+    effort?: string
     output?: unknown
   }
 }
@@ -218,6 +221,13 @@ export function parseCodexSession(
   const sessionMeta = records.find((r) => r.type === 'session_meta')?.payload
   const id = sessionMeta?.id ?? idFromFilename(filePath)
 
+  // Codex writes a `turn_context` before each turn naming the model and the
+  // reasoning effort it ran at, so the newest one is what a resumed thread
+  // continues on. `session_meta` is deliberately not used for this: a thread
+  // can be moved onto another model mid-conversation, which leaves the opening
+  // record describing a model the session is no longer using.
+  const lastTurn = [...records].reverse().find((r) => r.type === 'turn_context')?.payload
+
   // First pass: collect tool outputs so calls can carry their results
   const toolResults = new Map<string, string>()
   for (const rec of records) {
@@ -266,6 +276,8 @@ export function parseCodexSession(
       messageCount: messages.filter((m) => !m.commandName).length,
       preview
     },
+    ...(lastTurn?.model ? { model: lastTurn.model } : {}),
+    ...(lastTurn?.effort ? { effort: lastTurn.effort } : {}),
     messages,
     stats
   }

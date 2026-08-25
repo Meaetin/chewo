@@ -152,6 +152,14 @@ const api = {
     ipcRenderer.invoke('attachment:stage', { base64, mimeType }) as Promise<string>,
   chatRespond: (id: number, requestId: string, decision: ApprovalDecision) =>
     ipcRenderer.send('chat:respond', { id, requestId, decision }),
+  /**
+   * Move a running session onto another model or effort. Both CLIs take the
+   * change mid-conversation — Claude by control request and its `/effort`
+   * command, Codex on its next turn — so neither needs a respawn.
+   */
+  chatSetModel: (id: number, model: string) => ipcRenderer.send('chat:setModel', { id, model }),
+  chatSetEffort: (id: number, effort: string) =>
+    ipcRenderer.send('chat:setEffort', { id, effort }),
   chatInterrupt: (id: number) => ipcRenderer.send('chat:interrupt', { id }),
   chatKill: (id: number) => ipcRenderer.send('chat:kill', { id }),
   /** The CLI conversation id, once bound — what "open in terminal" resumes */
@@ -312,6 +320,12 @@ const api = {
    *  can still be recovered into the right lesson later. */
   sttStart: (source: SttSource = 'mic', lessonPath?: string, style?: NoteStyle) =>
     ipcRenderer.send('stt:start', { source, lessonPath, style }),
+  /**
+   * Dictate into a chat composer. No lesson and no style: the words go into a
+   * message box rather than into a note, and the owner is what routes every
+   * event back to the pane that asked instead of to the notes workspace.
+   */
+  sttStartChat: () => ipcRenderer.send('stt:start', { owner: 'chat', source: 'mic' }),
   sttStop: () => ipcRenderer.send('stt:stop'),
   sttStatus: () => ipcRenderer.invoke('stt:status') as Promise<SttStatus>,
   sttModels: () => ipcRenderer.invoke('stt:models') as Promise<SttModelInfo[]>,

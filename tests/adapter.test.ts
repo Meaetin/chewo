@@ -67,6 +67,22 @@ describe('claude adapter', () => {
     expect(contextTokens).toBe(32593)
   })
 
+  test('a transcript names the model and effort it was last running on', () => {
+    // What a resumed pane's composer shows before its first turn. The
+    // sidechain record between the two main ones is a subagent on another
+    // model at another effort, and reporting it would put a model the user
+    // never chose in front of them.
+    const result = parseClaudeSession(fixture('claude/v2.1-usage.jsonl'))
+    expect(result.model).toBe('claude-opus-5')
+    expect(result.effort).toBe('high')
+  })
+
+  test('a transcript that never recorded a turn names neither', () => {
+    const result = parseClaudeSession(fixture('claude/v2.1-command-only.jsonl'))
+    expect(result.model).toBeUndefined()
+    expect(result.effort).toBeUndefined()
+  })
+
   test('a transcript with no usage recorded simply has none', () => {
     expect(parseClaudeSession(fixture('claude/v2.1-basic.jsonl')).contextTokens).toBeUndefined()
   })
@@ -116,6 +132,21 @@ describe('claude adapter', () => {
 })
 
 describe('codex adapter', () => {
+  test('a rollout names the model and effort of its newest turn', () => {
+    // Codex writes a `turn_context` before every turn, and a thread can be
+    // moved onto another model mid-conversation — so the opening record is the
+    // wrong one to read. This fixture starts on gpt-5.5 and ends on 5.6-sol.
+    const result = parseCodexSession(fixture('codex/v0.144-custom-tools.jsonl'))
+    expect(result.model).toBe('gpt-5.6-sol')
+    expect(result.effort).toBe('high')
+  })
+
+  test('an older rollout with no turn_context names neither', () => {
+    const result = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
+    expect(result.model).toBeUndefined()
+    expect(result.effort).toBeUndefined()
+  })
+
   test('parses meta from session_meta', () => {
     const { meta } = parseCodexSession(fixture('codex/v0.142-basic.jsonl'))
     expect(meta.id).toBe('019e0000-0000-7000-8000-000000000001')

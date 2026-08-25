@@ -39,6 +39,14 @@ interface SelectProps<T extends string> {
    * its own label.
    */
   menuMinWidth?: number
+  /**
+   * Greyed out and unopenable. Pair it with `title`: a control that has gone
+   * quiet without saying why reads as broken, and the reasons here are real
+   * ones (a setting fixed when the session spawned, a turn in flight).
+   */
+  disabled?: boolean
+  /** Hover text on the trigger */
+  title?: string
 }
 
 /**
@@ -58,7 +66,9 @@ export function Select<T extends string>({
   searchable = false,
   searchPlaceholder = 'Search…',
   className,
-  menuMinWidth
+  menuMinWidth,
+  disabled = false,
+  title
 }: SelectProps<T>): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -79,6 +89,7 @@ export function Select<T extends string>({
   )
 
   const openMenu = (): void => {
+    if (disabled) return
     const r = triggerRef.current?.getBoundingClientRect()
     if (!r) return
     setRect(r)
@@ -170,6 +181,8 @@ export function Select<T extends string>({
         className={`wt-select-trigger ${open ? 'wt-select-trigger-open' : ''}${className ? ` ${className}` : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
+        title={title}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onKeyDown}
       >

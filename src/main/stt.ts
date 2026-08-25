@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { app } from 'electron'
-import type { NoteStyle, SttSource } from '../shared/notes'
+import type { NoteStyle, SttOwner, SttSource } from '../shared/notes'
 import { normalizeStt } from '../shared/stt'
 import { deepgramKey } from './credentials'
 import { openDeepgramStream, type DeepgramStream } from './deepgram'
@@ -28,10 +28,12 @@ import { loadSettings } from './settings'
  * A clean finish deletes it; a dropped connection leaves it recoverable.
  */
 
-export type SttOwner = 'notes' | 'todo'
+export type { SttOwner }
 
 export interface SttEventPayload {
   event: string
+  /** Filled in by `emit` — every event says which surface it belongs to */
+  owner?: SttOwner
   rms?: number
   confirmed?: string
   tail?: string
@@ -90,7 +92,11 @@ function sidecarPath(): string | null {
 }
 
 function emit(ev: SttEventPayload): void {
-  if (sink) sink(ev)
+  // Tagged here rather than at each call site: one window listens for all
+  // three surfaces on one channel, so an untagged event is one the renderer
+  // has to guess the owner of — and it guesses "notes", which is where a chat
+  // dictation's words would then land.
+  if (sink) sink(owner ? { ...ev, owner } : ev)
   else broadcast(ev)
 }
 
@@ -234,6 +240,13 @@ const send = (child: ChildProcess, cmd: object): void => {
   }
 }
 
+/** Why the mic can't be had — named by whoever already has it. */
+const BUSY: Record<SttOwner, string> = {
+  notes: 'Mic is busy — a notes recording is running.',
+  todo: 'Mic is busy — a voice command is running.',
+  chat: 'Mic is busy — a chat is being dictated into.'
+}
+
 const NO_KEY = 'Add a Deepgram API key in Settings → Voice to turn on dictation.'
 const NO_SIDECAR = 'Audio capture isn’t built — run: npm run build:stt'
 
@@ -244,10 +257,7 @@ export function sttStart(
   source: SttSource = 'mic',
   context: SttContext = {}
 ): string | null {
-  if (owner && owner !== who)
-    return owner === 'notes'
-      ? 'Mic is busy — a notes recording is running.'
-      : 'Mic is busy — a voice command is running.'
+  if (owner && owner !== who) return BUSY[owner]
 
   // Same shape as the old "model isn't downloaded" gate: refuse with a
   // sentence rather than opening a mic that has nowhere to send audio.

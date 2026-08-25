@@ -433,7 +433,10 @@ export function seedItems(messages: NormalizedMessage[]): ChatItem[] {
   messages.forEach((m, i) => {
     const id = `seed-${i}`
     if (m.commandName) {
-      items.push({ kind: 'user', id, text: `/${m.commandName}` })
+      // The transcript's own `<command-name>` usually carries the slash
+      // already (`/effort`), and sometimes does not — so it is normalised
+      // rather than prefixed, or a resumed pane renders `//effort low`.
+      items.push({ kind: 'user', id, text: `/${m.commandName.replace(/^\/+/, '')}` })
     } else if (m.role === 'user') {
       items.push({ kind: 'user', id, text: m.text })
     } else if (m.role === 'assistant') {

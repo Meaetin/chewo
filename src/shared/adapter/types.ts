@@ -64,6 +64,16 @@ export interface ParseResult {
    */
   contextTokens?: number
   /**
+   * The model and reasoning effort the conversation was last running on, read
+   * off its newest turn — Claude records both on every assistant record,
+   * Codex on every `turn_context`. A resumed session spawns with no model or
+   * effort flag, and neither CLI announces what it settled on until a turn
+   * ends, so this is the only thing that can tell the composer what it is
+   * about to speak on. Absent for a transcript that never recorded a turn.
+   */
+  model?: string
+  effort?: string
+  /**
    * The agent's plan as the transcript last left it. Resuming replays nothing,
    * so a pane that had a plan going would otherwise come back without one.
    */

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { Sparkles } from 'lucide-react'
 import {
   appendUserMessage,
@@ -24,6 +32,7 @@ import {
 } from '../../../../shared/attachments'
 import { WorkingText } from '../ui'
 import { ChatComposer, type SessionSetup } from './ChatComposer'
+import { EFFORT_LEVELS, matchModelId, type EffortLevel } from '../../../../shared/agents'
 import { FindBar } from './FindBar'
 import { ChatRowView } from './ChatItems'
 import { TaskPanel } from './TaskPanel'
@@ -73,11 +82,15 @@ interface ChatPaneProps {
    */
   beforeFirstSend?: (text: string, images: string[]) => boolean
   /**
-   * Present only while the session is unstarted. The agent and the checkout
-   * are asked here rather than before the pane opens, because neither is
-   * answerable until you know the task — and this is where the task is typed.
+   * The composer's setup row. On an unstarted pane it asks everything — the
+   * agent and the checkout are answered here rather than before the pane
+   * opens, because neither is answerable until you know the task, and this is
+   * where the task is typed. On a running one it keeps only what a live
+   * session can still change: the model and the reasoning effort.
    */
   setup?: SessionSetup
+  /** Whether dictation has a key to run against; the mic says so if not */
+  sttReady?: boolean
   /** Blocks the composer and explains why — e.g. while a worktree is being cut */
   notice?: string
   /** Fires once, when the CLI reports the conversation id it opened */
@@ -119,6 +132,10 @@ function chatReducer(state: ChatState, action: Action): ChatState {
  */
 const PAGE = 50
 
+/** A transcript's recorded effort, kept only if it is still a level we offer. */
+const asEffort = (value: string | undefined): EffortLevel | '' =>
+  value && (EFFORT_LEVELS as string[]).includes(value) ? (value as EffortLevel) : ''
+
 export function ChatPane({
   chatId,
   active,
@@ -128,6 +145,7 @@ export function ChatPane({
   resumeFrom,
   beforeFirstSend,
   setup,
+  sttReady,
   notice,
   onSessionBound,
   onError,
@@ -316,6 +334,12 @@ export function ChatPane({
   const interrupt = useCallback(() => window.api.chatInterrupt(chatId), [chatId])
 
   const [loadingHistory, setLoadingHistory] = useState(Boolean(resumeFrom))
+  /**
+   * What the transcript says this conversation was last running on. Only ever
+   * a fallback for the composer's row: the moment a live turn reports a model,
+   * or the user picks one, that wins.
+   */
+  const [resumedFrom, setResumedFrom] = useState<{ model?: string; effort?: string }>({})
   useEffect(() => {
     if (!resumeFrom) return
     let cancelled = false
@@ -325,6 +349,8 @@ export function ChatPane({
         (result: {
           messages: NormalizedMessage[]
           contextTokens?: number
+          model?: string
+          effort?: string
           tasks?: AgentTask[]
         }) => {
         if (cancelled) return
@@ -341,6 +367,10 @@ export function ChatPane({
             kind: 'event',
             event: { type: 'usage', usage: { contextTokens: result.contextTokens } }
           })
+        // Neither CLI announces its model or effort on resume, and the first
+        // turn is where it would — which is one turn too late to be able to
+        // change it before speaking.
+        setResumedFrom({ model: result.model, effort: result.effort })
         // Open on the most recent page; the rest loads as the user scrolls up
         setHidden(Math.max(0, items.length - PAGE))
         setLoadingHistory(false)
@@ -391,6 +421,37 @@ export function ChatPane({
   const exited = state.exitCode !== null
   const elapsed = useElapsed(state.busy, active)
   const showEmptyState = !started && Boolean(setup) && !loadingHistory && state.items.length === 0
+
+  /**
+   * The row the composer draws, and the one place the two states of it meet.
+   *
+   * `started` is true either because App said so — the pane has a process
+   * behind it — or because this pane has just sent its first message and is
+   * about to be replaced. Both mean the same thing to the row: the agent and
+   * the checkout are settled, the model and the effort are not.
+   *
+   * The model needs resolving here rather than in App because App only knows
+   * what the *user* picked. A session resumed from the sidebar spawned with no
+   * model flag at all, so the only thing that knows what it is running is the
+   * CLI's own `system/init` — which reports a resolved id (`claude-sonnet-5`)
+   * where the picker holds tier aliases (`sonnet`).
+   */
+  const composerSetup = useMemo(() => {
+    if (!setup) return undefined
+    const live = setup.started === true || started
+    if (!live) return setup
+    return {
+      ...setup,
+      started: true,
+      // Three sources, in order of how current they are: what the user picked,
+      // what this session's own `system/init` reported, and what the
+      // transcript last recorded.
+      model:
+        setup.model ||
+        matchModelId(state.info?.model || resumedFrom.model || '', setup.models),
+      effort: setup.effort || asEffort(resumedFrom.effort)
+    }
+  }, [setup, started, state.info?.model, resumedFrom])
 
   return (
     <div
@@ -486,14 +547,16 @@ export function ChatPane({
 
       <ChatComposer
         source={source}
+        active={active}
         busy={state.busy}
         // A parked permission request blocks the agent, so a typed message
         // would queue behind it with no sign of why nothing happened
         disabled={exited || awaiting.length > 0 || Boolean(notice)}
         slashCommands={state.info?.slashCommands ?? pendingCommands}
-        setup={started ? undefined : setup}
+        setup={composerSetup}
         usage={state.usage}
         cwd={cwd}
+        sttReady={sttReady}
         placeholder={
           exited
             ? 'Session ended'

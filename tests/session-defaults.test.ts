@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { sessionEffort, sessionModel, type AgentModel } from '../src/shared/agents'
+import { matchModelId, sessionEffort, sessionModel, type AgentModel } from '../src/shared/agents'
 
 /**
  * What a new session spawns with. The picker's labels and the CLI's argv come
@@ -58,5 +58,35 @@ describe('sessionEffort', () => {
 
   test('an unknown model falls back to the standard ladder', () => {
     expect(sessionEffort('claude', undefined, undefined)).toBe('high')
+  })
+})
+
+/**
+ * Reading a *running* session's model back off the wire. The picker holds tier
+ * aliases because that is what a spawn flag takes; a live session announces
+ * the model it resolved to. A session resumed from the sidebar spawns with no
+ * model flag at all, so this is the only thing that knows what it is on.
+ */
+describe('matchModelId', () => {
+  test('claude reports a resolved id, the picker holds the alias', () => {
+    expect(matchModelId('claude-sonnet-5', CLAUDE_CATALOG)).toBe('sonnet')
+    expect(matchModelId('claude-opus-5[1m]', CLAUDE_CATALOG)).toBe('opus')
+  })
+
+  test('codex ids are already catalog ids and match outright', () => {
+    expect(matchModelId('gpt-5.6-sol', CODEX_CATALOG)).toBe('gpt-5.6-sol')
+  })
+
+  test('the longest alias wins, so a narrower id cannot be swallowed', () => {
+    const catalog: AgentModel[] = [
+      { id: 'opus', label: 'Opus', efforts: ['high'] },
+      { id: 'opus-mini', label: 'Opus mini', efforts: ['high'] }
+    ]
+    expect(matchModelId('claude-opus-mini-5', catalog)).toBe('opus-mini')
+  })
+
+  test('nothing recognisable returns empty rather than naming the wrong model', () => {
+    expect(matchModelId('some-future-model', CLAUDE_CATALOG)).toBe('')
+    expect(matchModelId('', CLAUDE_CATALOG)).toBe('')
   })
 })

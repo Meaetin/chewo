@@ -474,6 +474,10 @@ export function App(): React.JSX.Element {
     )
     const offNotes = window.api.onNotesChanged(() => void refreshNotes())
     const offStt = window.api.onSttEvent((ev) => {
+      // Composer dictation runs on the same channel and is owned by the pane
+      // that started it. Left unfiltered, a chat's `final` would be appended
+      // to whichever note happens to be open.
+      if (ev.owner === 'chat') return
       switch (ev.event) {
         // The Deepgram handshake, before the mic opens. Sub-second, so the
         // panel copy is a reassurance rather than something to wait through.
@@ -3021,8 +3025,12 @@ export function App(): React.JSX.Element {
                   // Consulted on every pane's first message; it returns false
                   // for one already running the agent and checkout it asked for
                   beforeFirstSend={(text, images) => startChosenSession(tab, text, images)}
-                  // Only a pane with no process behind it: once the CLI is
-                  // running, its agent, model, effort and checkout are facts
+                  sttReady={sttReady}
+                  // Two rows in one prop. A pending pane is asked everything;
+                  // a running one keeps the two questions a live session can
+                  // still answer — both CLIs move model and effort
+                  // mid-conversation, so freezing them here would be a limit
+                  // Chewo invented rather than one either CLI has.
                   setup={
                     tab.pending
                       ? (() => {
@@ -3067,7 +3075,40 @@ export function App(): React.JSX.Element {
                               })
                           }
                         })()
-                      : undefined
+                      : (() => {
+                          const agent = tab.source === 'shell' ? 'claude' : tab.source
+                          return {
+                            source: agent,
+                            started: true,
+                            models: paneChoice(agent, tab.model, tab.effort).catalog,
+                            // Only what the user actually picked. Resolving a
+                            // default here would name a model the session may
+                            // not be on — a session resumed from the sidebar
+                            // spawned with no model flag at all. ChatPane
+                            // fills the gap from what the CLI reports.
+                            model: tab.model ?? '',
+                            effort: tab.effort ?? '',
+                            // Settled by the process behind the pane; the row
+                            // draws none of these once `started` is set
+                            isolate: tab.branchMode === 'separate',
+                            base: null,
+                            orchestrate: tab.orchestrate === true,
+                            dispatchable: roster.length,
+                            onChange: (patch) => {
+                              // Remembered on the tab *and* sent to the live
+                              // process: the tab is what the row reads back,
+                              // the CLI is what actually changes.
+                              setPaneChoice(tab.termId, {
+                                model: patch.model,
+                                effort: patch.effort
+                              })
+                              if (patch.model !== undefined)
+                                window.api.chatSetModel(tab.termId, patch.model)
+                              if (patch.effort !== undefined)
+                                window.api.chatSetEffort(tab.termId, patch.effort)
+                            }
+                          }
+                        })()
                   }
                   notice={
                     cuttingBranch.has(tab.termId) ? 'Cutting a branch for this task…' : undefined

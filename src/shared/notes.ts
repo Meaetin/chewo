@@ -65,8 +65,19 @@ export type NoteStyle = 'lecture' | 'meeting'
  * Deepgram handshake before the mic opens — sub-second, where the old local
  * engine had a multi-minute model load.
  */
+/**
+ * Which surface asked for the microphone. One capture at a time, so this is
+ * both the lock main enforces and the address every event carries back — the
+ * renderer runs all three surfaces in one window off one `stt:event` channel,
+ * and a notes handler acting on a chat dictation's `final` would file the
+ * words into whatever note happened to be open.
+ */
+export type SttOwner = 'notes' | 'todo' | 'chat'
+
 export interface SttEvent {
   event: 'connecting' | 'ready' | 'level' | 'partial' | 'final' | 'error'
+  /** Absent on ownerless events — recovery progress and status changes */
+  owner?: SttOwner
   rms?: number
   confirmed?: string
   tail?: string

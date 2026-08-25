@@ -45,7 +45,7 @@ import {
   writeNote,
   type CreateNoteArgs
 } from './notes'
-import type { NoteStyle, SttSource } from '../shared/notes'
+import type { NoteStyle, SttOwner, SttSource } from '../shared/notes'
 import {
   copyEntry,
   createEntry,
@@ -163,6 +163,8 @@ import {
   killChat,
   respondChat,
   sendChat,
+  setChatEffort,
+  setChatModel,
   type CreateChatOptions
 } from './chat-sessions'
 import type { ApprovalDecision } from '../shared/agent-chat'
@@ -338,6 +340,15 @@ function registerIpc(): void {
     (_e, { id, requestId, decision }: { id: number; requestId: string; decision: ApprovalDecision }) => {
       if (mainWindow) respondChat(mainWindow, id, requestId, decision)
     }
+  )
+  // Model and effort stay live for the whole session: both CLIs accept a
+  // change mid-conversation, so the composer keeps offering them rather than
+  // freezing on whatever the pane spawned with.
+  ipcMain.on('chat:setModel', (_e, { id, model }: { id: number; model: string }) =>
+    setChatModel(id, model)
+  )
+  ipcMain.on('chat:setEffort', (_e, { id, effort }: { id: number; effort: string }) =>
+    setChatEffort(id, effort)
   )
   ipcMain.on('chat:interrupt', (_e, { id }: { id: number }) => interruptChat(id))
   ipcMain.on('chat:kill', (_e, { id }: { id: number }) => killChat(id))
@@ -535,18 +546,23 @@ function registerIpc(): void {
     (
       _e,
       {
+        owner,
         source,
         lessonPath,
         style
-      }: { source?: SttSource; lessonPath?: string; style?: NoteStyle }
+      }: { owner?: SttOwner; source?: SttSource; lessonPath?: string; style?: NoteStyle }
     ) => {
       const win = mainWindow
       if (!win) return
-      const err = sttStart('notes', (ev) => safeSend(win, 'stt:event', ev), source ?? 'mic', {
+      // Composer dictation has no lesson and no style — the words go into a
+      // message box, not into a note — so it only ever passes an owner.
+      const who: SttOwner = owner === 'chat' ? 'chat' : 'notes'
+      const err = sttStart(who, (ev) => safeSend(win, 'stt:event', ev), source ?? 'mic', {
         lessonPath,
         style
       })
-      if (err) safeSend(win, 'stt:event', { event: 'error', message: err })
+      // A refusal is the one event `emit` never sees, so it is addressed here
+      if (err) safeSend(win, 'stt:event', { event: 'error', owner: who, message: err })
     }
   )
   ipcMain.on('stt:stop', () => sttStop())

@@ -150,6 +150,33 @@ export function sessionEffort(
   return allowed[Math.floor(allowed.length / 2)] ?? allowed[0] ?? wanted
 }
 
+/**
+ * Which catalog row a running session is on, given the model id the CLI
+ * reports for itself.
+ *
+ * Needed because the two strings are not the same string. Claude's picker
+ * rows are tier aliases (`sonnet`), which is what a spawn flag takes, while a
+ * live session announces the model it resolved to (`claude-sonnet-5`). A
+ * session resumed from the sidebar spawns with no model flag at all, so what
+ * the CLI reports is the only thing that knows what it is running.
+ *
+ * Exact match first, then the longest alias the reported id contains — longest
+ * so a future `opus` and `opus-mini` cannot resolve to each other. Returns ''
+ * rather than a guess when nothing matches: the picker shows the CLI's own
+ * default row, which is at least true, instead of naming a model the session
+ * is not on.
+ */
+export function matchModelId(reported: string, catalog: AgentModel[]): string {
+  if (!reported) return ''
+  if (catalog.some((m) => m.id === reported)) return reported
+  const id = reported.toLowerCase()
+  return (
+    [...catalog]
+      .sort((a, b) => b.id.length - a.id.length)
+      .find((m) => m.id && id.includes(m.id.toLowerCase()))?.id ?? ''
+  )
+}
+
 // ---------- per-feature assignment ----------
 
 /** The headless features a user can point at an agent. */

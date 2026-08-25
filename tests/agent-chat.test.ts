@@ -202,6 +202,12 @@ describe('resumed history', () => {
     expect(items).toEqual([{ kind: 'user', id: 'seed-0', text: '/compact' }])
   })
 
+  test('a command that already carries its slash does not get a second one', () => {
+    // What Claude actually writes: `<command-name>/effort</command-name>`.
+    const items = seedItems([{ role: 'user', text: '', commandName: '/effort low' }])
+    expect(items).toEqual([{ kind: 'user', id: 'seed-0', text: '/effort low' }])
+  })
+
   test('seeded ids cannot collide with live ones', () => {
     // Live ids are `messageId:index` and tool_use ids; a collision would make
     // a delta land on a history item.

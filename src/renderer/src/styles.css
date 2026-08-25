@@ -1107,6 +1107,14 @@ body {
   padding: var(--space-6) var(--space-12);
   border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
+  /* Double-click-to-zoom: macOS only offers it on a declared titlebar region */
+  -webkit-app-region: drag;
+}
+
+.session-header button,
+.session-header a,
+.session-header input {
+  -webkit-app-region: no-drag;
 }
 
 .session-header-live {
@@ -6707,8 +6715,37 @@ body {
 .chat-composer-input::placeholder { color: var(--text-faint); }
 
 .chat-send,
-.chat-stop {
+.chat-stop,
+.chat-mic {
   flex-shrink: 0;
+}
+
+/* ---- dictation ----
+   The app's own speech pipeline (Deepgram over the Swift capture sidecar),
+   pointed at the message box. Live, the button takes the running colour —
+   the same one a working agent wears — and grows a ring off the microphone
+   level, which is the only sign of life before the first word comes back. */
+.chat-mic {
+  position: relative;
+}
+
+.chat-mic--live {
+  color: var(--c-live);
+}
+
+.chat-mic--live:hover {
+  color: var(--c-live);
+}
+
+.chat-mic-level {
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  background: var(--c-live-wash);
+  /* Scale only — a size or an inset would relayout the row on every audio
+     packet, which arrives many times a second. */
+  transition: transform 90ms linear;
+  pointer-events: none;
 }
 
 /* ---- session setup (unstarted panes only) ----
@@ -6756,6 +6793,31 @@ body {
   background: var(--c-accent-wash);
   border-color: var(--c-line-2);
   color: var(--text-primary);
+}
+
+/* Which agent a running session is on: a statement, not a choice, so it drops
+   the hover and the pointer that would offer one. */
+.chat-setup-chip--static {
+  cursor: default;
+  color: var(--text-secondary);
+}
+
+.chat-setup-chip--static:hover {
+  color: var(--text-secondary);
+}
+
+/* A picker that cannot move right now — a turn in flight, or the lead brief,
+   which goes in with the system prompt at spawn. Kept on screen rather than
+   removed: the setting is still worth reading, and the title says why it is
+   stuck. */
+.chat-setup-select.wt-select-trigger:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.chat-setup-select.wt-select-trigger:disabled:hover {
+  background: none;
+  color: var(--text-tertiary);
 }
 
 /* Compact trigger: shrinks to its own label instead of filling a settings

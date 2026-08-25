@@ -1,7 +1,9 @@
 {"timestamp":"2026-08-25T11:00:00.000Z","type":"session_meta","payload":{"id":"01a0389d-c876-7960-a582-2181b61ff622","cwd":"/Users/test/chewo","cli_version":"0.144.5"}}
+{"timestamp":"2026-08-25T11:00:00.500Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"/Users/test/chewo","approval_policy":"never","model":"gpt-5.5","effort":"medium","summary":"auto"}}
 {"timestamp":"2026-08-25T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the Codex chat"}]}}
 {"timestamp":"2026-08-25T11:00:02.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-shell","name":"exec","input":"const r = await tools.exec_command({\n  cmd: \"npm run typecheck\",\n  workdir: \"/Users/test/chewo\"\n});\ntext(r.output);"}}
 {"timestamp":"2026-08-25T11:00:03.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-shell","output":[{"type":"input_text","text":"Script completed\nOutput:\nTypes passed"}]}}
 {"timestamp":"2026-08-25T11:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call-edit","name":"exec","input":"const patch = \"*** Begin Patch\\n*** Update File: /Users/test/chewo/src/main/chat.ts\\n@@\\n-old\\n+new\\n*** Update File: /Users/test/chewo/tests/chat.test.ts\\n@@\\n-old\\n+new\\n*** End Patch\";\ntext(await tools.apply_patch(patch));"}}
 {"timestamp":"2026-08-25T11:00:05.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-edit","output":[{"type":"input_text","text":"{}"}]}}
 {"timestamp":"2026-08-25T11:00:06.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}
+{"timestamp":"2026-08-25T11:09:00.000Z","type":"turn_context","payload":{"turn_id":"t2","cwd":"/Users/test/chewo","approval_policy":"never","model":"gpt-5.6-sol","effort":"high","summary":"auto"}}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, FileText, GitBranch, Square, X } from 'lucide-react'
+import { ArrowUp, FileText, GitBranch, Mic, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
 import { EFFORT_LEVELS, type AgentModel, type EffortLevel } from '../../../../shared/agents'
@@ -7,8 +7,10 @@ import { countLines, isLongPaste, type Attachment } from '../../../../shared/att
 import type { ChatUsage } from '../../../../shared/agent-chat'
 import { usageChips } from '../../chatUsage'
 import { useAccountUsage } from './useAccountUsage'
+import { useDictation } from './useDictation'
 import { mentionAt } from '../../mentionMatch'
 import { filterOptions } from '../../selectFilter'
+import { joinDictated } from '../../dictation'
 
 /**
  * The two questions a session has to answer before it exists, asked here
@@ -22,13 +24,26 @@ import { filterOptions } from '../../selectFilter'
  */
 export interface SessionSetup {
   source: 'claude' | 'codex'
+  /**
+   * The CLI is running: the agent and the checkout are facts now, but the
+   * model and the effort are not — both CLIs take a change mid-conversation,
+   * so the row stays and loses only the questions that have been answered for
+   * good.
+   */
+  started?: boolean
   isolate: boolean
   /** The chosen agent's catalog; empty until discovery returns */
   models: AgentModel[]
-  /** Resolved model id — never the raw choice, so the label matches the spawn */
+  /**
+   * Resolved model id — never the raw choice, so the label matches the spawn.
+   * On a running session it is instead what that session is *on*, and `''`
+   * when nothing knows yet, which shows as the CLI's own default.
+   */
   model: string
-  /** Resolved effort, already clamped to what this model accepts */
-  effort: EffortLevel
+  /** Resolved effort, already clamped to what this model accepts. `''` on a
+   *  running session that spawned without an effort flag — nothing reports it
+   *  back, so the row says the CLI is deciding rather than guessing a level. */
+  effort: EffortLevel | ''
   /** Absent in Home — no repo, so nothing to cut a branch from */
   projectName?: string
   /** `origin/main`; null when the repo can't say (no remote, or a bare init) */
@@ -101,9 +116,16 @@ const LEAD_OPTIONS = (dispatchable: number): SelectOption<'agent' | 'lead'>[] =>
   }
 ]
 
-function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element {
+function SessionSetupRow({
+  setup,
+  busy
+}: {
+  setup: SessionSetup
+  busy: boolean
+}): React.JSX.Element {
   const {
     source,
+    started = false,
     isolate,
     models,
     model,
@@ -128,14 +150,30 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
   // A resolved model the catalog doesn't list (offline discovery, or a CLI
   // update that dropped it) still has to show as itself — never as another row
   if (model && !selected) modelOptions.unshift({ value: model, label: model })
-  // Codex with no catalog and no alias to fall back on: nothing is passed, so
-  // the user's own config.toml default runs. Say that rather than show a blank.
-  if (!model) modelOptions.unshift({ value: '', label: 'CLI default' })
+  // Nothing is passed, so the CLI's own default runs — Codex with no catalog
+  // and no alias to fall back on, or a session resumed from the sidebar, which
+  // spawns with no model flag and says nothing about itself until its first
+  // turn. Named rather than blank, and named for the thing it sets: this row
+  // sits beside the effort one, which has the same story to tell.
+  if (!model) modelOptions.unshift({ value: '', label: 'Default model' })
 
   const effortOptions: SelectOption<string>[] = (selected?.efforts ?? EFFORT_LEVELS).map((e) => ({
     value: e,
     label: title(e)
   }))
+  // A session resumed from the sidebar spawned with no effort flag, and
+  // neither CLI reports the one it settled on — so the row says the CLI is
+  // deciding rather than naming a level we would only be guessing at.
+  if (!effort) effortOptions.unshift({ value: '', label: 'Default effort' })
+
+  /**
+   * Both CLIs take a change mid-conversation, but neither wants one arriving
+   * mid-turn: Claude's `/effort` would queue behind the work in flight, and
+   * Codex reads the override off the *next* turn, which is the one being
+   * spoken. So the pickers rest while the agent is talking.
+   */
+  const locked = started && busy
+  const lockedWhy = locked ? 'Wait for this turn to finish' : undefined
 
   /**
    * Which branch this work is for — one question, where there used to be a
@@ -195,27 +233,42 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
 
   return (
     <div className="chat-setup">
-      <div className="chat-setup-agents" role="radiogroup" aria-label="Agent">
-        {AGENTS.map((a) => (
-          <button
-            key={a.source}
-            type="button"
-            role="radio"
-            aria-checked={source === a.source}
-            className={`chat-setup-chip${source === a.source ? ' chat-setup-chip--on' : ''}`}
-            onClick={() => onChange({ source: a.source })}
-          >
-            <Badge source={a.source} />
-            {a.label}
-          </button>
-        ))}
-      </div>
+      {started ? (
+        // Which CLI is running is settled by the process, not by a control —
+        // switching agents means a different conversation, which is a new
+        // session rather than a picker.
+        <span
+          className="chat-setup-chip chat-setup-chip--static"
+          title="The agent is fixed once the session starts"
+        >
+          <Badge source={source} />
+          {AGENTS.find((a) => a.source === source)?.label}
+        </span>
+      ) : (
+        <div className="chat-setup-agents" role="radiogroup" aria-label="Agent">
+          {AGENTS.map((a) => (
+            <button
+              key={a.source}
+              type="button"
+              role="radio"
+              aria-checked={source === a.source}
+              className={`chat-setup-chip${source === a.source ? ' chat-setup-chip--on' : ''}`}
+              onClick={() => onChange({ source: a.source })}
+            >
+              <Badge source={a.source} />
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Select
         className="chat-setup-select"
         menuMinWidth={260}
         value={model}
         options={modelOptions}
+        disabled={locked}
+        title={lockedWhy}
         onChange={(next) => onChange({ model: next })}
       />
       <Select
@@ -223,10 +276,12 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
         menuMinWidth={160}
         value={effort}
         options={effortOptions}
+        disabled={locked}
+        title={lockedWhy}
         onChange={(next) => onChange({ effort: next })}
       />
 
-      {projectName && (
+      {projectName && !started && (
         <div
           className="chat-setup-branch"
           title={
@@ -270,6 +325,18 @@ function SessionSetupRow({ setup }: { setup: SessionSetup }): React.JSX.Element 
           menuMinWidth={280}
           value={orchestrate ? 'lead' : 'agent'}
           options={LEAD_OPTIONS(dispatchable)}
+          // Shown but inert on a running session, rather than dropped: this is
+          // the one thing on the row that genuinely cannot change. The brief
+          // is a spawn flag (`--append-system-prompt` for Claude,
+          // `developerInstructions` at thread start for Codex) and neither CLI
+          // has a way to replace it — so the honest move is to say which mode
+          // the session is in and why it is stuck there.
+          disabled={started}
+          title={
+            started
+              ? `This session runs as ${orchestrate ? 'a lead' : 'a single agent'} — the brief goes in with the system prompt when the session starts, so it cannot change now. Start a new session to switch.`
+              : undefined
+          }
           onChange={(next) => onChange({ orchestrate: next === 'lead' })}
         />
       )}
@@ -375,6 +442,9 @@ function AttachmentChipView({
 
 interface ChatComposerProps {
   source: 'claude' | 'codex'
+  /** The visible pane. Every composer stays mounted, so the ⌘P listener below
+   *  would otherwise open the mic from whichever pane registered last. */
+  active: boolean
   busy: boolean
   disabled: boolean
   /** Names only, no leading slash */
@@ -386,6 +456,12 @@ interface ChatComposerProps {
   usage: ChatUsage
   /** Where `@`-mention file paths are read from. Absent in Home — no repo. */
   cwd?: string
+  /**
+   * Whether there is a Deepgram key to dictate against. The mic button shows
+   * either way — hiding it would make the feature invisible to the one person
+   * who has not set it up — and says what is missing when pressed.
+   */
+  sttReady?: boolean
   onSend: (text: string, attachments: Attachment[]) => void
   onInterrupt: () => void
   /** A staging failure has nowhere else to surface from in here */
@@ -397,6 +473,7 @@ type MentionFiles = { status: 'idle' } | { status: 'loading' } | { status: 'read
 
 export function ChatComposer({
   source,
+  active,
   busy,
   disabled,
   slashCommands,
@@ -404,17 +481,80 @@ export function ChatComposer({
   setup,
   usage,
   cwd,
+  sttReady = false,
   onSend,
   onInterrupt,
   onError
 }: ChatComposerProps): React.JSX.Element {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  /**
+   * What was already typed when the mic opened. Dictated words are appended to
+   * it rather than replacing the box, so a half-written message survives
+   * pressing the button — and holding it here (not in the box) is what lets
+   * the live partial be redrawn on every packet without eating the typing.
+   */
+  const dictationBase = useRef('')
   const [paletteIndex, setPaletteIndex] = useState(0)
   const [caret, setCaret] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionFiles, setMentionFiles] = useState<MentionFiles>({ status: 'idle' })
   const areaRef = useRef<HTMLTextAreaElement>(null)
+
+  const dictation = useDictation((text) => {
+    const next = joinDictated(dictationBase.current, text)
+    setValue(next)
+    setCaret(next.length)
+    // The value prop lands on the next render; move the caret after that paint
+    requestAnimationFrame(() => {
+      areaRef.current?.focus()
+      areaRef.current?.setSelectionRange(next.length, next.length)
+    })
+  }, onError)
+
+  const dictating = dictation.phase !== 'idle'
+  // While the mic is open the box shows the words as they land; `value` is
+  // still only what was typed, so nothing is lost if the stream dies.
+  const shownValue = dictating ? joinDictated(dictationBase.current, dictation.live) : value
+
+  const toggleMic = (): void => {
+    if (dictating) {
+      dictation.stop()
+      return
+    }
+    if (!sttReady) {
+      onError?.('Add a Deepgram API key in Settings → Voice to turn on dictation.')
+      return
+    }
+    dictationBase.current = value
+    dictation.start()
+  }
+
+  // A ref so the listener below can be registered once per pane rather than
+  // re-attached on every keystroke — `toggleMic` closes over the draft text.
+  const toggleMicRef = useRef(toggleMic)
+  toggleMicRef.current = toggleMic
+
+  /**
+   * ⌘P starts and stops dictation without reaching for the button.
+   *
+   * Meta only, deliberately — every other shortcut here matches
+   * `metaKey || ctrlKey`, but **Ctrl+P is readline's "previous command"** and
+   * these panes sit beside real terminals, so binding it would take a key back
+   * from every shell in the app. Same reasoning that put the explorer on ⌘⇧B
+   * rather than ⌘B.
+   */
+  useEffect(() => {
+    if (!active || disabled) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      if (e.key.toLowerCase() !== 'p') return
+      e.preventDefault()
+      toggleMicRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, disabled])
 
   // Grow with the content, up to a cap — a fixed single line makes pasting a
   // stack trace feel like a mistake
@@ -423,7 +563,7 @@ export function ChatComposer({
     if (!area) return
     area.style.height = 'auto'
     area.style.height = `${Math.min(area.scrollHeight, 240)}px`
-  }, [value])
+  }, [shownValue])
 
   // Only a `/` in the very first column opens the palette; a path like
   // src/main/ inside a sentence must not.
@@ -536,7 +676,7 @@ export function ChatComposer({
   const sendable = Boolean(value.trim()) || (attachments.length > 0 && !setup)
 
   const submit = (): void => {
-    if (!sendable || disabled) return
+    if (!sendable || disabled || dictating) return
     onSend(value.trim(), attachments)
     setValue('')
     setAttachments([])
@@ -600,9 +740,12 @@ export function ChatComposer({
             ref={areaRef}
             className="chat-composer-input"
             rows={1}
-            value={value}
-            placeholder={placeholder}
+            value={shownValue}
+            placeholder={dictating ? 'Listening…' : placeholder}
             disabled={disabled}
+            // The box is a transcript while the mic is open: an edit made
+            // against text the next packet is about to redraw would be lost.
+            readOnly={dictating}
             onChange={(e) => {
               setValue(e.target.value)
               setCaret(e.target.selectionStart ?? e.target.value.length)
@@ -610,6 +753,23 @@ export function ChatComposer({
             onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onPaste={onPaste}
             onKeyDown={(e) => {
+              if (dictating) {
+                // Escape is the pane's interrupt everywhere else; while the mic
+                // is open it belongs to the mic, so it is stopped from reaching
+                // the window listener that would stop the agent instead.
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  dictation.stop()
+                  return
+                }
+                // Enter ends the sentence being spoken, not the message
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  dictation.stop()
+                  return
+                }
+              }
               if (paletteOpen) {
                 if (e.key === 'ArrowDown') {
                   e.preventDefault()
@@ -654,6 +814,24 @@ export function ChatComposer({
               }
             }}
           />
+          <IconButton
+            label={dictating ? 'Stop dictating (Esc)' : 'Dictate a message (\u2318P)'}
+            className={`chat-mic${dictating ? ' chat-mic--live' : ''}`}
+            disabled={disabled}
+            onClick={toggleMic}
+          >
+            {/* The ring follows the mic level, so a dead microphone looks
+                different from a quiet room — it is the only feedback there is
+                before the first word comes back. */}
+            {dictation.phase === 'recording' && (
+              <span
+                className="chat-mic-level"
+                style={{ transform: `scale(${1 + Math.min(1, dictation.level * 2) * 0.6})` }}
+                aria-hidden="true"
+              />
+            )}
+            <Mic size={15} strokeWidth={1.9} />
+          </IconButton>
           {busy ? (
             <IconButton label="Stop (Esc)" className="chat-stop" onClick={onInterrupt}>
               <Square size={14} strokeWidth={2} fill="currentColor" />
@@ -662,7 +840,9 @@ export function ChatComposer({
             <IconButton
               label="Send (\u21b5)"
               className="chat-send"
-              disabled={disabled || !sendable}
+              // Nothing is sent mid-sentence: the words still arriving are not
+              // in `value` yet, so a send here would post half of them.
+              disabled={disabled || !sendable || dictating}
               onClick={submit}
             >
               <ArrowUp size={16} strokeWidth={2} />
@@ -670,7 +850,7 @@ export function ChatComposer({
           )}
         </div>
 
-        {setup && <SessionSetupRow setup={setup} />}
+        {setup && <SessionSetupRow setup={setup} busy={busy} />}
       </div>
 
       <UsageLine source={source} usage={usage} busy={busy} />

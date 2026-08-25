@@ -35,7 +35,10 @@ interface ClaudeRecord {
   customTitle?: string
   agentName?: string
   summary?: string
-  message?: { role?: string; content?: unknown; usage?: unknown }
+  message?: { role?: string; content?: unknown; usage?: unknown; model?: string }
+  /** The reasoning effort that turn ran at — a sibling of `message`, not a
+   *  field inside it. Written on every assistant record (2.1.240). */
+  effort?: string
   /** The tool's own structured payload, which is where an Edit's real diff
    *  lives — the `tool_result` block beside it only carries prose */
   toolUseResult?: unknown
@@ -362,6 +365,20 @@ export function parseClaudeSession(
     return undefined
   })()
 
+  // What the conversation was last running on. Same walk and the same reason
+  // as `contextTokens` above: `--resume` replays nothing, so without this a
+  // resumed pane cannot say which model or effort it is about to speak on —
+  // and it is not told until a whole turn has gone by.
+  const settings = (() => {
+    for (let i = mainRecs.length - 1; i >= 0; i--) {
+      const record = mainRecs[i]
+      if (record.type !== 'assistant') continue
+      const model = record.message?.model
+      if (model) return { model, effort: record.effort }
+    }
+    return {}
+  })()
+
   return {
     meta: {
       id: first((r) => r.sessionId) ?? basename(filePath, '.jsonl'),
@@ -376,6 +393,7 @@ export function parseClaudeSession(
       preview
     },
     contextTokens,
+    ...settings,
     // Read from every record, not just the linearized chain: a plan built
     // before a compaction boundary is still the plan.
     tasks: collectTasks(mainRecs),

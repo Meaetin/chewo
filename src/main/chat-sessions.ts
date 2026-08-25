@@ -65,7 +65,10 @@ interface ChatRecord {
   codexRequests: Map<number, 'turn' | 'interrupt'>
   /** Stop can be pressed before app-server announces the turn id. */
   codexInterruptPending: boolean
+  /** Both are the *current* settings, not the spawn ones: a live change moves
+   *  them, and Codex carries them on every subsequent turn. */
   effort?: string
+  model?: string
   /** A card run can submit the moment the pane mounts, before app-server has
    *  answered thread/start. Hold it rather than racing turn/start ahead. */
   pendingTurns: Array<{ text: string; images: string[] }>
@@ -158,6 +161,7 @@ export function createChat(win: BrowserWindow, opts: CreateChatOptions): number 
     codexRequests: new Map(),
     codexInterruptPending: false,
     effort: opts.effort,
+    model: opts.model,
     pendingTurns: []
   }
   chats.set(id, record)
@@ -318,7 +322,10 @@ function startCodexTurn(
 ): void {
   const requestId = record.nextRequestId++
   record.codexRequests.set(requestId, 'turn')
-  writeJson(record, codexTurnMessage(requestId, threadId, turn.text, turn.images, record.effort))
+  writeJson(
+    record,
+    codexTurnMessage(requestId, threadId, turn.text, turn.images, record.effort, record.model)
+  )
 }
 
 function sendCodexInterrupt(record: ChatRecord, threadId: string, turnId: string): void {
@@ -401,6 +408,53 @@ export function respondChat(
   // reads "denied" rather than looking like the tool broke.
   if (decision.behavior === 'deny' && toolUseId)
     emit(win, id, { type: 'tool_denied', toolUseId })
+}
+
+/**
+ * Move a running session onto another model.
+ *
+ * The two CLIs answer this in completely different places, which is why it is
+ * one function rather than a flag someone remembers to pass twice. Claude
+ * takes a `set_model` control request and then re-announces itself with a
+ * fresh `system/init` carrying the new model — so the pane's own readout
+ * updates without us echoing anything. Codex has no such request: `turn/start`
+ * takes a `model` its schema calls an override "for this turn and subsequent
+ * turns", so the choice is held here and travels with the next turn.
+ *
+ * Verified 2026-08-25 against Claude 2.1.240 and codex-cli 0.144.5.
+ */
+export function setChatModel(id: number, model: string): boolean {
+  const record = chats.get(id)
+  if (!record) return false
+  record.model = model
+  if (record.codex) return true
+  writeJson(record, {
+    type: 'control_request',
+    request_id: `set-model-${Date.now()}`,
+    // An empty pick means the CLI's own default, which is what its schema
+    // reads a null model as — never the string 'default' spelled out here.
+    request: { subtype: 'set_model', model: model || null }
+  })
+  return true
+}
+
+/**
+ * Move a running session onto another reasoning effort.
+ *
+ * Claude has no control request for this — only the `/effort <level>` command,
+ * which the CLI handles locally: it answers with one confirmation line and
+ * never reaches a model (verified 2.1.240). That confirmation is left in the
+ * thread on purpose, because it is the only acknowledgement there is. Codex
+ * carries effort on `turn/start` exactly like the model above.
+ */
+export function setChatEffort(id: number, effort: string): boolean {
+  const record = chats.get(id)
+  if (!record) return false
+  record.effort = effort
+  if (record.codex) return true
+  if (!effort) return true
+  writeJson(record, { type: 'user', message: { role: 'user', content: `/effort ${effort}` } })
+  return true
 }
 
 /** Stop the turn in flight, keeping the session alive. */
