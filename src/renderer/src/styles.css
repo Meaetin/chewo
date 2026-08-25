@@ -5575,7 +5575,7 @@ body {
   padding: 0;
   border: 0;
   background: none;
-  cursor: zoom-in;
+  cursor: pointer;
 }
 
 .todo-modal-image-open:focus-visible {
@@ -5583,17 +5583,29 @@ body {
   outline-offset: -2px;
 }
 
-.todo-modal-image-remove {
+.todo-modal-image > .tooltip {
   position: absolute;
   top: 4px;
   right: 4px;
   z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.todo-modal-image:hover > .tooltip,
+.todo-modal-image:focus-within > .tooltip {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.todo-modal-image-remove {
   color: white;
   background: rgba(0, 0, 0, 0.72);
   border-radius: var(--radius-pill);
 }
 
-.todo-modal-image-remove:hover {
+.todo-modal-image-remove:hover:not(:disabled) {
   color: white;
   background: var(--danger);
 }
