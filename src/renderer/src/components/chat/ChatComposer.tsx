@@ -547,6 +547,10 @@ export function ChatComposer({
   useEffect(() => {
     if (!active || disabled) return
     const onKey = (e: KeyboardEvent): void => {
+      // Holding the keys down auto-repeats, and every repeat is another
+      // keydown — untreated, that opens and closes the mic many times a second
+      // for as long as the key is held. Only the first press is the press.
+      if (e.repeat) return
       if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
       if (e.key.toLowerCase() !== 'p') return
       e.preventDefault()
