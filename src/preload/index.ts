@@ -77,7 +77,17 @@ export interface HandoffEvent {
 function channelFanout<T>(channel: string): (cb: (e: T) => void) => () => void {
   const subs = new Set<(e: T) => void>()
   const listener = (_e: IpcRendererEvent, payload: T): void => {
-    for (const cb of subs) cb(payload)
+    // One subscriber throwing must not cost the rest their payload: an
+    // uncaught error here aborts the loop, so every pane that subscribed
+    // *after* the thrower silently stops receiving — a terminal that renders
+    // nothing at all, with no error anywhere near it.
+    for (const cb of subs) {
+      try {
+        cb(payload)
+      } catch (err) {
+        console.error(`${channel} subscriber failed`, err)
+      }
+    }
   }
   return (cb) => {
     if (subs.size === 0) ipcRenderer.on(channel, listener)

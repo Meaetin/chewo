@@ -945,6 +945,7 @@ export function App(): React.JSX.Element {
     sessionId: pane.sessionId,
     pending: pane.pending === true,
     exited: pane.exited,
+    worktreeId: pane.worktreeId,
     worktreeLabel: pane.worktreeId
       ? worktrees.find((worktree) => worktree.id === pane.worktreeId)?.branch
       : undefined
@@ -1064,11 +1065,11 @@ export function App(): React.JSX.Element {
    *  that is a terminal because it *is* a terminal, not because of a CLI.
    *
    *  A shell is where you check the branch by hand — run the tests, read the
-   *  build, poke at the thing the agent just wrote — so which checkout it opens
-   *  in is the whole question, and it is not answerable from the focus alone:
-   *  `git log` wants the branch, `npm install` usually wants main. So unlike ▷,
-   *  which follows the focused session silently, New shell asks whenever there
-   *  is something to ask about. */
+   *  build, poke at the thing the agent just wrote — so it opens in the focused
+   *  session's own checkout, like ▷ does. The other answer (`npm install`
+   *  usually wants main) is still there on right-click of New shell, which is
+   *  where it belongs: it is the rarer of the two and was costing a menu on
+   *  every shell. */
   const newShell = useCallback(
     (worktree?: Worktree) =>
       void openTerminal({
@@ -2611,10 +2612,7 @@ export function App(): React.JSX.Element {
     : repoStatus?.ok && repoStatus.isRepo
       ? `${repoStatus.branch} · ${repoStatus.upstream ?? 'no upstream'}\n${repoStatus.files.length > 0 ? `${repoStatus.files.length} uncommitted changes` : 'clean'}${repoStatus.ahead || repoStatus.behind ? ` · ↑${repoStatus.ahead} ↓${repoStatus.behind}` : ''}`
       : checkoutLabel
-  const sectionShellPanes = shellPanes.filter(
-    (pane) => pane.projectId === (selectedProject?.id ?? null)
-  )
-  const shellTabs: ShellTabInfo[] = sectionShellPanes.map((pane) => {
+  const shellInfo = (pane: TerminalTab): ShellTabInfo => {
     const worktree = pane.worktreeId
       ? worktrees.find((candidate) => candidate.id === pane.worktreeId)
       : undefined
@@ -2625,7 +2623,18 @@ export function App(): React.JSX.Element {
       root: worktree?.path ?? project?.path ?? window.api.homeDir,
       exited: pane.exited
     }
-  })
+  }
+  // Mounted in stable termId order, like paneTabs: reordering shell tabs must
+  // never move a live xterm DOM node.
+  const allShellPanes: ShellTabInfo[] = [...shellPanes]
+    .sort((a, b) => a.termId - b.termId)
+    .map(shellInfo)
+  const shellTabs: ShellTabInfo[] = shellPanes
+    .filter((pane) => pane.projectId === (selectedProject?.id ?? null))
+    .map(shellInfo)
+  /** The tools column shows a tool only in Code. It stays *mounted* whenever a
+   *  shell is open, hidden — see `.tools-column--hidden`. */
+  const toolsVisible = workflow === 'code' && activeTool !== null
   const activeShellId = shellTabs.some((tab) => tab.termId === selectedShellId)
     ? selectedShellId
     : (shellTabs.at(-1)?.termId ?? null)
@@ -2780,16 +2789,16 @@ export function App(): React.JSX.Element {
         )}
 
         <div className="workspace-row">
-        {workflow === 'code' && activeTool && (
+        {(toolsVisible || allShellPanes.length > 0) && (
             <ResizablePane
-              className="tools-column"
+              className={`tools-column${toolsVisible ? '' : ' tools-column--hidden'}`}
               size={toolsSize}
               min={TOOLS_MIN}
               max={toolsMax}
               onSizeChange={(toolsWidth) => setLayout((value) => ({ ...value, toolsWidth }))}
             >
               <ToolsPanel>
-                {activeTool === 'files' && (
+                {toolsVisible && activeTool === 'files' && (
                   <div className="files-tool-workspace">
                     {!layout.explorerCollapsed && (
                       <ResizablePane
@@ -2850,7 +2859,7 @@ export function App(): React.JSX.Element {
                     </div>
                   </div>
                 )}
-                {activeTool === 'git' && gitRoot && (
+                {toolsVisible && activeTool === 'git' && gitRoot && (
                   <div className="git-tool-workspace">
                     <GitPanel
                       visible
@@ -2876,24 +2885,29 @@ export function App(): React.JSX.Element {
                     </div>
                   </div>
                 )}
-                {activeTool === 'shell' && (
+                <div
+                  className="shell-tool-workspace"
+                  style={{ display: toolsVisible && activeTool === 'shell' ? 'flex' : 'none' }}
+                >
                   <ShellWorkspace
                     tabs={shellTabs}
+                    panes={allShellPanes}
                     activeId={activeShellId}
                     theme={terminalTheme}
                     onActivate={setSelectedShellId}
                     onClose={closeTerminal}
-                    onNew={(event) => {
-                      if (!shellWorktree) {
-                        newShell()
-                        return
-                      }
-                      const rect = event.currentTarget.getBoundingClientRect()
-                      setShellMenuAt({ x: rect.left, y: rect.bottom + 4 })
+                    onNew={() => newShell(shellWorktree)}
+                    onNewMenu={(at) => {
+                      if (shellWorktree) setShellMenuAt(at)
                     }}
+                    newLabel={
+                      shellWorktree
+                        ? `New shell in ⎇ ${shellWorktree.taskName} (right-click: main checkout)`
+                        : `New shell in ${selectedProject?.name ?? 'your home folder'}`
+                    }
                     onOpenFile={openFile}
                   />
-                )}
+                </div>
               </ToolsPanel>
             </ResizablePane>
           )}

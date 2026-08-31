@@ -1,5 +1,4 @@
 import { Plus, X } from 'lucide-react'
-import type { MouseEvent } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import { TerminalPane } from '../TerminalPane'
 import { IconButton } from '../ui'
@@ -12,22 +11,34 @@ export interface ShellTabInfo {
 }
 
 interface ShellWorkspaceProps {
+  /** The selected project's shells — what the tab bar lists. */
   tabs: ShellTabInfo[]
+  /** Every open shell, including other projects'. A terminal's scrollback
+   *  lives in its xterm instance, so every pane stays mounted (hidden) for as
+   *  long as its process does; unmounting one throws its output away. */
+  panes: ShellTabInfo[]
   activeId: number | null
   theme: ITheme
   onActivate: (termId: number) => void
   onClose: (termId: number) => void
-  onNew: (event: MouseEvent<HTMLButtonElement>) => void
+  onNew: () => void
+  /** Right-click on New shell: pick a checkout instead of following the session. */
+  onNewMenu: (at: { x: number; y: number }) => void
+  /** Tooltip for New shell — it names the checkout the click opens in. */
+  newLabel: string
   onOpenFile: (path: string, goto?: { line: number; col?: number }) => void
 }
 
 export function ShellWorkspace({
   tabs,
+  panes,
   activeId,
   theme,
   onActivate,
   onClose,
   onNew,
+  onNewMenu,
+  newLabel,
   onOpenFile
 }: ShellWorkspaceProps): React.JSX.Element {
   return (
@@ -62,25 +73,42 @@ export function ShellWorkspace({
             </button>
           </div>
         ))}
-        <IconButton label="New shell" dense className="shell-tab-new" onClick={onNew}>
+        <IconButton
+          label={newLabel}
+          dense
+          className="shell-tab-new"
+          onClick={onNew}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onNewMenu({ x: event.clientX, y: event.clientY })
+          }}
+        >
           <Plus size={15} strokeWidth={1.75} />
         </IconButton>
       </div>
       <div className="shell-pane-stack">
-        {tabs.map((tab) => (
+        {panes.map((pane) => (
           <TerminalPane
-            key={tab.termId}
-            termId={tab.termId}
-            root={tab.root}
+            key={pane.termId}
+            termId={pane.termId}
+            root={pane.root}
             theme={theme}
             onOpenFile={onOpenFile}
-            active={tab.termId === activeId}
+            active={pane.termId === activeId}
           />
         ))}
         {tabs.length === 0 && (
           <div className="shell-empty">
             <span>No shells open</span>
-            <button type="button" className="btn btn--secondary btn--compact" onClick={onNew}>
+            <button
+              type="button"
+              className="btn btn--secondary btn--compact"
+              onClick={onNew}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                onNewMenu({ x: event.clientX, y: event.clientY })
+              }}
+            >
               New shell
             </button>
           </div>

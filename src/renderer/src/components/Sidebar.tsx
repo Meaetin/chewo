@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Blocks,
   ChevronDown,
@@ -75,6 +75,133 @@ interface SidebarProps {
 
 const INITIAL_VISIBLE = 5
 const SHOW_MORE_STEP = 15
+
+/**
+ * A branch's state boiled down to what a row says about it. Shared, because a
+ * branch is listed exactly once — sometimes as its own row, more often as the
+ * session row standing in for it — and both must read it the same way.
+ *
+ * Spent: its work already landed, or the branch/checkout is gone. Unknown
+ * state (first poll pending) is never treated as spent.
+ */
+function worktreeSpent(
+  worktree: Worktree,
+  state: WorktreeState | null
+): { spent: boolean; byHand: boolean; reason: string; tag: string } {
+  const byHand = !!worktree.doneAt
+  const spent = byHand || (!!state && (state.merged || state.missing || !state.branchExists))
+  const reason = byHand
+    ? 'Marked done by hand — reopen it with the undo button'
+    : !state
+      ? ''
+      : state.missing
+        ? 'This checkout is gone from disk — remove it to clear the entry'
+        : !state.branchExists
+          ? 'This checkout has no branch — remove it to clear the entry'
+          : 'Its work has landed — nothing left to do here'
+  const tag = byHand ? 'done' : state?.merged ? 'merged' : state?.missing ? 'gone' : 'no branch'
+  return { spent, byHand, reason, tag }
+}
+
+function sameWorktreeState(a: WorktreeState | null, b: WorktreeState | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.missing === b.missing &&
+    a.branchExists === b.branchExists &&
+    a.ahead === b.ahead &&
+    a.behind === b.behind &&
+    a.dirty === b.dirty &&
+    a.merged === b.merged
+  )
+}
+
+/**
+ * Polls one branch and hands the answer up. Headless because the row showing a
+ * branch is not always the branch's own row — a session row stands in for it —
+ * and a branch with several sessions would otherwise poll git once per row.
+ */
+function WorktreeStateProbe({
+  worktree,
+  projectPath,
+  onState
+}: {
+  worktree: Worktree
+  projectPath: string
+  onState: (id: string, state: WorktreeState | null) => void
+}): null {
+  const state = useWorktreeState({
+    projectPath,
+    worktreePath: worktree.path,
+    branch: worktree.branch,
+    baseCommit: worktree.baseCommit
+  })
+  useEffect(() => {
+    onState(worktree.id, state)
+  }, [worktree.id, state, onState])
+  return null
+}
+
+/**
+ * The branch's own actions: uncommitted count, undo a hand-marked done, delete
+ * the checkout. They ride on whichever row is standing in for the branch.
+ */
+function WorktreeControls({
+  worktree,
+  state,
+  onRemove,
+  onReopen
+}: {
+  worktree: Worktree
+  state: WorktreeState | null
+  onRemove: (wt: Worktree, state: WorktreeState | null) => void
+  onReopen: (wt: Worktree) => void
+}): React.JSX.Element {
+  const dirty = state?.dirty ?? 0
+  const { spent, byHand, reason } = worktreeSpent(worktree, state)
+  return (
+    <>
+      {dirty > 0 && (
+        <span
+          className="worktree-row-dirty"
+          title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'} on this branch`}
+        >
+          {dirty}
+        </span>
+      )}
+      {spent && byHand && (
+        <IconButton
+          label="Not done after all — put this branch back to work"
+          dense
+          onClick={(e) => {
+            e.stopPropagation()
+            onReopen(worktree)
+          }}
+        >
+          <Undo2 size={14} strokeWidth={1.75} />
+        </IconButton>
+      )}
+      {/* Every branch, not just spent ones: abandoning a task you've changed
+          your mind about is the ordinary way one ends. The dialog names what
+          gets thrown away; the row is hover-revealed, so this is never a stray
+          click. */}
+      <IconButton
+        label={
+          spent
+            ? `${reason} — remove this checkout`
+            : `Delete ${worktree.branch || worktree.taskName} and its checkout`
+        }
+        dense
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove(worktree, state)
+        }}
+      >
+        <Trash2 size={14} strokeWidth={1.75} />
+      </IconButton>
+    </>
+  )
+}
 
 function relativeTime(iso: string): string {
   if (!iso) return ''
@@ -196,6 +323,11 @@ interface SessionGroupProps {
   onSelectLive: (paneId: number) => void
   onCloseLive: (paneId: number) => void
   emptyText: string
+  /** Branches the panes here run in — a pane row stands in for its branch */
+  worktreeById?: Map<string, Worktree>
+  worktreeStates?: Map<string, WorktreeState | null>
+  onRemoveWorktree?: (wt: Worktree, state: WorktreeState | null) => void
+  onReopenWorktree?: (wt: Worktree) => void
 }
 
 /** Latest-5 list with Show more — shared by Home and each project. */
@@ -209,41 +341,63 @@ function SessionGroup({
   onHideSession,
   onSelectLive,
   onCloseLive,
-  emptyText
+  emptyText,
+  worktreeById,
+  worktreeStates,
+  onRemoveWorktree,
+  onReopenWorktree
 }: SessionGroupProps): React.JSX.Element {
   const [visible, setVisible] = useState(INITIAL_VISIBLE)
   const transcriptIds = useMemo(() => new Set(sessions.map((session) => session.id)), [sessions])
   const placeholders = unrepresentedLivePanes(livePanes, transcriptIds, projectId)
   return (
     <div className="project-sessions">
-      {placeholders.map((pane) => (
-        <Row
-          key={`pane:${pane.paneId}`}
-          selected={pane.paneId === selectedPaneId}
-          live={!pane.exited}
-          className={pane.exited ? 'session-row--exited' : 'session-row--running'}
-          leading={<Badge source={pane.source} />}
-          trailing={
-            <IconButton
-              label={pane.exited ? 'Close session pane' : 'Close running session'}
-              dense
-              onClick={(event) => {
-                event.stopPropagation()
-                onCloseLive(pane.paneId)
-              }}
-            >
-              <X size={14} strokeWidth={1.75} />
-            </IconButton>
-          }
-          onClick={() => onSelectLive(pane.paneId)}
-        >
-          <span className="session-row-line">
-            <span className="session-row-title">{pane.title}</span>
-            {pane.pending && <span className="session-row-time">new</span>}
-          </span>
-          {pane.worktreeLabel && <span className="session-row-sub">{pane.worktreeLabel}</span>}
-        </Row>
-      ))}
+      {placeholders.map((pane) => {
+        const worktree = pane.worktreeId ? worktreeById?.get(pane.worktreeId) : undefined
+        const branch = worktree
+          ? worktreeSpent(worktree, worktreeStates?.get(worktree.id) ?? null)
+          : null
+        return (
+          <Row
+            key={`pane:${pane.paneId}`}
+            selected={pane.paneId === selectedPaneId}
+            live={!pane.exited}
+            className={pane.exited ? 'session-row--exited' : 'session-row--running'}
+            leading={<Badge source={pane.source} />}
+            title={branch?.reason || undefined}
+            trailing={
+              <>
+                {worktree && onRemoveWorktree && onReopenWorktree && (
+                  <WorktreeControls
+                    worktree={worktree}
+                    state={worktreeStates?.get(worktree.id) ?? null}
+                    onRemove={onRemoveWorktree}
+                    onReopen={onReopenWorktree}
+                  />
+                )}
+                <IconButton
+                  label={pane.exited ? 'Close session pane' : 'Close running session'}
+                  dense
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onCloseLive(pane.paneId)
+                  }}
+                >
+                  <X size={14} strokeWidth={1.75} />
+                </IconButton>
+              </>
+            }
+            onClick={() => onSelectLive(pane.paneId)}
+          >
+            <span className="session-row-line">
+              <span className="session-row-title">{pane.title}</span>
+              {branch?.spent && <span className="worktree-row-tag">{branch.tag}</span>}
+              {pane.pending && <span className="session-row-time">new</span>}
+            </span>
+            {pane.worktreeLabel && <span className="session-row-sub">{pane.worktreeLabel}</span>}
+          </Row>
+        )
+      })}
       {sessions.slice(0, visible).map((s) => (
         <SessionRow
           key={`${s.source}:${s.id}`}
@@ -275,7 +429,9 @@ function SessionGroup({
 }
 
 /**
- * One isolated checkout of a project. Clicking takes you to whatever is in it
+ * One isolated checkout of a project, shown only while no session row is
+ * already standing in for it — a branch is listed once. Clicking takes you to
+ * whatever is in it
  * — the live pane, the remembered terminal, or the newest session recorded
  * there; a branch with nothing to resume opens the agent menu instead, so a
  * worktree whose pane was closed is never a dead end.
@@ -285,14 +441,14 @@ function SessionGroup({
  */
 function WorktreeRow({
   worktree,
-  projectPath,
+  state,
   live,
   onOpen,
   onRemove,
   onReopen
 }: {
   worktree: Worktree
-  projectPath: string
+  state: WorktreeState | null
   live: boolean
   onOpen: (wt: Worktree, source?: Source) => boolean
   onRemove: (wt: Worktree, state: WorktreeState | null) => void
@@ -300,27 +456,9 @@ function WorktreeRow({
 }): React.JSX.Element {
   const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const state = useWorktreeState({
-    projectPath,
-    worktreePath: worktree.path,
-    branch: worktree.branch,
-    baseCommit: worktree.baseCommit
-  })
-  const dirty = state?.dirty ?? 0
-  // Spent: its work already landed, or the branch/checkout is gone. Nothing
-  // left to merge and nothing that should be edited — the only way out is to
-  // remove it. Unknown state (first poll pending) is never treated as spent.
-  const byHand = !!worktree.doneAt
-  const spent = byHand || (!!state && (state.merged || state.missing || !state.branchExists))
-  const spentReason = byHand
-    ? 'Marked done by hand — reopen it with the undo button'
-    : !state
-      ? ''
-      : state.missing
-        ? 'This checkout is gone from disk — remove it to clear the entry'
-        : !state.branchExists
-          ? 'This checkout has no branch — remove it to clear the entry'
-          : 'Its work has landed — nothing left to do here'
+  // Nothing left to merge and nothing that should be edited — the only way out
+  // of a spent branch is to remove it.
+  const { spent, reason: spentReason, tag } = worktreeSpent(worktree, state)
 
   useEffect(() => {
     if (!menu) return
@@ -353,46 +491,12 @@ function WorktreeRow({
           live ? undefined : <GitBranch className="worktree-row-glyph" size={14} strokeWidth={1.75} />
         }
         trailing={
-          <>
-            {dirty > 0 && (
-              <span
-                className="worktree-row-dirty"
-                title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'} on this branch`}
-              >
-                {dirty}
-              </span>
-            )}
-            {spent && byHand && (
-              <IconButton
-                label="Not done after all — put this branch back to work"
-                dense
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onReopen(worktree)
-                }}
-              >
-                <Undo2 size={14} strokeWidth={1.75} />
-              </IconButton>
-            )}
-            {/* Every branch, not just spent ones: abandoning a task you've
-                changed your mind about is the ordinary way one ends. The
-                dialog names what gets thrown away; the row is hover-revealed,
-                so this is never a stray click. */}
-            <IconButton
-              label={
-                spent
-                  ? `${spentReason} — remove this checkout`
-                  : `Delete ${worktree.branch || worktree.taskName} and its checkout`
-              }
-              dense
-              onClick={(e) => {
-                e.stopPropagation()
-                onRemove(worktree, state)
-              }}
-            >
-              <Trash2 size={14} strokeWidth={1.75} />
-            </IconButton>
-          </>
+          <WorktreeControls
+            worktree={worktree}
+            state={state}
+            onRemove={onRemove}
+            onReopen={onReopen}
+          />
         }
         onClick={
           spent
@@ -405,11 +509,7 @@ function WorktreeRow({
         <span className="session-row-line">
           {/* The task name is just this branch without its prefix — one is enough */}
           <span className="session-row-title">{worktree.branch || worktree.taskName}</span>
-          {spent && (
-            <span className="worktree-row-tag">
-              {byHand ? 'done' : state?.merged ? 'merged' : state?.missing ? 'gone' : 'no branch'}
-            </span>
-          )}
+          {spent && <span className="worktree-row-tag">{tag}</span>}
         </span>
       </Row>
       {menu && (
@@ -682,6 +782,34 @@ export function Sidebar({
     return map
   }, [worktrees])
 
+  const worktreeById = useMemo(() => new Map(worktrees.map((w) => [w.id, w])), [worktrees])
+
+  const [worktreeStates, setWorktreeStates] = useState<Map<string, WorktreeState | null>>(
+    () => new Map()
+  )
+  const recordWorktreeState = useCallback((id: string, state: WorktreeState | null): void => {
+    setWorktreeStates((prev) => {
+      if (prev.has(id) && sameWorktreeState(prev.get(id) ?? null, state)) return prev
+      const next = new Map(prev)
+      next.set(id, state)
+      return next
+    })
+  }, [])
+
+  /**
+   * Branches a pane row is already showing — they get no row of their own, so
+   * one branch is one row. A session's own transcript can never do this job:
+   * every worktree lives under ~/.chewo, which App filters out of the sidebar
+   * (its notes and todo runs write session files there too), so a branch with
+   * no pane open on it has nothing but its own row to be reached by.
+   */
+  const panedWorktreeIds = (project: Project): Set<string> => {
+    const ids = new Set<string>()
+    for (const pane of livePanes)
+      if (pane.projectId === project.id && pane.worktreeId) ids.add(pane.worktreeId)
+    return ids
+  }
+
   const toggleProject = (id: string): void => {
     onSelectProject(selectedProjectId === id ? null : id)
   }
@@ -777,6 +905,9 @@ export function Sidebar({
           {projects.map((p) => {
             const expanded = selectedProjectId === p.id
             const projectSessions = sessionsByProject.get(p.id) ?? []
+            const branches = projectWorktrees.get(p.id) ?? []
+            const paned = panedWorktreeIds(p)
+            const ownRow = branches.filter((w) => !paned.has(w.id))
             return (
               <div key={p.id} className="project-section">
                 <SectionRow
@@ -802,14 +933,23 @@ export function Sidebar({
                     onSwitch={onSwitchCheckout}
                   />
                 ) : null}
-                {expanded && projectWorktrees.get(p.id)?.length ? (
+                {expanded &&
+                  branches.map((w) => (
+                    <WorktreeStateProbe
+                      key={`state:${w.id}`}
+                      worktree={w}
+                      projectPath={p.path}
+                      onState={recordWorktreeState}
+                    />
+                  ))}
+                {expanded && ownRow.length ? (
                   <div className="worktree-group">
                     <div className="worktree-group-header">Isolated branches</div>
-                    {projectWorktrees.get(p.id)?.map((w) => (
+                    {ownRow.map((w) => (
                       <WorktreeRow
                         key={w.id}
                         worktree={w}
-                        projectPath={p.path}
+                        state={worktreeStates.get(w.id) ?? null}
                         live={liveWorktreeIds.has(w.id)}
                         onOpen={onOpenWorktree}
                         onRemove={onRemoveWorktree}
@@ -830,6 +970,10 @@ export function Sidebar({
                     onSelectLive={onSelectLive}
                     onCloseLive={onCloseLive}
                     emptyText="No sessions in this folder yet"
+                    worktreeById={worktreeById}
+                    worktreeStates={worktreeStates}
+                    onRemoveWorktree={onRemoveWorktree}
+                    onReopenWorktree={onReopenWorktree}
                   />
                 )}
               </div>

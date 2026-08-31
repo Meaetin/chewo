@@ -9,6 +9,8 @@ export interface LiveSessionPane {
   sessionId?: string
   pending: boolean
   exited: boolean
+  /** The isolated checkout this pane runs in — its row stands in for that branch */
+  worktreeId?: string
   worktreeLabel?: string
 }
 
