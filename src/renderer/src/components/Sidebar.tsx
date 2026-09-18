@@ -364,7 +364,7 @@ function SessionGroup({
             live={!pane.exited}
             className={pane.exited ? 'session-row--exited' : 'session-row--running'}
             leading={<Badge source={pane.source} />}
-            title={branch?.reason || undefined}
+            title={branch?.reason || pane.worktreeLabel || undefined}
             trailing={
               <>
                 {worktree && onRemoveWorktree && onReopenWorktree && (
@@ -394,7 +394,6 @@ function SessionGroup({
               {branch?.spent && <span className="worktree-row-tag">{branch.tag}</span>}
               {pane.pending && <span className="session-row-time">new</span>}
             </span>
-            {pane.worktreeLabel && <span className="session-row-sub">{pane.worktreeLabel}</span>}
           </Row>
         )
       })}
