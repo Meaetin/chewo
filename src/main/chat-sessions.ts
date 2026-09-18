@@ -15,6 +15,7 @@ import {
   type CodexPendingRequest
 } from './codex-chat'
 import { nextPaneId } from './pane-ids'
+import { killDescendants } from './process-tree'
 import { safeSend } from './safe-send'
 import { buildPtyEnv } from './terminals'
 
@@ -479,6 +480,9 @@ export function interruptChat(id: number): void {
 export function killChat(id: number): void {
   const record = chats.get(id)
   if (!record) return
+  // Descendants first: the CLI's own background tasks outlive it otherwise,
+  // reparented to launchd with nothing left to trace them back to this pane.
+  if (record.proc.pid) killDescendants(record.proc.pid)
   record.proc.stdin.end()
   record.proc.kill()
   chats.delete(id)
@@ -494,6 +498,10 @@ export function chatCwd(id: number): string | undefined {
 }
 
 export function disposeAllChats(): void {
+  killDescendants(
+    [...chats.values()].map((record) => record.proc.pid ?? 0),
+    { immediate: true }
+  )
   for (const record of chats.values()) {
     record.proc.stdin.end()
     record.proc.kill()
