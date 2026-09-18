@@ -8,6 +8,7 @@ import type {
   UntrackedFilesResult
 } from '../../../main/git'
 import { Dot, IconButton } from './ui'
+import { useKeybindLabel } from '../keybinds'
 
 /** What the diff surface is showing — drives row highlights here too. */
 export type GitSelection =
@@ -201,6 +202,7 @@ export function GitPanel({
   onClose
 }: GitPanelProps): React.JSX.Element {
   const [tab, setTab] = useState<'changes' | 'history'>('changes')
+  const toolsKey = useKeybindLabel('tools.toggle')
   const [commits, setCommits] = useState<CommitMeta[] | null>(null)
   /** Untracked directories the user expanded, and their loaded contents */
   const [expanded, setExpanded] = useState<string[]>([])
@@ -275,7 +277,7 @@ export function GitPanel({
             ↑{repo.ahead} ↓{repo.behind}
           </span>
         )}
-        <IconButton label="Close panel (⌘⇧E)" dense onClick={onClose}>
+        <IconButton label={`Close panel (${toolsKey})`} dense onClick={onClose}>
           <X size={14} strokeWidth={1.75} />
         </IconButton>
       </div>

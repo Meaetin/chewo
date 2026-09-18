@@ -10,6 +10,7 @@ import { useAccountUsage } from './useAccountUsage'
 import { useDictation } from './useDictation'
 import { mentionAt } from '../../mentionMatch'
 import { filterOptions } from '../../selectFilter'
+import { formatKeybind, matchesKeybind, useKeybind } from '../../keybinds'
 import { joinDictated } from '../../dictation'
 import { dropText, insertAt, isStageableImage, spliceWord } from '../../dropPaths'
 
@@ -547,15 +548,15 @@ export function ChatComposer({
   // re-attached on every keystroke — `toggleMic` closes over the draft text.
   const toggleMicRef = useRef(toggleMic)
   toggleMicRef.current = toggleMic
+  const dictateKey = useKeybind('chat.dictate')
 
   /**
-   * ⌘P starts and stops dictation without reaching for the button.
-   *
-   * Meta only, deliberately — every other shortcut here matches
-   * `metaKey || ctrlKey`, but **Ctrl+P is readline's "previous command"** and
-   * these panes sit beside real terminals, so binding it would take a key back
-   * from every shell in the app. Same reasoning that put the explorer on ⌘⇧B
-   * rather than ⌘B.
+   * The dictation binding starts and stops the mic without reaching for the
+   * button. Its default is ⌘P and **meta only, deliberately** — every other
+   * shipped shortcut accepts `metaKey || ctrlKey`, but Ctrl+P is readline's
+   * "previous command" and these panes sit beside real terminals, so binding it
+   * would take a key back from every shell in the app. Same reasoning that put
+   * the explorer on ⌘⇧B rather than ⌘B.
    */
   useEffect(() => {
     if (!active || disabled) return
@@ -564,14 +565,13 @@ export function ChatComposer({
       // keydown — untreated, that opens and closes the mic many times a second
       // for as long as the key is held. Only the first press is the press.
       if (e.repeat) return
-      if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-      if (e.key.toLowerCase() !== 'p') return
+      if (!matchesKeybind(e, dictateKey)) return
       e.preventDefault()
       toggleMicRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [active, disabled])
+  }, [active, disabled, dictateKey])
 
   // Grow with the content, up to a cap — a fixed single line makes pasting a
   // stack trace feel like a mistake
@@ -878,7 +878,9 @@ export function ChatComposer({
             }}
           />
           <IconButton
-            label={dictating ? 'Stop dictating (Esc)' : 'Dictate a message (\u2318P)'}
+            label={
+              dictating ? 'Stop dictating (Esc)' : `Dictate a message (${formatKeybind(dictateKey)})`
+            }
             className={`chat-mic${dictating ? ' chat-mic--live' : ''}`}
             disabled={disabled}
             onClick={toggleMic}

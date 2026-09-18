@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Bot,
   FileCode,
+  Keyboard,
   Mic,
   NotebookPen,
   Palette,
@@ -30,6 +31,8 @@ import { NotesPreview } from './NotesPreview'
 import { AgentsTab } from './AgentsTab'
 import { VoiceTab } from './VoiceTab'
 import { ConnectionsTab } from './ConnectionsTab'
+import { KeybindsTab } from './KeybindsTab'
+import { DEFAULT_KEYBINDS, type KeybindMap } from '../../../../shared/keybinds'
 
 const TERMINAL_FIELDS: Array<{ key: keyof TerminalAnsiColors; label: string }> = [
   { key: 'black', label: 'Black' },
@@ -86,6 +89,7 @@ export type SettingsPane =
   | 'notes'
   | 'agents'
   | 'voice'
+  | 'keybinds'
   | 'connections'
 
 interface NavItem {
@@ -148,6 +152,13 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
           'The Deepgram key, model, and language behind notes dictation and to-do voice commands. Audio is streamed to Deepgram to be transcribed, so dictation needs a connection.'
       },
       {
+        id: 'keybinds',
+        label: 'Keybinds',
+        icon: Keyboard,
+        blurb:
+          'Every shortcut Chewo owns. Change one by clicking its keys and pressing the new chord; Escape cancels.'
+      },
+      {
         id: 'connections',
         label: 'Connections',
         icon: Plug,
@@ -169,6 +180,8 @@ interface AppSettingsProps {
   onChange: (a: AppearanceSettings) => void
   agents: AgentAssignments
   onAgentsChange: (a: AgentAssignments) => void
+  keybinds: KeybindMap
+  onKeybindsChange: (k: KeybindMap) => void
   stt: SttSettings
   onSttChange: (s: SttSettings) => void
   /** Whether a Deepgram key is stored — the gate on every dictation control */
@@ -190,6 +203,8 @@ export function AppSettings({
   onChange,
   agents,
   onAgentsChange,
+  keybinds,
+  onKeybindsChange,
   stt,
   onSttChange,
   sttHasKey,
@@ -215,10 +230,13 @@ export function AppSettings({
   const resetLabel =
     pane === 'agents'
       ? 'Reset agents to defaults'
+      : pane === 'keybinds'
+        ? 'Reset keybinds to defaults'
         : 'Reset appearance to defaults'
 
   const reset = (): void => {
     if (pane === 'agents') return onAgentsChange(DEFAULT_AGENTS)
+    if (pane === 'keybinds') return onKeybindsChange(DEFAULT_KEYBINDS)
     onChange(DEFAULT_APPEARANCE)
   }
 
@@ -288,6 +306,10 @@ export function AppSettings({
                 onRecover={onSttRecover}
                 onDiscardRecording={onSttDiscardRecording}
               />
+            )}
+
+            {pane === 'keybinds' && (
+              <KeybindsTab keybinds={keybinds} onChange={onKeybindsChange} />
             )}
 
             {pane === 'connections' && <ConnectionsTab />}

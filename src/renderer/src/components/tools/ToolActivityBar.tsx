@@ -1,5 +1,6 @@
 import { FolderTree, GitBranch, Terminal } from 'lucide-react'
 import { IconButton } from '../ui'
+import { useKeybindLabel } from '../../keybinds'
 
 export type CodingTool = 'files' | 'git' | 'shell'
 
@@ -24,10 +25,11 @@ export function ToolActivityBar({
   shellCount,
   onSelect
 }: ToolActivityBarProps): React.JSX.Element {
+  const toolsKey = useKeybindLabel('tools.toggle')
   return (
     <nav className="tool-activity-bar" aria-label="Coding tools">
       <IconButton
-        label="Files (⌘⇧E)"
+        label={`Files (${toolsKey})`}
         dense
         active={active === 'files'}
         onClick={() => onSelect('files')}

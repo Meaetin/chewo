@@ -64,7 +64,7 @@ import {
   writeFile
 } from './file-explorer'
 import { loadProjects, saveProjects } from './projects'
-import { loadSettings, saveSettings } from './settings'
+import { loadSettings, migrateTodoHotkey, saveSettings } from './settings'
 import { listAgentModels } from './agent-models'
 import { nextPaneId } from './pane-ids'
 import { dispatchableAgents, orchestratorPrompt } from './roster'
@@ -660,9 +660,6 @@ function registerIpc(): void {
   ipcMain.handle('projects:save', (_e, file: ProjectsFile) => {
     saveProjects(file)
     publishScopeIndex(file)
-    // Hotkey edits take effect immediately; failure surfaces as a toast
-    const err = updateTodoHotkey(file.todoHotkey)
-    if (err) safeSend(mainWindow, 'app:toast', err)
   })
   ipcMain.handle('agents:models', (_e, agent: AgentId) => listAgentModels(agent))
   ipcMain.handle('mcp:status', () => mcpServerStatus())
@@ -673,6 +670,10 @@ function registerIpc(): void {
     saveSettings(file)
     // Native chrome behind the renderer follows the theme immediately
     mainWindow?.setBackgroundColor(file.appearance.base)
+    // Rebinding the system-wide hotkey takes effect now; a chord another app
+    // already holds fails to register and says so
+    const err = updateTodoHotkey(file.keybinds['voice.capture'])
+    if (err) safeSend(mainWindow, 'app:toast', err)
   })
   ipcMain.handle('version:get', () => getVersionStatus())
   ipcMain.on('version:update', () => {
@@ -864,10 +865,11 @@ app.whenReady().then(() => {
   buildMenu()
   registerIpc()
   createWindow()
+  migrateTodoHotkey()
   if (mainWindow) {
     setSttBroadcast((ev) => safeSend(mainWindow, 'stt:event', ev))
     setTodosWindow(mainWindow)
-    initTodoVoice(mainWindow, projectsFile.todoHotkey)
+    initTodoVoice(mainWindow, loadSettings().keybinds['voice.capture'])
     // The hidden HUD window must not keep the app alive after the main
     // window closes — it would swallow 'window-all-closed'
     mainWindow.on('closed', () => closeHud())

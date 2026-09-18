@@ -1,4 +1,5 @@
 import type { AgentAssignments } from './agents'
+import type { KeybindMap } from './keybinds'
 import type { SttSettings } from './stt'
 
 // User-customisable appearance settings. Dependency-free so the main process
@@ -89,6 +90,8 @@ export interface SettingsFile {
   stt: SttSettings
   /** Resizable Code-workspace panes */
   layout: LayoutSettings
+  /** Every rebindable shortcut, as Electron accelerators */
+  keybinds: KeybindMap
 }
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {

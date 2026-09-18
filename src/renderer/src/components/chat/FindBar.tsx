@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { IconButton, Input } from '../ui'
+import { keybindRecording, matchesKeybind, useKeybind } from '../../keybinds'
 
 /**
  * Find-in-conversation. Lifted out of the old transcript view when clicking a
@@ -59,11 +60,14 @@ export function FindBar({ containerRef, active, revision, onOpen }: FindBarProps
   const [current, setCurrent] = useState(0)
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const rangesRef = useRef<Range[]>([])
+  const findKey = useKeybind('find.open')
 
   useEffect(() => {
     if (!active) return
     const onKeyDown = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      // Settings is recording a new chord — this one is being typed, not pressed
+      if (keybindRecording()) return
+      if (matchesKeybind(e, findKey)) {
         e.preventDefault()
         setOpen(true)
         onOpen?.()
@@ -77,7 +81,7 @@ export function FindBar({ containerRef, active, revision, onOpen }: FindBarProps
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [active, open, onOpen])
+  }, [active, open, onOpen, findKey])
 
   const goto = useCallback((idx: number) => {
     const ranges = rangesRef.current

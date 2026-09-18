@@ -197,7 +197,8 @@ interface ArchiveFile {                   // T4
 
 ## 6. Voice command flow
 
-1. **Hotkey** (default `⌘.`, configurable via `todoHotkey` in projects.json)
+1. **Hotkey** (default `⌘.`, rebindable in Settings → Keybinds, stored as
+   `keybinds['voice.capture']` in settings.json)
    toggles capture; during a live notes recording it stops that dictation
    instead. Registered via Electron `globalShortcut` in main.
 2. On start: capture begins **immediately** — the sidecar opens the mic and

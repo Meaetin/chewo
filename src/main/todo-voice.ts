@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
+import { DEFAULT_KEYBINDS } from '../shared/keybinds'
 import {
   GENERAL_SCOPE,
   projectScopeDir,
@@ -40,8 +41,6 @@ import {
  * live transcript, and on stop a headless Sonnet call interprets the
  * utterance into one board command, executed immediately with an Undo.
  */
-
-export const DEFAULT_TODO_HOTKEY = 'Command+.'
 
 const HUD_WIDTH = 460
 const HUD_HEIGHT = 176
@@ -388,7 +387,7 @@ function undo(): void {
 
 /** Register (or re-register) the global capture hotkey. Error string or null. */
 export function updateTodoHotkey(accelerator: string | undefined): string | null {
-  const accel = accelerator?.trim() || DEFAULT_TODO_HOTKEY
+  const accel = accelerator?.trim() || DEFAULT_KEYBINDS['voice.capture']
   if (accel === registeredHotkey) return null
   if (registeredHotkey) globalShortcut.unregister(registeredHotkey)
   registeredHotkey = null

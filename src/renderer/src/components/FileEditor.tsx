@@ -13,7 +13,9 @@ import type { ReadFileResult } from '../../../main/file-explorer'
 import type { GotoTarget, OpenFile } from '../App'
 import { ImageStage } from './ImageStage'
 import { pathLinks } from './pathLinks'
-import { closeSearchPanel, searchPanelOpen } from '@codemirror/search'
+import { useKeybinds } from '../keybinds'
+import { toCodeMirrorKey } from '../../../shared/keybinds'
+import { closeSearchPanel, openSearchPanel, searchKeymap, searchPanelOpen } from '@codemirror/search'
 import { languageFor } from '../theme/langs'
 import { editorSearch } from './EditorFindPanel'
 import { IconButton } from './ui'
@@ -136,6 +138,7 @@ export function FileEditor({
   const cmRef = useRef<ReactCodeMirrorRef>(null)
   const gotoDone = useRef(0)
   const [draggedPath, setDraggedPath] = useState<string | null>(null)
+  const keybinds = useKeybinds()
 
   // Apply a pending cursor jump. Retried via `version` bumps until the target
   // file's buffer has loaded and CodeMirror is showing it.
@@ -285,6 +288,14 @@ export function FileEditor({
   }, [bump, reload])
 
   const extensions = useMemo<Extension[]>(() => {
+    // Save and Find are user-bindable, so they are declared here rather than
+    // taken from basicSetup's stock searchKeymap — which is switched off below.
+    // Its companions (⌘G next, ⌘⌥G go to line, ⌘D select next) are not
+    // rebindable and are kept exactly as CodeMirror ships them.
+    const bindable = [
+      { key: toCodeMirrorKey(keybinds['editor.save']), run: () => (save(), true) },
+      { key: toCodeMirrorKey(keybinds['find.open']), run: openSearchPanel }
+    ].filter((b): b is { key: string; run: typeof openSearchPanel } => b.key !== null)
     const keys = Prec.high(
       keymap.of([
         {
@@ -299,19 +310,20 @@ export function FileEditor({
             return true
           }
         },
-        {
-          key: 'Mod-s',
-          run: () => {
-            save()
-            return true
-          }
-        }
+        ...bindable
       ])
     )
+    const searchCompanions = keymap.of(searchKeymap.filter((b) => b.key !== 'Mod-f'))
     const lang = activePath ? languageFor(activePath.split('/').pop() ?? '') : null
     const links = activePath ? pathLinks({ filePath: activePath, root, onOpen: onActivate }) : null
-    return [keys, editorSearch, ...(links ? [links] : []), ...(lang ? [lang] : [])]
-  }, [activePath, root, onActivate, onExit, save])
+    return [
+      keys,
+      editorSearch,
+      searchCompanions,
+      ...(links ? [links] : []),
+      ...(lang ? [lang] : [])
+    ]
+  }, [activePath, root, onActivate, onExit, save, keybinds])
 
   const buffer = activePath ? buffers.current.get(activePath) : undefined
 
@@ -458,7 +470,12 @@ export function FileEditor({
             height="100%"
             extensions={extensions}
             onCreateEditor={() => bump()}
-            basicSetup={{ highlightActiveLine: false, highlightActiveLineGutter: false }}
+            basicSetup={{
+              highlightActiveLine: false,
+              highlightActiveLineGutter: false,
+              // Find is bindable, so its keys come from `extensions` instead
+              searchKeymap: false
+            }}
             onChange={(value) => {
               const buf = activePath ? buffers.current.get(activePath) : undefined
               if (!buf) return

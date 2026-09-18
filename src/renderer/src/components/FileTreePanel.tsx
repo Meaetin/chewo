@@ -3,6 +3,7 @@ import { ChevronRight, PanelLeftClose } from 'lucide-react'
 import type { DirEntry } from '../../../main/file-explorer'
 import type { FileDisposition } from '../fileTabs'
 import { ContextMenu, IconButton, type ContextMenuEntry } from './ui'
+import { useKeybindLabel } from '../keybinds'
 
 interface FileTreePanelProps {
   visible: boolean
@@ -75,6 +76,7 @@ export function FileTreePanel({
   onDeleted,
   onRenamed
 }: FileTreePanelProps): React.JSX.Element {
+  const collapseKey = useKeybindLabel('explorer.collapse')
   const trees = useRef(new Map<string, TreeState>())
   const [, setVersion] = useState(0)
   const bump = useCallback(() => setVersion((v) => v + 1), [])
@@ -621,7 +623,11 @@ export function FileTreePanel({
         <span className="file-tree-root-label" title={root}>
           {rootLabel}
         </span>
-        <IconButton label="Collapse explorer (⌘⇧B)" dense onClick={onCollapse}>
+        <IconButton
+          label={`Collapse explorer (${collapseKey})`}
+          dense
+          onClick={onCollapse}
+        >
           <PanelLeftClose size={14} strokeWidth={1.75} />
         </IconButton>
       </div>

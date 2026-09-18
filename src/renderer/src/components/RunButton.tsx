@@ -1,5 +1,6 @@
 import { Play } from 'lucide-react'
 import { Tooltip } from './ui'
+import { useKeybindLabel } from '../keybinds'
 
 interface RunButtonProps {
   /** The project whose start command this runs */
@@ -32,7 +33,7 @@ export function RunButton({
   onRun
 }: RunButtonProps): React.JSX.Element {
   const where = worktreeLabel ? `⎇ ${worktreeLabel}` : `${projectName}’s main checkout`
-  const label = `Run ${command} in ${where} (⌘⇧P)`
+  const label = `Run ${command} in ${where} (${useKeybindLabel('session.run')})`
 
   return (
     <Tooltip label={label} side="top">

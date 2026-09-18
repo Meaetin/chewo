@@ -106,7 +106,11 @@ export interface ProjectsFile {
   workflow?: Workflow
   /** Notes store location; unset = ~/Documents/Chewo Notes (~/ChewoNotes on installs that already have it) */
   notesRoot?: string
-  /** Voice-command capture accelerator (SPEC-TODOS §6); registered in T2 */
+  /**
+   * Where the voice-capture accelerator lived before keybinds had a settings
+   * pane. Read once at launch by `migrateTodoHotkey` and deleted from the file
+   * — nothing writes it any more.
+   */
   todoHotkey?: string
   /** Agent a card run launches (SPEC-TODOS §10); unset = ask nothing, use Claude */
   todoRunAgent?: Source

@@ -34,6 +34,8 @@ import {
 } from '../../shared/projects'
 import type { DispatchableAgent } from '../../shared/orchestrator'
 import { AgentColorsProvider } from './components/chat/AgentChip'
+import { KeybindContext, formatKeybind, matchesKeybind, setKeybindMirror } from './keybinds'
+import { DEFAULT_KEYBINDS, type KeybindMap } from '../../shared/keybinds'
 import {
   type NoteSource,
   type NoteStyle,
@@ -288,6 +290,7 @@ export function App(): React.JSX.Element {
   const [settingsPane, setSettingsPane] = useState<SettingsPane>('presets')
   const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE)
   const [layout, setLayout] = useState<LayoutSettings>(DEFAULT_LAYOUT)
+  const [keybinds, setKeybinds] = useState<KeybindMap>(DEFAULT_KEYBINDS)
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   const [agents, setAgents] = useState<AgentAssignments>(DEFAULT_AGENTS)
   const [stt, setStt] = useState<SttSettings>(DEFAULT_STT_SETTINGS)
@@ -346,7 +349,6 @@ export function App(): React.JSX.Element {
   const selectedNotePathRef = useRef<string | null>(null)
   selectedNotePathRef.current = selectedNotePath
   const notesRoot = useRef<string | undefined>(undefined)
-  const todoHotkey = useRef<string | undefined>(undefined)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loaded = useRef(false)
   // Last-viewed terminal per section, so switching sections lands you back
@@ -480,13 +482,13 @@ export function App(): React.JSX.Element {
         setWorkflow(projectsFile.workflow ?? 'code')
         setTodoRunAgent(projectsFile.todoRunAgent ?? 'claude')
         notesRoot.current = projectsFile.notesRoot
-        todoHotkey.current = projectsFile.todoHotkey
         loaded.current = true
 
         setAppearance(settingsFile.appearance)
         setAgents(settingsFile.agents)
         setStt(settingsFile.stt)
         setLayout(normalizeLayout(settingsFile.layout, window.innerWidth))
+        setKeybinds(settingsFile.keybinds)
         settingsLoaded.current = true
         setStartupLoaded(true)
       }
@@ -605,7 +607,6 @@ export function App(): React.JSX.Element {
       worktrees,
       workflow,
       notesRoot: notesRoot.current,
-      todoHotkey: todoHotkey.current,
       todoRunAgent
     }
     void window.api.saveProjects(file)
@@ -706,6 +707,8 @@ export function App(): React.JSX.Element {
   // Live re-theme: CSS tokens for the whole UI, plus derived themes for the
   // two JS-painted surfaces (xterm, CodeMirror)
   useLayoutEffect(() => applyAppearance(appearance), [appearance])
+  // The CodeMirror find panel renders outside this tree and reads the mirror
+  useLayoutEffect(() => setKeybindMirror(keybinds), [keybinds])
   useEffect(() => {
     if (!startupLoaded || startupReadySent.current) return
     startupReadySent.current = true
@@ -718,11 +721,11 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!settingsLoaded.current) return
     const t = setTimeout(
-      () => void window.api.saveSettings({ appearance, agents, stt, layout }),
+      () => void window.api.saveSettings({ appearance, agents, stt, layout, keybinds }),
       400
     )
     return () => clearTimeout(t)
-  }, [appearance, agents, stt, layout])
+  }, [appearance, agents, stt, layout, keybinds])
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
 
@@ -940,41 +943,42 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
-  // ⌘⇧E opens and closes the shared tools panel anywhere in Code — whichever
-  // tool was last open, Files the first time — ⌘⇧B collapses the file
-  // explorer inside it, and ⌘⇧P runs the focused session's start command. All
-  // three work with terminal focus (xterm doesn't swallow them; see
-  // TerminalPane key handler).
+  // The window-level shortcuts: open and close the shared tools panel (whichever
+  // tool was last open, Files the first time), collapse the file explorer inside
+  // it, run the focused session's start command, and open settings. All of them
+  // work with terminal focus — xterm doesn't swallow modifier chords; see the
+  // TerminalPane key handler. The chords themselves come from the keybind map,
+  // so a rebind takes effect on the next render rather than the next launch.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+      if (matchesKeybind(e, keybinds['tools.toggle'])) {
         e.preventDefault()
         if (workflowRef.current === 'code') {
           setActiveTool((tool) => (tool ? null : lastToolRef.current))
         }
       }
       // Explorer only: the tool stays open, its tree folds to the edge.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'b') {
+      if (matchesKeybind(e, keybinds['explorer.collapse'])) {
         e.preventDefault()
         if (workflowRef.current === 'code' && activeToolRef.current === 'files') {
           setLayout((value) => ({ ...value, explorerCollapsed: !value.explorerCollapsed }))
         }
       }
-      // ⌘⇧P runs the focused session's start command. Auto-repeat is dropped
-      // or holding the keys down opens a shell per repeat; ⌘P without shift
-      // belongs to dictation, so the modifier set has to match exactly.
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+      // Auto-repeat is dropped or holding the keys down opens a shell per
+      // repeat; the matcher is exact about modifiers, so the dictation chord
+      // beside this one can never fall through to it.
+      if (matchesKeybind(e, keybinds['session.run'])) {
         e.preventDefault()
         if (!e.repeat && workflowRef.current === 'code') runStartRef.current()
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+      if (matchesKeybind(e, keybinds['app.settings'])) {
         e.preventDefault()
         openAppSettings()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openAppSettings])
+  }, [openAppSettings, keybinds])
 
   /**
    * Launch settings belong to the section the terminal lands in — never the
@@ -2793,6 +2797,7 @@ export function App(): React.JSX.Element {
 
   return (
     <AgentColorsProvider value={agentColors}>
+    <KeybindContext.Provider value={keybinds}>
     <div className="app-layout">
       <ResizablePane
         className="sidebar-column"
@@ -2806,7 +2811,7 @@ export function App(): React.JSX.Element {
         <div className="workflow-switcher-row">
           <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
           <IconButton
-            label="Settings (⌘,)"
+            label={`Settings (${formatKeybind(keybinds['app.settings'])})`}
             className="app-settings-button"
             onClick={() => openAppSettings()}
           >
@@ -2878,6 +2883,8 @@ export function App(): React.JSX.Element {
             onChange={setAppearance}
             agents={agents}
             onAgentsChange={setAgents}
+            keybinds={keybinds}
+            onKeybindsChange={setKeybinds}
             stt={stt}
             onSttChange={setStt}
             sttHasKey={sttReady}
@@ -2975,7 +2982,7 @@ export function App(): React.JSX.Element {
                     {layout.explorerCollapsed && (
                       <div className="file-explorer-collapsed-rail">
                         <IconButton
-                          label="Expand file explorer (⌘⇧B)"
+                          label={`Expand file explorer (${formatKeybind(keybinds['explorer.collapse'])})`}
                           dense
                           onClick={() =>
                             setLayout((value) => ({ ...value, explorerCollapsed: false }))
@@ -3391,6 +3398,7 @@ export function App(): React.JSX.Element {
           })()}
       </main>
     </div>
+    </KeybindContext.Provider>
     </AgentColorsProvider>
   )
 }

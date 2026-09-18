@@ -3,6 +3,7 @@ import { Terminal, type ILink, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { MONO_STACK } from '../theme/terminalTheme'
+import { matchesKeybind, useKeybinds } from '../keybinds'
 
 /**
  * Path-looking tokens in terminal output: absolute (`/…`), home (`~/…`),
@@ -42,6 +43,11 @@ export function TerminalPane({
   rootRef.current = root
   const onOpenFileRef = useRef(onOpenFile)
   onOpenFileRef.current = onOpenFile
+  // Same reason: the key handler is attached once per terminal, so a rebind
+  // has to reach it through a ref rather than its closure
+  const keybinds = useKeybinds()
+  const keybindsRef = useRef(keybinds)
+  keybindsRef.current = keybinds
 
   useEffect(() => {
     const container = containerRef.current
@@ -53,23 +59,25 @@ export function TerminalPane({
       theme: themeRef.current
     })
 
-    // ⌘+/⌘−/⌘0 zoom this pane's font (menu zoom roles are removed app-wide)
+    // The zoom bindings size this pane's font only (menu zoom roles are removed
+    // app-wide). Everything else is handed straight to the shell.
     const DEFAULT_FONT_SIZE = 13
     const setFontSize = (size: number): void => {
       term.options.fontSize = Math.min(28, Math.max(8, size))
       doFit()
     }
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown' || !(e.metaKey || e.ctrlKey)) return true
-      if (e.key === '=' || e.key === '+') {
+      if (e.type !== 'keydown') return true
+      const keys = keybindsRef.current
+      if (matchesKeybind(e, keys['terminal.zoomIn'])) {
         setFontSize((term.options.fontSize ?? DEFAULT_FONT_SIZE) + 1)
         return false
       }
-      if (e.key === '-') {
+      if (matchesKeybind(e, keys['terminal.zoomOut'])) {
         setFontSize((term.options.fontSize ?? DEFAULT_FONT_SIZE) - 1)
         return false
       }
-      if (e.key === '0') {
+      if (matchesKeybind(e, keys['terminal.zoomReset'])) {
         setFontSize(DEFAULT_FONT_SIZE)
         return false
       }

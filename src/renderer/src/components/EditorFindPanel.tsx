@@ -24,6 +24,7 @@ import {
   X
 } from 'lucide-react'
 import { IconButton, Input } from './ui'
+import { keybindNow, matchesKeybind } from '../keybinds'
 
 interface QuerySpec {
   search: string
@@ -143,7 +144,7 @@ function FindPanel({
         if (e.key === 'Escape') {
           e.preventDefault()
           close()
-        } else if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+        } else if (matchesKeybind(e, keybindNow('find.open'))) {
           e.preventDefault()
           findRef.current?.select()
         }
@@ -272,5 +273,5 @@ function createFindPanel(view: EditorView): Panel {
   }
 }
 
-/** ⌘F search wired to the app's own find-bar look instead of CM's stock form. */
+/** The Find binding, wired to the app's own find-bar look instead of CM's stock form. */
 export const editorSearch = search({ top: true, createPanel: createFindPanel })
