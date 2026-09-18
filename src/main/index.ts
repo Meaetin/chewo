@@ -146,6 +146,7 @@ import {
 import { safeSend } from './safe-send'
 import {
   bindPaneSession,
+  busyTerminals,
   createTerminal,
   disposeAllTerminals,
   getUnboundPanes,
@@ -308,6 +309,10 @@ function registerIpc(): void {
     resizeTerminal(id, cols, rows)
   )
   ipcMain.on('terminal:kill', (_e, { id }: { id: number }) => killTerminal(id))
+
+  // "Is anything still running in these panes?" — asked before a session
+  // closes and takes its shells with it.
+  ipcMain.handle('terminal:busy', (_e, { ids }: { ids: number[] }) => busyTerminals(ids))
 
   // A session that hasn't been started yet is a tab with no process behind
   // it; it still needs an id from the shared counter so the real pane can take

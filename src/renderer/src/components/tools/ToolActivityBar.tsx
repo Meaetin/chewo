@@ -7,6 +7,8 @@ interface ToolActivityBarProps {
   active: CodingTool | null
   gitEnabled: boolean
   dirtyCount: number
+  /** Shells this session can see — its own, plus the project's unowned ones */
+  shellCount: number
   onSelect: (tool: CodingTool) => void
 }
 
@@ -19,6 +21,7 @@ export function ToolActivityBar({
   active,
   gitEnabled,
   dirtyCount,
+  shellCount,
   onSelect
 }: ToolActivityBarProps): React.JSX.Element {
   return (
@@ -44,8 +47,20 @@ export function ToolActivityBar({
           <span className="tool-activity-count">{dirtyCount > 99 ? '99+' : dirtyCount}</span>
         )}
       </IconButton>
-      <IconButton label="Shell" dense active={active === 'shell'} onClick={() => onSelect('shell')}>
+      <IconButton
+        label={
+          shellCount > 0
+            ? `Shell — ${shellCount} open in this session`
+            : 'Shell — run commands in this session’s checkout'
+        }
+        dense
+        active={active === 'shell'}
+        onClick={() => onSelect('shell')}
+      >
         <Terminal size={15} strokeWidth={1.75} />
+        {shellCount > 0 && (
+          <span className="tool-activity-count tool-activity-count--live">{shellCount}</span>
+        )}
       </IconButton>
     </nav>
   )

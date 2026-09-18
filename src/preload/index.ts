@@ -138,6 +138,9 @@ const api = {
   termResize: (id: number, cols: number, rows: number) =>
     ipcRenderer.send('terminal:resize', { id, cols, rows }),
   termKill: (id: number) => ipcRenderer.send('terminal:kill', { id }),
+  /** Of these panes, the ones still running something (an idle prompt is not) */
+  termBusy: (ids: number[]) =>
+    ipcRenderer.invoke('terminal:busy', { ids }) as Promise<number[]>,
   onTermData,
   onTermExit,
 

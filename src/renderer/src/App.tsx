@@ -71,6 +71,8 @@ import type { ChangedFile, StaleCheckout } from '../../main/git'
 import { GitPanel, type GitSelection } from './components/GitPanel'
 import { GitDiffView } from './components/GitDiffView'
 import { UpdateButton } from './components/UpdateButton'
+import { ConfirmDialog, type ConfirmRequest } from './components/ConfirmDialog'
+import { RunButton } from './components/RunButton'
 import { ShipButton } from './components/ShipButton'
 import { ShipModal } from './components/ShipModal'
 import { branchNameFor } from '../../shared/branch-names'
@@ -89,6 +91,7 @@ import { SessionHeader } from './components/SessionHeader'
 import { ToolsPanel } from './components/tools/ToolsPanel'
 import { ToolActivityBar } from './components/tools/ToolActivityBar'
 import { ShellWorkspace, type ShellTabInfo } from './components/tools/ShellWorkspace'
+import { ownedShells, visibleShells } from './shellScope'
 import type { CodingTool } from './components/tools/ToolActivityBar'
 import { ResizablePane } from './components/layout/ResizablePane'
 import {
@@ -132,6 +135,14 @@ export interface TerminalTab {
   sessionId?: string
   /** Pane runs in an isolated worktree — gets the merge button, keeps its ⎇ label */
   worktreeId?: string
+  /**
+   * Shell panes only: the session this shell was opened from. A shell is
+   * where you check a branch by hand, so it belongs to the session rather
+   * than to the project — two sessions in one project are usually on two
+   * branches. Absent means it was opened with no session focused, which makes
+   * it a project shell, visible from every session in that project.
+   */
+  ownerPaneId?: number
   /**
    * Where this session's work should land, chosen in the pane's own setup row
    * before the first message. 'separate' means "cut a worktree for this" —
@@ -225,6 +236,10 @@ export function App(): React.JSX.Element {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   /** Where to open `+`'s checkout menu — viewport coords, null while closed */
   const [shellMenuAt, setShellMenuAt] = useState<{ x: number; y: number } | null>(null)
+  /** The app's own confirm — see `askConfirm`. Holds the caller's resolver. */
+  const [confirmReq, setConfirmReq] = useState<
+    (ConfirmRequest & { resolve: (ok: boolean) => void }) | null
+  >(null)
   const [view, setView] = useState<MainView>({ kind: 'empty' })
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -314,6 +329,10 @@ export function App(): React.JSX.Element {
   // Live mirrors for the stt event handler (registered once, must not go stale)
   const workflowRef = useRef<Workflow>('code')
   workflowRef.current = workflow
+  // ⌘⇧P is registered once, so it reaches the run through a ref rather than
+  // through the handler's closure, which would hold whichever session was
+  // focused when the listener was attached.
+  const runStartRef = useRef<() => void>(() => {})
   const activeToolRef = useRef<CodingTool | null>(null)
   activeToolRef.current = activeTool
   // What ⌘⇧E reopens: the tool the panel was last showing, Files until then.
@@ -717,6 +736,33 @@ export function App(): React.JSX.Element {
   // none of its own — it is only borrowing the shared one until its first
   // message — so there is nothing to choose and `+` stays a single click.
   const shellWorktree = activeTab?.pending ? undefined : activeWorktree
+  /**
+   * The session a new shell (and the Run button) belongs to.
+   *
+   * Only an agent pane can own a shell — `activeTab` is always one, since a
+   * shell never takes the view — and with nothing focused the shell has no
+   * owner and becomes a project shell instead.
+   */
+  const shellOwner = activeTab?.source !== 'shell' ? activeTab : undefined
+  /** Whose start command Run runs: the focused session's project, else the
+   *  selected one. Home has neither, so Run does not render there. */
+  const runProject =
+    projects.find((p) => p.id === (shellOwner?.projectId ?? selectedProjectId)) ?? null
+  /** The checkout Run will use — the focused session's own, when it has one.
+   *  A pending session has no checkout yet and is only borrowing the shared
+   *  one, so Run falls back to the project like every other unbranched focus. */
+  const runWorktree =
+    shellOwner && !shellOwner.pending && shellOwner.worktreeId
+      ? worktrees.find((w) => w.id === shellOwner.worktreeId)
+      : undefined
+  const runLines = useMemo(
+    () =>
+      (runProject?.runCommand?.trim() || 'npm run dev')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+    [runProject?.runCommand]
+  )
   const treeRoot = activeWorktree?.path ?? selectedProject?.path ?? window.api.homeDir
   const treeRootLabel = activeWorktree
     ? `⎇ ${activeWorktree.taskName}`
@@ -895,9 +941,10 @@ export function App(): React.JSX.Element {
   }, [])
 
   // ⌘⇧E opens and closes the shared tools panel anywhere in Code — whichever
-  // tool was last open, Files the first time — and ⌘⇧B collapses the file
-  // explorer inside it, including with terminal focus (xterm doesn't swallow
-  // them; see TerminalPane key handler)
+  // tool was last open, Files the first time — ⌘⇧B collapses the file
+  // explorer inside it, and ⌘⇧P runs the focused session's start command. All
+  // three work with terminal focus (xterm doesn't swallow them; see
+  // TerminalPane key handler).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
@@ -912,6 +959,13 @@ export function App(): React.JSX.Element {
         if (workflowRef.current === 'code' && activeToolRef.current === 'files') {
           setLayout((value) => ({ ...value, explorerCollapsed: !value.explorerCollapsed }))
         }
+      }
+      // ⌘⇧P runs the focused session's start command. Auto-repeat is dropped
+      // or holding the keys down opens a shell per repeat; ⌘P without shift
+      // belongs to dictation, so the modifier set has to match exactly.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        if (!e.repeat && workflowRef.current === 'code') runStartRef.current()
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
@@ -1010,6 +1064,7 @@ export function App(): React.JSX.Element {
       label?: string
       projectId: string | null
       worktreeId?: string
+      ownerPaneId?: number
       branchMode?: 'current' | 'separate'
       model?: string
       effort?: EffortLevel
@@ -1044,6 +1099,7 @@ export function App(): React.JSX.Element {
           label: opts.label ?? `${opts.source} (new)`,
           sessionId: opts.sessionId,
           worktreeId: opts.worktreeId,
+          ownerPaneId: opts.ownerPaneId,
           branchMode: opts.branchMode,
           model: opts.model,
           effort: opts.effort,
@@ -1074,13 +1130,20 @@ export function App(): React.JSX.Element {
     (worktree?: Worktree) =>
       void openTerminal({
         source: 'shell',
-        // Selected project → its path; no project → $HOME (main falls back)
-        cwd: worktree?.path ?? selectedProject?.path ?? null,
-        projectId: selectedProject?.id ?? null,
+        // The owning session's project → its path; none → $HOME (main falls
+        // back). Never the *selected* project when a session owns the shell:
+        // the two can differ, and a shell listed under one project while
+        // standing in another's checkout is a trap.
+        cwd: worktree?.path ?? runProject?.path ?? null,
+        projectId: runProject?.id ?? null,
         worktreeId: worktree?.id,
+        // The shell belongs to the session it was opened from, whichever
+        // checkout the right-click menu sent it to. With nothing focused it
+        // has no owner and stays a project shell.
+        ownerPaneId: shellOwner?.termId,
         label: worktree ? '⎇ zsh' : 'zsh'
       }),
-    [openTerminal, selectedProject]
+    [openTerminal, runProject, shellOwner]
   )
 
   /**
@@ -1230,59 +1293,44 @@ export function App(): React.JSX.Element {
   }, [])
 
   /**
-   * Play button: one shell per non-empty line of the project's start command.
+   * Run button: one shell per non-empty line of the project's start command.
    *
-   * Takes the project rather than reading the selected one, because it lives on
-   * the sidebar's project row — where it can be pressed for a project that
-   * isn't open. The shell belongs to that project, so selecting the project
-   * makes the new process visible immediately in the tools panel.
+   * It lives in the session header beside Ship, not on the sidebar's project
+   * row, because its scope is the focused session: with an isolated session
+   * focused the dev server comes up in *that* session's checkout, so pressing
+   * Run is the shortest path from "the agent changed something" to seeing it.
+   * The project's own checkout is the fallback for every other focus — Home,
+   * another project, a session with no branch of its own, and a pending
+   * session, which has no checkout yet and is only borrowing the shared one.
    *
-   * It runs what you are *looking at*: with an isolated session
-   * focused, the dev server comes up in that session's checkout, so pressing ▷
-   * is the shortest path from "the agent changed something" to seeing it. The
-   * main checkout is the fallback for every other focus (another project, Home,
-   * a pane with no branch of its own) — and for a pending session, which has no
-   * checkout yet and is only borrowing the shared one.
+   * The shells it opens belong to that session, so they are listed with it and
+   * are taken down with it.
    *
    * Two things this deliberately does not do. It does not remap ports, so two
    * branches serving the same dev port collide and the second one says so —
    * quieter than silently serving the wrong branch on the port you opened. And
-   * the pane is tagged with the worktree, which keeps the branch counted as
+   * each pane is tagged with the worktree, which keeps the branch counted as
    * live: an unattended `npm run dev` will hold a merged worktree back from the
    * reaper, which beats yanking a checkout out from under a running server.
    */
-  const runStartCommands = useCallback(
-    (projectId: string) => {
-      const project = projects.find((p) => p.id === projectId)
-      if (!project) return
-      const worktree =
-        activeTab?.projectId === projectId && !activeTab.pending && activeTab.worktreeId
-          ? worktrees.find((w) => w.id === activeTab.worktreeId)
-          : undefined
-      setSelectedProjectId(projectId)
-      const sectionPanes = agentPanes.filter((pane) => pane.projectId === projectId)
-      const remembered = lastViewedTerm.current.get(projectId)
-      const target =
-        sectionPanes.find((pane) => pane.termId === remembered) ?? sectionPanes.at(-1) ?? null
-      setView(target ? { kind: 'terminal', termId: target.termId } : { kind: 'empty' })
-      const lines = (project.runCommand?.trim() || 'npm run dev')
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-      for (const line of lines) {
-        void openTerminal({
-          source: 'shell',
-          cwd: worktree?.path ?? project.path,
-          projectId: project.id,
-          worktreeId: worktree?.id,
-          // ⎇ distinguishes a branch-bound server from the same command on main.
-          label: `${worktree ? '⎇ ' : ''}${line.length > 24 ? `${line.slice(0, 24)}…` : line}`,
-          runCommand: line
-        })
-      }
-    },
-    [openTerminal, projects, worktrees, activeTab, agentPanes]
-  )
+  const runStartCommands = useCallback(() => {
+    const project = runProject
+    if (!project) return
+    const worktree = runWorktree
+    for (const line of runLines) {
+      void openTerminal({
+        source: 'shell',
+        cwd: worktree?.path ?? project.path,
+        projectId: project.id,
+        worktreeId: worktree?.id,
+        ownerPaneId: shellOwner?.termId,
+        // ⎇ distinguishes a branch-bound server from the same command on main.
+        label: `${worktree ? '⎇ ' : ''}${line.length > 24 ? `${line.slice(0, 24)}…` : line}`,
+        runCommand: line
+      })
+    }
+  }, [openTerminal, runProject, runLines, runWorktree, shellOwner])
+  runStartRef.current = runStartCommands
 
   const resumeSession = useCallback(
     (s: SessionMeta) => {
@@ -1489,7 +1537,12 @@ export function App(): React.JSX.Element {
       setTabs((ts) => {
         const index = ts.findIndex((t) => t.termId === oldTermId)
         const created = ts.find((t) => t.termId === newTermId)
-        const rest = ts.filter((t) => t.termId !== oldTermId && t.termId !== newTermId)
+        const rest = ts
+          .filter((t) => t.termId !== oldTermId && t.termId !== newTermId)
+          // Shells opened against the old pane follow it into the new one, or
+          // a pending session that cuts a worktree orphans them on an id that
+          // no longer exists.
+          .map((t) => (t.ownerPaneId === oldTermId ? { ...t, ownerPaneId: newTermId } : t))
         if (index === -1 || !created) return rest.concat(created ?? [])
         rest.splice(Math.min(index, rest.length), 0, created)
         return rest
@@ -2202,15 +2255,68 @@ export function App(): React.JSX.Element {
       projects.find((p) => p.path === shipRoot))
     : undefined
 
-  const closeTerminal = useCallback(
-    (termId: number) => {
-      const closing = tabs.find((tab) => tab.termId === termId)
+  /**
+   * Ask a yes/no question in the app's own dialog, the way `window.confirm`
+   * asks it in macOS'. Awaits the answer, so a caller reads the same; a
+   * dismissed dialog (Escape, the backdrop, the close button) is a no.
+   */
+  const askConfirm = useCallback(
+    (req: ConfirmRequest): Promise<boolean> =>
+      new Promise((resolve) => setConfirmReq({ ...req, resolve })),
+    []
+  )
+
+  /**
+   * Closing a session takes its shells with it.
+   *
+   * A shell opened from a session is that session's — usually a dev server or
+   * a test run for its branch — so leaving it behind orphans a process with no
+   * row left to reach it from. Anything still running is named in a confirm
+   * first: `termBusy` reports the panes whose zsh has a child, which an idle
+   * prompt does not.
+   *
+   * Returns false when the user backs out, so the pane stays open.
+   */
+  const confirmClosingShells = useCallback(
+    async (owned: TerminalTab[]): Promise<boolean> => {
+      const live = owned.filter((shell) => !shell.exited)
+      if (live.length === 0) return true
+      const busy = await window.api.termBusy(live.map((shell) => shell.termId))
+      if (busy.length === 0) return true
+      const running = live.filter((shell) => busy.includes(shell.termId))
+      const one = running.length === 1
+      return askConfirm({
+        title: 'Close this session?',
+        subtitle: `${one ? 'A shell is' : `${running.length} shells are`} still running in it. Closing the session stops ${one ? 'it' : 'them'}.`,
+        body: (
+          <ul className="confirm-list">
+            {running.map((shell) => (
+              <li key={shell.termId}>{shell.label}</li>
+            ))}
+          </ul>
+        ),
+        confirmLabel: one ? 'Close and stop it' : 'Close and stop them',
+        intent: 'danger'
+      })
+    },
+    [askConfirm]
+  )
+
+  /** Kill one pane and hand focus on. Shells it owned are dropped separately. */
+  const dropPane = useCallback(
+    (termId: number, closing: TerminalTab | undefined) => {
       if (closing) killPane(closing)
       setTabs((t) => t.filter((tab) => tab.termId !== termId))
 
       if (closing?.source === 'shell') {
+        // Hand the tab bar's selection to a shell it is actually showing —
+        // one of the same session's, or one of the project's unowned ones.
         const siblings = tabs.filter(
-          (tab) => tab.source === 'shell' && tab.projectId === closing.projectId
+          (tab) =>
+            tab.source === 'shell' &&
+            (closing.ownerPaneId !== undefined
+              ? tab.ownerPaneId === closing.ownerPaneId
+              : tab.ownerPaneId === undefined && tab.projectId === closing.projectId)
         )
         const idx = siblings.findIndex((tab) => tab.termId === termId)
         const neighbour = siblings[idx - 1] ?? siblings[idx + 1] ?? null
@@ -2247,7 +2353,37 @@ export function App(): React.JSX.Element {
         return neighbour ? { kind: 'terminal', termId: neighbour.termId } : { kind: 'empty' }
       })
     },
-    [tabs]
+    [tabs, killPane]
+  )
+
+  const closeTerminal = useCallback(
+    (termId: number) => {
+      const closing = tabs.find((tab) => tab.termId === termId)
+      const owned =
+        closing && closing.source !== 'shell'
+          ? ownedShells(
+              tabs.map((tab) => ({ ...tab, paneId: tab.termId })),
+              termId
+            )
+          : []
+      if (owned.length === 0) {
+        dropPane(termId, closing)
+        return
+      }
+      // Ask about the running ones before anything is killed, then take the
+      // shells and the session down together.
+      void confirmClosingShells(owned).then((go) => {
+        if (!go) return
+        for (const shell of owned) killPane(shell)
+        const doomed = new Set(owned.map((shell) => shell.termId))
+        setTabs((t) => t.filter((tab) => !doomed.has(tab.termId)))
+        setSelectedShellId((selected) =>
+          selected !== null && doomed.has(selected) ? null : selected
+        )
+        dropPane(termId, closing)
+      })
+    },
+    [tabs, killPane, dropPane, confirmClosingShells]
   )
 
   const saveSectionSettings = useCallback(
@@ -2629,9 +2765,15 @@ export function App(): React.JSX.Element {
   const allShellPanes: ShellTabInfo[] = [...shellPanes]
     .sort((a, b) => a.termId - b.termId)
     .map(shellInfo)
-  const shellTabs: ShellTabInfo[] = shellPanes
-    .filter((pane) => pane.projectId === (selectedProject?.id ?? null))
-    .map(shellInfo)
+  // A shell belongs to the session it was opened from, so the tab bar shows
+  // the focused session's own shells plus the project's unowned ones. Another
+  // session's shells are not pooled in here — its badge counts them, and
+  // focusing it is how you reach them.
+  const shellTabs: ShellTabInfo[] = visibleShells(
+    shellPanes.map((pane) => ({ ...pane, paneId: pane.termId })),
+    shellOwner?.termId ?? null,
+    selectedProject?.id ?? null
+  ).map(shellInfo)
   /** The tools column shows a tool only in Code. It stays *mounted* whenever a
    *  shell is open, hidden — see `.tools-column--hidden`. */
   const toolsVisible = workflow === 'code' && activeTool !== null
@@ -2722,12 +2864,6 @@ export function App(): React.JSX.Element {
         onRemoveWorktree={confirmRemoveWorktree}
         onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
         onOpenSettings={(id) => setSettingsFor({ id })}
-        onRunStart={runStartCommands}
-        runTarget={
-          activeTab && !activeTab.pending && activeWorktree
-            ? { projectId: activeTab.projectId, taskName: activeWorktree.taskName }
-            : null
-        }
         staleCheckouts={staleCheckouts}
         onSwitchCheckout={(project, to) => void switchCheckout(project, to)}
         onOpenCapabilities={() => setView({ kind: 'capabilities' })}
@@ -2760,6 +2896,7 @@ export function App(): React.JSX.Element {
                 active={activeTool}
                 gitEnabled={gitRoot !== null}
                 dirtyCount={dirtyCount}
+                shellCount={shellTabs.length}
                 onSelect={(tool) => setActiveTool((current) => (current === tool ? null : tool))}
               />
             }
@@ -2769,21 +2906,31 @@ export function App(): React.JSX.Element {
             checkout={checkoutLabel}
             checkoutTitle={checkoutTitle}
             actions={
-              gitRoot && !pendingBase ? (
-                <>
-                  <UpdateButton
-                    root={gitRoot}
-                    status={repoStatus}
-                    onDone={showToast}
-                    onError={showToast}
+              <>
+                {runProject && (
+                  <RunButton
+                    projectName={runProject.name}
+                    command={runLines.join(' · ')}
+                    worktreeLabel={runWorktree?.taskName}
+                    onRun={runStartCommands}
                   />
-                  <ShipButton
-                    status={repoStatus}
-                    busy={shipReading === gitRoot}
-                    onOpen={() => void openShip(gitRoot)}
-                  />
-                </>
-              ) : undefined
+                )}
+                {gitRoot && !pendingBase && (
+                  <>
+                    <UpdateButton
+                      root={gitRoot}
+                      status={repoStatus}
+                      onDone={showToast}
+                      onError={showToast}
+                    />
+                    <ShipButton
+                      status={repoStatus}
+                      busy={shipReading === gitRoot}
+                      onOpen={() => void openShip(gitRoot)}
+                    />
+                  </>
+                )}
+              </>
             }
           />
         )}
@@ -2905,6 +3052,7 @@ export function App(): React.JSX.Element {
                         ? `New shell in ⎇ ${shellWorktree.taskName} (right-click: main checkout)`
                         : `New shell in ${selectedProject?.name ?? 'your home folder'}`
                     }
+                    scope={shellOwner ? shellOwner.label : (selectedProject?.name ?? 'Home')}
                     onOpenFile={openFile}
                   />
                 </div>
@@ -3164,6 +3312,16 @@ export function App(): React.JSX.Element {
               </button>
             )}
           </div>
+        )}
+
+        {confirmReq && (
+          <ConfirmDialog
+            {...confirmReq}
+            onResolve={(ok) => {
+              setConfirmReq(null)
+              confirmReq.resolve(ok)
+            }}
+          />
         )}
 
         {wtCreateOpen && selectedProject && (

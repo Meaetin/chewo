@@ -26,6 +26,8 @@ interface ShellWorkspaceProps {
   onNewMenu: (at: { x: number; y: number }) => void
   /** Tooltip for New shell — it names the checkout the click opens in. */
   newLabel: string
+  /** Whose shells these are, for the empty state: a session, or the project. */
+  scope: string
   onOpenFile: (path: string, goto?: { line: number; col?: number }) => void
 }
 
@@ -39,6 +41,7 @@ export function ShellWorkspace({
   onNew,
   onNewMenu,
   newLabel,
+  scope,
   onOpenFile
 }: ShellWorkspaceProps): React.JSX.Element {
   return (
@@ -99,7 +102,7 @@ export function ShellWorkspace({
         ))}
         {tabs.length === 0 && (
           <div className="shell-empty">
-            <span>No shells open</span>
+            <span>No shells in {scope}</span>
             <button
               type="button"
               className="btn btn--secondary btn--compact"

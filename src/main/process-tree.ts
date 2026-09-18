@@ -58,6 +58,25 @@ export function collectDescendants(rows: ProcRow[], roots: number[]): number[] {
   return out
 }
 
+/**
+ * Which of `roots` currently has at least one process below it.
+ *
+ * This is how a shell pane answers "is something still running in here?": an
+ * idle interactive zsh sits at its prompt with no children, while one running
+ * `npm run dev` has the server beneath it. Same blind spot as the sweep above
+ * — a child that called `setsid` has already left the tree.
+ *
+ * Pure, so the reading is testable without spawning anything.
+ */
+export function rootsWithDescendants(rows: ProcRow[], roots: number[]): number[] {
+  const parents = new Set<number>()
+  for (const row of rows) {
+    if (row.pid <= 1 || row.ppid <= 0) continue
+    parents.add(row.ppid)
+  }
+  return roots.filter((root) => root > 1 && parents.has(root))
+}
+
 /** `ps` output to rows. Tolerant of blank and malformed lines. */
 export function parseProcessTable(text: string): ProcRow[] {
   const rows: ProcRow[] = []
@@ -73,7 +92,7 @@ export function parseProcessTable(text: string): ProcRow[] {
  * Read synchronously: the quit path runs inside `will-quit`, where a promise
  * has no guarantee of ever settling. It costs about 10ms.
  */
-function readProcessTable(): ProcRow[] {
+export function readProcessTable(): ProcRow[] {
   try {
     return parseProcessTable(execFileSync('/bin/ps', ['-Ao', 'pid=,ppid='], { encoding: 'utf8' }))
   } catch {

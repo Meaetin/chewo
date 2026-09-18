@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { collectDescendants, parseProcessTable } from '../src/main/process-tree'
+import {
+  collectDescendants,
+  parseProcessTable,
+  rootsWithDescendants
+} from '../src/main/process-tree'
 
 const rows = (pairs: [number, number][]): { pid: number; ppid: number }[] =>
   pairs.map(([pid, ppid]) => ({ pid, ppid }))
@@ -76,6 +80,45 @@ describe('collectDescendants', () => {
 
   it('returns nothing for a root with no children', () => {
     expect(collectDescendants(rows([[100, 1]]), [100])).toEqual([])
+  })
+})
+
+describe('rootsWithDescendants', () => {
+  it('reports a pane running a command, not one sitting at a prompt', () => {
+    // 100 is an idle zsh; 101 is a zsh running a dev server (200).
+    const table = rows([
+      [100, 1],
+      [101, 1],
+      [200, 101]
+    ])
+    expect(rootsWithDescendants(table, [100, 101])).toEqual([101])
+  })
+
+  it('keeps the caller’s order, so an id maps back to its pane', () => {
+    const table = rows([
+      [100, 1],
+      [101, 1],
+      [200, 100],
+      [201, 101]
+    ])
+    expect(rootsWithDescendants(table, [101, 100])).toEqual([101, 100])
+  })
+
+  it('a grandchild alone still counts — the child is the parent we see', () => {
+    const table = rows([
+      [100, 1],
+      [200, 100],
+      [300, 200]
+    ])
+    expect(rootsWithDescendants(table, [100])).toEqual([100])
+  })
+
+  it('a pid no longer in the table is not busy', () => {
+    expect(rootsWithDescendants(rows([[100, 1]]), [999])).toEqual([])
+  })
+
+  it('never reports pid 1 or 0, whatever the table claims', () => {
+    expect(rootsWithDescendants(rows([[100, 1]]), [1, 0])).toEqual([])
   })
 })
 

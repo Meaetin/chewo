@@ -1253,6 +1253,12 @@ body {
   text-align: center;
 }
 
+/* Open shells are a state, not a problem — the warning amber belongs to the
+   uncommitted-file count next to it. */
+.tool-activity-count--live {
+  background: var(--c-live);
+}
+
 .files-tool-workspace,
 .git-tool-workspace {
   display: flex;
@@ -3911,6 +3917,52 @@ body {
   }
 }
 
+/* ---------- confirm dialog ---------- */
+
+/* The list a confirm shows when it has to name things — shells it will stop,
+   files it will discard. Mono because every entry is a command or a path. */
+.confirm-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.confirm-list li {
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-1);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+}
+
+/* ---------- run (the focused session's start command) ---------- */
+
+/* Quiet like Update: it starts a process in a checkout and reaches nothing. */
+.run-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-right: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-card);
+  border: var(--border-hair);
+  border-radius: var(--radius-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  cursor: pointer;
+}
+.run-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.run-button-label {
+  white-space: nowrap;
+}
 /* ---------- ship (one-click commit + push + PR) ---------- */
 /* Accented rather than quiet: it is the only header control that reaches
    the remote, and it does so without asking anything. */

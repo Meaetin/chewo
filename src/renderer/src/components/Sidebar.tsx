@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Eye,
   GitBranch,
-  Play,
   Plus,
   Settings,
   Trash2,
@@ -58,14 +57,6 @@ interface SidebarProps {
   onReopenWorktree: (wt: Worktree) => void
   /** null = Home's settings */
   onOpenSettings: (id: string | null) => void
-  /**
-   * Run a project's start command — dev servers, in the focused session's
-   * checkout when one is open on this project, otherwise its main checkout.
-   * Offered per project because the scope is the project's configured command.
-   */
-  onRunStart: (projectId: string) => void
-  /** The isolated checkout ▷ would use, so the button can say where it runs */
-  runTarget: { projectId: string | null; taskName: string } | null
   /** Projects whose main checkout is parked on an already-merged branch */
   staleCheckouts: Map<string, StaleCheckout>
   /** Put a stale checkout back on its default branch */
@@ -579,8 +570,6 @@ function SectionRow({
   liveCount,
   sessionCount,
   onToggle,
-  onRunStart,
-  runTitle,
   onOpenSettings,
   settingsTitle
 }: {
@@ -590,9 +579,6 @@ function SectionRow({
   liveCount: number
   sessionCount: number
   onToggle: () => void
-  /** Absent for Home — a start command is a project's, not a folder's */
-  onRunStart?: () => void
-  runTitle?: string
   onOpenSettings: () => void
   settingsTitle: string
 }): React.JSX.Element {
@@ -605,18 +591,8 @@ function SectionRow({
         leading={<Chevron className="section-chevron" size={14} strokeWidth={1.75} />}
         trailing={
           <span className="section-row-actions">
-            {onRunStart && (
-              <IconButton
-                label={runTitle ?? 'Run start command'}
-                dense
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRunStart()
-                }}
-              >
-                <Play size={14} strokeWidth={1.75} />
-              </IconButton>
-            )}
+            {/* Run lives in the session header beside Ship: its scope is the
+                focused session's checkout, which this row cannot show. */}
             <IconButton label={settingsTitle} dense onClick={(e) => {
               e.stopPropagation()
               onOpenSettings()
@@ -726,8 +702,6 @@ export function Sidebar({
   onRemoveWorktree,
   onReopenWorktree,
   onOpenSettings,
-  onRunStart,
-  runTarget,
   staleCheckouts,
   onSwitchCheckout,
   onOpenCapabilities
@@ -916,12 +890,6 @@ export function Sidebar({
                   liveCount={liveCounts.get(p.id) ?? 0}
                   sessionCount={projectSessions.length}
                   onToggle={() => toggleProject(p.id)}
-                  onRunStart={() => onRunStart(p.id)}
-                  runTitle={
-                    runTarget?.projectId === p.id
-                      ? `Run ${p.name}’s start command in ⎇ ${runTarget.taskName} — the focused session’s checkout`
-                      : `Run ${p.name}’s start command in its main checkout`
-                  }
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
                 />

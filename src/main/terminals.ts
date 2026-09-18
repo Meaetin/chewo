@@ -10,7 +10,7 @@ import {
 } from '../shared/projects'
 import { shellQuote } from '../shared/shell'
 import { nextPaneId } from './pane-ids'
-import { killDescendants } from './process-tree'
+import { killDescendants, readProcessTable, rootsWithDescendants } from './process-tree'
 import { safeSend } from './safe-send'
 
 /** What a pane runs: an agent CLI or a plain shell */
@@ -209,6 +209,26 @@ export function killTerminal(id: number): void {
   killDescendants(rec.proc.pid)
   rec.proc.kill()
   terminals.delete(id)
+}
+
+/**
+ * Which of these panes still has a process running inside it.
+ *
+ * Asked before a session closes and takes its shells with it: an idle zsh
+ * sits at a prompt with no children, so anything reported here is a command
+ * the user started and has not finished — a dev server, a test run, a build.
+ * One `ps` read covers every pane, and an id we no longer know is simply not
+ * in the answer.
+ */
+export function busyTerminals(ids: number[]): number[] {
+  const pids = new Map<number, number>()
+  for (const id of ids) {
+    const rec = terminals.get(id)
+    if (rec) pids.set(rec.proc.pid, id)
+  }
+  if (pids.size === 0) return []
+  const busy = rootsWithDescendants(readProcessTable(), [...pids.keys()])
+  return busy.map((pid) => pids.get(pid) as number)
 }
 
 export function disposeAllTerminals(): void {
