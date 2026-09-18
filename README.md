@@ -134,7 +134,8 @@ npm test             # vitest
 npm run dist         # build the .app into dist/ without installing it
 ```
 
-Conventions and hard-won gotchas live in [`AGENTS.md`](AGENTS.md); read
+Conventions and hard-won gotchas are indexed in [`AGENTS.md`](AGENTS.md) and
+written up in full under [`docs/notes/`](docs/notes); read
 [`SPEC.md`](SPEC.md) and [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) before changing
 architecture.
 
