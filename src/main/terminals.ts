@@ -10,6 +10,7 @@ import {
 } from '../shared/projects'
 import { shellQuote } from '../shared/shell'
 import { nextPaneId } from './pane-ids'
+import { killDescendants } from './process-tree'
 import { safeSend } from './safe-send'
 
 /** What a pane runs: an agent CLI or a plain shell */
@@ -201,11 +202,20 @@ export function resizeTerminal(id: number, cols: number, rows: number): void {
 }
 
 export function killTerminal(id: number): void {
-  terminals.get(id)?.proc.kill()
+  const rec = terminals.get(id)
+  if (!rec) return
+  // Descendants first: once the pane's own process is gone, anything it
+  // backgrounded is reparented to launchd and can no longer be found.
+  killDescendants(rec.proc.pid)
+  rec.proc.kill()
   terminals.delete(id)
 }
 
 export function disposeAllTerminals(): void {
+  killDescendants(
+    [...terminals.values()].map((rec) => rec.proc.pid),
+    { immediate: true }
+  )
   for (const rec of terminals.values()) rec.proc.kill()
   terminals.clear()
 }
