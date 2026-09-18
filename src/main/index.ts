@@ -179,10 +179,13 @@ let mainWindow: BrowserWindow | null = null
 const STARTUP_REVEAL_TIMEOUT_MS = 10_000
 const startupRevealTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
-function revealWindow(win: BrowserWindow): void {
-  const timer = startupRevealTimers.get(win.webContents.id)
+// The id is passed in rather than read off `win`: a destroyed BrowserWindow
+// throws on every property, `webContents` included, so anything that may run
+// after the window is gone has to already know its key.
+function revealWindow(win: BrowserWindow, wcId: number): void {
+  const timer = startupRevealTimers.get(wcId)
   if (timer) clearTimeout(timer)
-  startupRevealTimers.delete(win.webContents.id)
+  startupRevealTimers.delete(wcId)
   if (!win.isDestroyed()) win.show()
 }
 
@@ -213,11 +216,15 @@ function createWindow(): void {
   })
 
   const win = mainWindow
-  const revealTimer = setTimeout(() => revealWindow(win), STARTUP_REVEAL_TIMEOUT_MS)
-  startupRevealTimers.set(win.webContents.id, revealTimer)
+  // 'closed' fires after the window is destroyed, so the id is captured now —
+  // reading `win.webContents` from that handler crashed the main process on
+  // every quit with "Object has been destroyed".
+  const wcId = win.webContents.id
+  const revealTimer = setTimeout(() => revealWindow(win, wcId), STARTUP_REVEAL_TIMEOUT_MS)
+  startupRevealTimers.set(wcId, revealTimer)
   win.once('closed', () => {
     clearTimeout(revealTimer)
-    startupRevealTimers.delete(win.webContents.id)
+    startupRevealTimers.delete(wcId)
   })
 
   // fs and git watches are created on demand by the renderer and closed by its
@@ -280,7 +287,7 @@ function openInBrowser(url: string): boolean {
 function registerIpc(): void {
   ipcMain.on('app:ready', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (win && win === mainWindow) revealWindow(win)
+    if (win && win === mainWindow) revealWindow(win, event.sender.id)
   })
 
   ipcMain.handle('sessions:list', () => scanAll())
