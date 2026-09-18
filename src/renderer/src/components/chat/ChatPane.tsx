@@ -7,7 +7,7 @@ import {
   useRef,
   useState
 } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Paperclip, Sparkles } from 'lucide-react'
 import {
   appendUserMessage,
   emptyChatState,
@@ -31,7 +31,7 @@ import {
   type AttachmentChip
 } from '../../../../shared/attachments'
 import { WorkingText } from '../ui'
-import { ChatComposer, type SessionSetup } from './ChatComposer'
+import { ChatComposer, type ComposerHandle, type SessionSetup } from './ChatComposer'
 import { EFFORT_LEVELS, matchModelId, type EffortLevel } from '../../../../shared/agents'
 import { FindBar } from './FindBar'
 import { ChatRowView } from './ChatItems'
@@ -436,6 +436,60 @@ export function ChatPane({
    * CLI's own `system/init` — which reports a resolved id (`claude-sonnet-5`)
    * where the picker holds tier aliases (`sonnet`).
    */
+  /**
+   * Files dropped anywhere on the conversation, not only on the composer
+   * itself: the box is a strip at the bottom of a pane that is mostly
+   * transcript, and a drop that lands an inch high should not bounce.
+   *
+   * `dragDepth` counts enter/leave rather than trusting `dragleave` alone,
+   * which fires every time the pointer crosses into a child element and would
+   * otherwise flicker the overlay off over every message in the thread.
+   */
+  // A parked permission request blocks the agent, so a typed message would
+  // queue behind it with no sign of why nothing happened
+  const composerDisabled = exited || awaiting.length > 0 || Boolean(notice)
+  const composerRef = useRef<ComposerHandle>(null)
+  const [dropping, setDropping] = useState(false)
+  const dragDepth = useRef(0)
+
+  /**
+   * Only a drag carrying files — an internal tab or card drag is not one —
+   * and only into a composer that can take them. An inert composer shows no
+   * overlay rather than promising an attachment it would then drop on the
+   * floor; it already says why it is inert in its own placeholder.
+   */
+  const hasFiles = (e: React.DragEvent): boolean =>
+    !composerDisabled && e.dataTransfer.types.includes('Files')
+
+  const onDragEnter = (e: React.DragEvent): void => {
+    if (!hasFiles(e)) return
+    dragDepth.current += 1
+    setDropping(true)
+  }
+
+  const onDragOver = (e: React.DragEvent): void => {
+    if (!hasFiles(e)) return
+    // Without this the drop never fires and Electron navigates the window to
+    // the file instead, which on a frameless window has no way back.
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDragLeave = (e: React.DragEvent): void => {
+    if (!hasFiles(e)) return
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDropping(false)
+  }
+
+  const onDrop = (e: React.DragEvent): void => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current = 0
+    setDropping(false)
+    const files = [...e.dataTransfer.files]
+    if (files.length > 0) composerRef.current?.acceptFiles(files)
+  }
+
   const composerSetup = useMemo(() => {
     if (!setup) return undefined
     const live = setup.started === true || started
@@ -457,7 +511,19 @@ export function ChatPane({
     <div
       className={`chat-pane${showEmptyState ? ' chat-pane--empty' : ''}`}
       style={{ display: active ? 'flex' : 'none' }}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
+      {dropping && (
+        <div className="chat-drop-overlay">
+          <span className="chat-drop-badge">
+            <Paperclip size={14} strokeWidth={1.75} aria-hidden="true" />
+            Drop to attach
+          </span>
+        </div>
+      )}
       {/* No header. The cwd was a duplicate of the tab's own ⎇ label and the
           branch chip beside it, and the "Terminal" escape hatch cost a full
           bar's height to sit there unused — a conversation still moves to a
@@ -546,12 +612,11 @@ export function ChatPane({
       </div>
 
       <ChatComposer
+        ref={composerRef}
         source={source}
         active={active}
         busy={state.busy}
-        // A parked permission request blocks the agent, so a typed message
-        // would queue behind it with no sign of why nothing happened
-        disabled={exited || awaiting.length > 0 || Boolean(notice)}
+        disabled={composerDisabled}
         slashCommands={state.info?.slashCommands ?? pendingCommands}
         setup={composerSetup}
         usage={state.usage}

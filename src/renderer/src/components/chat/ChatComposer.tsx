@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { ArrowUp, FileText, GitBranch, Mic, Square, X } from 'lucide-react'
 import { Badge, IconButton } from '../ui'
 import { Select, type SelectOption } from '../Select'
@@ -11,6 +11,7 @@ import { useDictation } from './useDictation'
 import { mentionAt } from '../../mentionMatch'
 import { filterOptions } from '../../selectFilter'
 import { joinDictated } from '../../dictation'
+import { dropText, insertAt, isStageableImage, spliceWord } from '../../dropPaths'
 
 /**
  * The two questions a session has to answer before it exists, asked here
@@ -466,6 +467,17 @@ interface ChatComposerProps {
   onInterrupt: () => void
   /** A staging failure has nowhere else to surface from in here */
   onError?: (message: string) => void
+  /** Lets the pane hand this box files dropped anywhere on the conversation */
+  ref?: React.Ref<ComposerHandle>
+}
+
+/**
+ * The composer owns the draft — the text, the caret and the chips — so a file
+ * dropped on the pane above it has to be handed down rather than handled up
+ * there. This is that door, and the only one.
+ */
+export interface ComposerHandle {
+  acceptFiles: (files: File[]) => void
 }
 
 /** One `@`-mentionable file, read once per pane and filtered client-side */
@@ -484,7 +496,8 @@ export function ChatComposer({
   sttReady = false,
   onSend,
   onInterrupt,
-  onError
+  onError,
+  ref
 }: ChatComposerProps): React.JSX.Element {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -626,11 +639,71 @@ export function ChatComposer({
     areaRef.current?.focus()
   }
 
+  /** Splice text in as its own word, wherever the caret is. */
+  const insertWord = (text: string): void => {
+    const at = insertAt(value, caret, areaRef.current === document.activeElement)
+    const next = spliceWord(value, at, text)
+    setValue(next.value)
+    setCaret(next.caret)
+    // The value prop updates on the next render; the DOM selection has to be
+    // set after that paint, or it snaps back to wherever it was before.
+    requestAnimationFrame(() => areaRef.current?.setSelectionRange(next.caret, next.caret))
+    areaRef.current?.focus()
+  }
+
   /**
    * Chip numbering counts pastes, not surviving chips: removing "Image 1" must
    * not silently rename "Image 2" to it, or the label stops naming a thing.
    */
   const pasteSeq = useRef({ image: 0, text: 0 })
+
+  /**
+   * Copy an image into `~/.chewo/attachments` and chip it.
+   *
+   * Staged now rather than on send: the file is what every runtime is fed
+   * from, and doing it here means the failure is visible while the chip is
+   * still the thing the user is looking at. A dropped image is copied rather
+   * than referenced where it lies, because `imageBlocks` only ever reads out
+   * of that one directory — the guard that stops a path from the renderer
+   * naming any file on the disk.
+   */
+  const stageImageFile = (file: File): void => {
+    const label = `Image ${++pasteSeq.current.image}`
+    void readImage(file)
+      .then(async ({ dataUrl, base64 }) => {
+        const path = await window.api.stageAttachment(base64, file.type)
+        setAttachments((prev) => [...prev, { id: path, kind: 'image', label, path, preview: dataUrl }])
+      })
+      .catch((err: unknown) => onError?.(`Could not attach the image: ${String(err)}`))
+  }
+
+  /**
+   * Files dropped on the pane. An image becomes a chip; anything else is
+   * named in the message for the agent to read, since no runtime takes a PDF
+   * or a folder as anything but a path.
+   */
+  const acceptFiles = (files: File[]): void => {
+    if (disabled || dictating) return
+    const paths: string[] = []
+    for (const file of files) {
+      if (isStageableImage(file.type)) {
+        stageImageFile(file)
+        continue
+      }
+      const path = window.api.pathForFile(file)
+      // Empty for anything that never came off the disk — a drag out of
+      // another app's own canvas, say, which has bytes but no file.
+      if (path) paths.push(dropText(path, cwd))
+      else onError?.(`Could not attach ${file.name || 'that'} — it has no file on disk.`)
+    }
+    if (paths.length > 0) insertWord(paths.join(' '))
+  }
+
+  const acceptFilesRef = useRef(acceptFiles)
+  acceptFilesRef.current = acceptFiles
+  // A stable handle: the pane holds this ref across every keystroke, and the
+  // function above closes over the draft text, so it is read at call time.
+  useImperativeHandle(ref, () => ({ acceptFiles: (files) => acceptFilesRef.current(files) }), [])
 
   /**
    * A paste becomes a chip in two cases and stays a plain paste otherwise: an
@@ -646,21 +719,7 @@ export function ChatComposer({
 
     if (files.length > 0) {
       e.preventDefault()
-      for (const file of files) {
-        const label = `Image ${++pasteSeq.current.image}`
-        void readImage(file)
-          .then(async ({ dataUrl, base64 }) => {
-            // Staged now rather than on send: the file is what every runtime
-            // is fed from, and doing it here means the failure is visible
-            // while the chip is still the thing the user is looking at
-            const path = await window.api.stageAttachment(base64, file.type)
-            setAttachments((prev) => [
-              ...prev,
-              { id: path, kind: 'image', label, path, preview: dataUrl }
-            ])
-          })
-          .catch((err: unknown) => onError?.(`Could not attach the image: ${String(err)}`))
-      }
+      for (const file of files) stageImageFile(file)
       return
     }
 

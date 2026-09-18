@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { homedir } from 'node:os'
 import type { AgentDraft } from '../shared/capabilities/agent-file'
 import type { DispatchableAgent } from '../shared/orchestrator'
@@ -160,6 +160,12 @@ const api = {
   /** Write a pasted clipboard image to ~/.chewo/attachments; resolves its path */
   stageAttachment: (base64: string, mimeType: string) =>
     ipcRenderer.invoke('attachment:stage', { base64, mimeType }) as Promise<string>,
+  /**
+   * Where a dropped file came from. Electron removed `File.path` in 32, so
+   * this is the only way to learn it — and it has to be asked here, because
+   * `webUtils` does not exist in the renderer's world.
+   */
+  pathForFile: (file: File): string => webUtils.getPathForFile(file),
   chatRespond: (id: number, requestId: string, decision: ApprovalDecision) =>
     ipcRenderer.send('chat:respond', { id, requestId, decision }),
   /**

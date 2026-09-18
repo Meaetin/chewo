@@ -5747,6 +5747,45 @@ body {
   height: 100%;
   min-height: 0;
   background: var(--c-surface-1);
+  /* The drop overlay covers the pane, transcript and composer both */
+  position: relative;
+}
+
+/* Dropping a file is aimed at the whole conversation, not at the composer
+   strip along the bottom, so the whole pane says so while a drag is over it.
+   `pointer-events: none` is load-bearing: an overlay that took the pointer
+   would fire `dragleave` on the pane the instant it appeared, and the two
+   would flicker against each other. */
+.chat-drop-overlay {
+  position: absolute;
+  inset: var(--space-8);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  pointer-events: none;
+  border: 1px dashed var(--c-accent);
+  border-radius: var(--radius-4);
+  background: var(--c-accent-wash);
+}
+
+/* The label is a badge rather than bare text because the overlay covers the
+   composer too, and centered text lands on top of it — over a pill it reads
+   as a label either way. */
+.chat-drop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-12);
+  border: 1px solid var(--c-accent);
+  border-radius: var(--radius-pill);
+  background: var(--c-surface-2);
+  box-shadow: var(--shadow-popover);
+  color: var(--c-accent-text);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: var(--weight-medium);
 }
 
 /* An unstarted, empty pane has nothing to scroll — the headline and the
