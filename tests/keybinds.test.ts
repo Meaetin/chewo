@@ -2,12 +2,12 @@ import { describe, expect, test } from 'vitest'
 import {
   DEFAULT_KEYBINDS,
   KEYBINDS,
-  accelFromEvent,
   findConflict,
   formatKeybind,
   matchesKeybind,
   normalizeKeybinds,
   parseKeybind,
+  recordChord,
   toCodeMirrorKey,
   type KeyChord
 } from '../src/shared/keybinds'
@@ -82,27 +82,82 @@ describe('matchesKeybind', () => {
   })
 })
 
-describe('accelFromEvent', () => {
+describe('recordChord', () => {
+  const accel = (c: KeyChord): string | undefined => {
+    const r = recordChord(c)
+    return r && r.ok ? r.accelerator : undefined
+  }
+  const refusal = (c: KeyChord): string | undefined => {
+    const r = recordChord(c)
+    return r && !r.ok ? r.reason : undefined
+  }
+
   test('records the modifiers actually pressed', () => {
-    expect(accelFromEvent(chord('k', { metaKey: true, shiftKey: true }))).toBe('Command+Shift+K')
-    expect(accelFromEvent(chord('j', { ctrlKey: true, altKey: true }))).toBe('Control+Alt+J')
+    expect(accel(chord('k', { metaKey: true, shiftKey: true }))).toBe('Command+Shift+K')
+    expect(accel(chord('j', { ctrlKey: true, altKey: true, code: 'KeyJ' }))).toBe('Control+Alt+J')
   })
 
-  test('refuses a bare key and a lone modifier', () => {
-    expect(accelFromEvent(chord('k'))).toBeNull()
-    expect(accelFromEvent(chord('Meta', { metaKey: true }))).toBeNull()
-    expect(accelFromEvent(chord('Shift', { shiftKey: true }))).toBeNull()
+  test('a lone modifier is half a chord, so it says nothing and waits', () => {
+    expect(recordChord(chord('Meta', { metaKey: true }))).toBeNull()
+    expect(recordChord(chord('Shift', { shiftKey: true }))).toBeNull()
+    expect(recordChord(chord('Dead', { altKey: true }))).toBeNull()
   })
 
-  test('round-trips through the matcher', () => {
-    const pressed = chord('/', { metaKey: true, shiftKey: true })
-    const accel = accelFromEvent(pressed)
-    expect(accel).not.toBeNull()
-    expect(matchesKeybind(pressed, accel as string)).toBe(true)
+  test('a bare key is refused out loud rather than ignored', () => {
+    expect(refusal(chord('k'))).toMatch(/Hold ⌘/)
+    expect(refusal(chord('Enter'))).toMatch(/Hold ⌘/)
+    expect(refusal(chord('t', { shiftKey: true }))).toMatch(/Hold ⌘/)
+  })
+
+  test('a function key needs no modifier — it types nothing to begin with', () => {
+    expect(accel(chord('F5', { code: 'F5' }))).toBe('F5')
+    expect(accel(chord('F12', { code: 'F12', shiftKey: true }))).toBe('Shift+F12')
+  })
+
+  test('Option records the physical key, not the character Option types', () => {
+    // macOS turns ⌥K into ˚; stored as `Command+Alt+˚` it is unregisterable
+    expect(accel(chord('˚', { metaKey: true, altKey: true, code: 'KeyK' }))).toBe('Command+Alt+K')
+    expect(accel(chord('¡', { altKey: true, code: 'Digit1' }))).toBe('Alt+1')
+  })
+
+  test('round-trips through the matcher, Option included', () => {
+    for (const pressed of [
+      chord('/', { metaKey: true, shiftKey: true, code: 'Slash' }),
+      chord('˚', { metaKey: true, altKey: true, code: 'KeyK' }),
+      chord('F5', { code: 'F5' })
+    ]) {
+      const a = accel(pressed)
+      expect(a).toBeDefined()
+      expect(matchesKeybind(pressed, a as string)).toBe(true)
+    }
+  })
+})
+
+describe('matchesKeybind with Option held', () => {
+  test('an Option binding fires on the key the user thinks they pressed', () => {
+    const pressed = chord('˚', { metaKey: true, altKey: true, code: 'KeyK' })
+    expect(matchesKeybind(pressed, 'Command+Alt+K')).toBe(true)
+  })
+
+  test('a chord already stored as the Option character still fires', () => {
+    const pressed = chord('˚', { metaKey: true, altKey: true, code: 'KeyK' })
+    expect(matchesKeybind(pressed, 'Command+Alt+˚')).toBe(true)
+  })
+
+  test('the physical key is only consulted when Option is down', () => {
+    // Without Option there is no substitution to undo, and reading the physical
+    // key would make a Dvorak or AZERTY layout fire the wrong binding
+    expect(matchesKeybind(chord('q', { metaKey: true, code: 'KeyA' }), 'Command+A')).toBe(false)
   })
 })
 
 describe('formatKeybind', () => {
+  test('function keys keep their case', () => {
+    expect(formatKeybind('F5')).toBe('F5')
+    expect(formatKeybind('Command+Alt+F12')).toBe('⌥⌘F12')
+    expect(toCodeMirrorKey('Shift+F5')).toBe('Shift-F5')
+  })
+
   test('mac glyphs, in the mac order', () => {
     expect(formatKeybind('CommandOrControl+Shift+E')).toBe('⇧⌘E')
     expect(formatKeybind('Command+P')).toBe('⌘P')

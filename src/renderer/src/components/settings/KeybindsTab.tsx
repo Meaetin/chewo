@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import {
-  accelFromEvent,
   FIXED_KEYS,
   findConflict,
   formatKeybind,
   KEYBINDS,
   keybindDef,
+  recordChord,
   type KeybindId,
   type KeybindMap
 } from '../../../../shared/keybinds'
@@ -45,16 +45,21 @@ export function KeybindsTab({ keybinds, onChange }: KeybindsTabProps): React.JSX
         setError(null)
         return
       }
-      const accel = accelFromEvent(e)
-      // A bare key or a lone modifier is not a chord — keep listening rather
-      // than binding something that would swallow typing
-      if (!accel) return
-      const clash = findConflict(keybinds, recording, accel)
-      if (clash) {
-        setError(`${formatKeybind(accel)} already runs “${keybindDef(clash).label}”.`)
+      const chord = recordChord(e)
+      // A modifier on its own is half a chord — keep listening, say nothing
+      if (!chord) return
+      if (!chord.ok) {
+        setError(chord.reason)
         return
       }
-      onChange({ ...keybinds, [recording]: accel })
+      const clash = findConflict(keybinds, recording, chord.accelerator)
+      if (clash) {
+        setError(
+          `${formatKeybind(chord.accelerator)} already runs “${keybindDef(clash).label}”.`
+        )
+        return
+      }
+      onChange({ ...keybinds, [recording]: chord.accelerator })
       setRecording(null)
       setError(null)
     }

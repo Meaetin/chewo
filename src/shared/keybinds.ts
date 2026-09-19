@@ -7,7 +7,7 @@
  * keyboard events, so one stored value serves both the window listeners and the
  * global one — there is no second format to keep in step.
  *
- * Two rules the matcher follows, both deliberate:
+ * Three rules the matcher follows, all deliberate:
  *
  * 1. **Modifiers match exactly.** `Command+P` must not fire on ⌘⇧P, or the
  *    composer's dictation toggle would steal the run shortcut. `CommandOrControl`
@@ -18,6 +18,10 @@
  *    punctuation.** On most layouts the punctuation itself needs Shift to type,
  *    so demanding an exact Shift state makes those bindings unreachable — ⌘+
  *    and ⌘= are the same request, and both zoom the terminal.
+ * 3. **With Option down the physical key counts too.** macOS puts the character
+ *    Option *types* into `event.key`, so ⌥⌘K arrives as `˚`; `event.code` is
+ *    read to recover the K. Only under Option — `code` ignores the layout, so
+ *    reading it always would fire the wrong binding on Dvorak or AZERTY.
  */
 
 export type KeybindId =
@@ -306,16 +310,65 @@ export function normalizeEventKey(key: string): string {
 /** The parts of a keyboard event the matcher reads — structural, so tests need no DOM. */
 export interface KeyChord {
   key: string
+  /** `KeyboardEvent.code` — the physical key, needed whenever Option is held */
+  code?: string
   metaKey: boolean
   ctrlKey: boolean
   altKey: boolean
   shiftKey: boolean
 }
 
+/**
+ * The physical key behind a `KeyboardEvent.code`, or null for a code we have no
+ * name for. Only consulted when Option is held: macOS substitutes the character
+ * Option *types* into `event.key`, so ⌥⌘K arrives as `˚` and a chord recorded
+ * from it would read `Command+Alt+˚` — unregisterable by `globalShortcut` and
+ * meaningless on a button.
+ */
+const CODE_KEYS: Record<string, string> = {
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Backquote: '`',
+  Comma: ',',
+  Period: '.',
+  Slash: '/'
+}
+
+export function physicalKey(code: string | undefined): string | null {
+  if (!code) return null
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase()
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+  if (/^F\d{1,2}$/.test(code)) return code.toLowerCase()
+  if (CODE_KEYS[code]) return CODE_KEYS[code]
+  if (['Escape', 'Enter', 'Tab', 'Backspace', 'Delete', 'Space'].includes(code))
+    return code.toLowerCase()
+  if (/^Arrow(Up|Down|Left|Right)$/.test(code)) return code.toLowerCase()
+  return null
+}
+
+/**
+ * Every token a press could reasonably mean. Normally just the character, but
+ * with Option down the physical key is added, since that is the one the user
+ * thinks they pressed.
+ */
+const eventKeys = (event: KeyChord): string[] => {
+  const keys = [normalizeEventKey(event.key)]
+  if (event.altKey) {
+    const physical = physicalKey(event.code)
+    if (physical && !keys.includes(physical)) keys.push(physical)
+  }
+  return keys
+}
+
 export function matchesKeybind(event: KeyChord, accelerator: string): boolean {
   const want = parseKeybind(accelerator)
   if (!want) return false
-  if (normalizeEventKey(event.key) !== want.key) return false
+  if (!eventKeys(event).includes(want.key)) return false
 
   if (want.cmdOrCtrl) {
     if (!event.metaKey && !event.ctrlKey) return false
@@ -329,17 +382,41 @@ export function matchesKeybind(event: KeyChord, accelerator: string): boolean {
 }
 
 /**
- * Build an accelerator from a key the user just pressed, or null if it isn't a
- * chord we will accept. ⌘ and Ctrl are recorded literally rather than as
- * `CommandOrControl`: the user pressed one of them, and collapsing the two is
- * how a rebind would hand Ctrl+P back to readline behind their back.
+ * What a press means to the recorder. `null` is "still waiting" — a modifier on
+ * its own is half a chord, not a mistake, so the pane says nothing and keeps
+ * listening. A refusal carries the sentence to show, because a recorder that
+ * ignores a keypress in silence looks broken; that was the whole of the first
+ * bug report on this pane.
  */
-export function accelFromEvent(event: KeyChord): string | null {
-  const key = normalizeEventKey(event.key)
-  if (['meta', 'control', 'alt', 'shift', 'capslock', 'dead', 'unidentified'].includes(key))
-    return null
-  // A bare key is interface behaviour, not a shortcut — it would swallow typing
-  if (!event.metaKey && !event.ctrlKey && !event.altKey) return null
+export type RecordedChord = { ok: true; accelerator: string } | { ok: false; reason: string } | null
+
+/** Keys that are a shortcut on their own — they type nothing, so binding them steals nothing. */
+const BARE_KEYS = /^f\d{1,2}$/
+
+const MODIFIER_KEYS = ['meta', 'control', 'alt', 'shift', 'capslock', 'dead', 'unidentified']
+
+/**
+ * Read a chord from a key the user just pressed.
+ *
+ * ⌘ and Ctrl are recorded literally rather than as `CommandOrControl`: the user
+ * pressed one of them, and collapsing the two is how a rebind would hand Ctrl+P
+ * back to readline behind their back. With Option down the **physical** key is
+ * recorded rather than the character Option types, or ⌥⌘K would be stored as
+ * `Command+Alt+˚` — which `globalShortcut` cannot register and no one can read.
+ */
+export function recordChord(event: KeyChord): RecordedChord {
+  const typed = normalizeEventKey(event.key)
+  if (MODIFIER_KEYS.includes(typed)) return null
+
+  const physical = event.altKey ? physicalKey(event.code) : null
+  const key = physical ?? typed
+
+  if (!event.metaKey && !event.ctrlKey && !event.altKey && !BARE_KEYS.test(key)) {
+    return {
+      ok: false,
+      reason: 'Hold ⌘, ⌃ or ⌥ as part of the chord — a bare key would type instead of running a command.'
+    }
+  }
 
   const parts: string[] = []
   if (event.metaKey) parts.push('Command')
@@ -347,11 +424,12 @@ export function accelFromEvent(event: KeyChord): string | null {
   if (event.altKey) parts.push('Alt')
   if (event.shiftKey && !isPunctuation(key)) parts.push('Shift')
   parts.push(accelKeyToken(key))
-  return parts.join('+')
+  return { ok: true, accelerator: parts.join('+') }
 }
 
 /** The token Electron wants for a normalized key. */
 function accelKeyToken(key: string): string {
+  if (BARE_KEYS.test(key)) return key.toUpperCase()
   if (key === '=') return 'Plus'
   if (key === 'space') return 'Space'
   if (key === 'escape') return 'Esc'
@@ -392,7 +470,8 @@ export function formatKeybind(accelerator: string): string {
   if (parsed.alt) out += '⌥'
   if (parsed.shift) out += '⇧'
   if (parsed.cmdOrCtrl || parsed.command) out += '⌘'
-  const key = GLYPHS[parsed.key] ?? (parsed.key.length === 1 ? parsed.key.toUpperCase() : parsed.key)
+  const named = BARE_KEYS.test(parsed.key) ? parsed.key.toUpperCase() : parsed.key
+  const key = GLYPHS[parsed.key] ?? (named.length === 1 ? named.toUpperCase() : named)
   return out + key
 }
 
@@ -410,7 +489,7 @@ export function toCodeMirrorKey(accelerator: string): string | null {
   if (parsed.control) parts.push('Ctrl')
   if (parsed.alt) parts.push('Alt')
   if (parsed.shift) parts.push('Shift')
-  parts.push(CM_KEYS[parsed.key] ?? parsed.key)
+  parts.push(CM_KEYS[parsed.key] ?? (BARE_KEYS.test(parsed.key) ? parsed.key.toUpperCase() : parsed.key))
   return parts.join('-')
 }
 
