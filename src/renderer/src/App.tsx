@@ -23,6 +23,7 @@ import type { SessionMeta, Source } from '../../shared/adapter/types'
 import type { WorktreeState } from '../../main/worktrees'
 import {
   assignProject,
+  reorderProjects,
   sessionInProject,
   type AgentSettings,
   type Project,
@@ -2704,6 +2705,10 @@ export function App(): React.JSX.Element {
     setView({ kind: 'empty' })
   }, [])
 
+  const reorderProject = useCallback((id: string, targetId: string) => {
+    setProjects((ps) => reorderProjects(ps, id, targetId))
+  }, [])
+
   const deleteProject = useCallback(
     (id: string, deleteBoard = false, project?: { name: string; path: string }) => {
       const projectRoot = project?.path ?? projects.find((candidate) => candidate.id === id)?.path
@@ -2849,6 +2854,7 @@ export function App(): React.JSX.Element {
         onRestoreSession={restoreSession}
         onSelectProject={selectSection}
         onCreateProject={() => void createProject()}
+        onReorderProject={reorderProject}
         onSelect={openSession}
         onSelectLive={focusTab}
         onCloseLive={closeTerminal}

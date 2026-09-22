@@ -39,6 +39,8 @@ interface SidebarProps {
   selectedPaneId?: number
   onSelectProject: (id: string | null) => void
   onCreateProject: () => void
+  /** Drag one project onto another to take its place in the list */
+  onReorderProject: (id: string, targetId: string) => void
   onHideSession: (id: string) => void
   onRestoreSession: (id: string) => void
   onSelect: (session: SessionMeta) => void
@@ -571,7 +573,10 @@ function SectionRow({
   sessionCount,
   onToggle,
   onOpenSettings,
-  settingsTitle
+  settingsTitle,
+  draggable,
+  onDragStart,
+  onDragEnd
 }: {
   name: string
   title?: string
@@ -581,10 +586,20 @@ function SectionRow({
   onToggle: () => void
   onOpenSettings: () => void
   settingsTitle: string
+  /** Set on projects only — Home is pinned above the rail and never moves */
+  draggable?: boolean
+  onDragStart?: React.DragEventHandler<HTMLDivElement>
+  onDragEnd?: React.DragEventHandler<HTMLDivElement>
 }): React.JSX.Element {
   const Chevron = expanded ? ChevronDown : ChevronRight
   return (
-    <div title={title}>
+    <div
+      title={title}
+      className={draggable ? 'section-row-drag' : undefined}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
       <Row
         selected={expanded}
         tone="alt"
@@ -690,6 +705,7 @@ export function Sidebar({
   selectedPaneId,
   onSelectProject,
   onCreateProject,
+  onReorderProject,
   onHideSession,
   onRestoreSession,
   onSelect,
@@ -708,6 +724,7 @@ export function Sidebar({
 }: SidebarProps): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [hiddenExpanded, setHiddenExpanded] = useState(false)
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null)
   // Home is a section like any project: selected means expanded.
   const homeSelected = selectedProjectId === null
 
@@ -882,7 +899,30 @@ export function Sidebar({
             const paned = panedWorktreeIds(p)
             const ownRow = branches.filter((w) => !paned.has(w.id))
             return (
-              <div key={p.id} className="project-section">
+              <div
+                key={p.id}
+                className={`project-section${
+                  draggingProjectId === p.id ? ' project-section-dragging' : ''
+                }`}
+                // The whole section accepts the drop, so a tall expanded
+                // project is as easy to aim at as a collapsed one.
+                onDragOver={(event) => {
+                  if (!draggingProjectId || draggingProjectId === p.id) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+
+                  const draggedIndex = projects.findIndex((x) => x.id === draggingProjectId)
+                  const targetIndex = projects.findIndex((x) => x.id === p.id)
+                  if (draggedIndex === -1 || targetIndex === -1) return
+                  const targetBox = event.currentTarget.getBoundingClientRect()
+                  const midpoint = targetBox.top + targetBox.height / 2
+                  const crossedTarget =
+                    draggedIndex < targetIndex ? event.clientY > midpoint : event.clientY < midpoint
+
+                  if (crossedTarget) onReorderProject(draggingProjectId, p.id)
+                }}
+                onDrop={(event) => event.preventDefault()}
+              >
                 <SectionRow
                   name={p.name}
                   title={p.path}
@@ -892,6 +932,17 @@ export function Sidebar({
                   onToggle={() => toggleProject(p.id)}
                   onOpenSettings={() => onOpenSettings(p.id)}
                   settingsTitle="Project settings — permissions, worktree setup, remove"
+                  draggable
+                  onDragStart={(event) => {
+                    if ((event.target as HTMLElement).closest('button')) {
+                      event.preventDefault()
+                      return
+                    }
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', p.path)
+                    setDraggingProjectId(p.id)
+                  }}
+                  onDragEnd={() => setDraggingProjectId(null)}
                 />
                 {expanded && staleCheckouts.get(p.id) ? (
                   <StaleCheckoutRow

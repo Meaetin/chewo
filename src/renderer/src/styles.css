@@ -405,6 +405,18 @@ body {
   color: var(--text-dim);
 }
 
+/* Reorderable project headers. The cursor stays `pointer` like Home's row —
+   a click still expands the section — and only turns into a grab once a drag
+   is actually under way. No `user-select: none` anywhere in here: on this
+   Chromium it makes the row inert to native drag (see CLAUDE.md). */
+.section-row-drag:active .row {
+  cursor: grabbing;
+}
+
+.project-section-dragging {
+  opacity: 0.55;
+}
+
 .project-sessions {
   padding-left: 10px;
   border-left: 1px solid var(--border);

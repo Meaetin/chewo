@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   assignProject,
   matchSessionToPane,
+  reorderProjects,
   sessionInProject,
   sessionInSection,
   type Project,
@@ -108,5 +109,24 @@ describe('matchSessionToPane', () => {
     const newer = pane({ termId: 2, spawnedAtMs: base - 2000 })
     const s = meta({ project: '/Users/m/dev/app' })
     expect(matchSessionToPane([newer, older], s)?.termId).toBe(1)
+  })
+})
+
+describe('reorderProjects', () => {
+  const list = [project('a', '/a'), project('b', '/b'), project('c', '/c')]
+  const ids = (ps: Project[]): string[] => ps.map((p) => p.id)
+
+  test('moves a project down onto a later target', () => {
+    expect(ids(reorderProjects(list, 'a', 'c'))).toEqual(['b', 'c', 'a'])
+  })
+
+  test('moves a project up onto an earlier target', () => {
+    expect(ids(reorderProjects(list, 'c', 'a'))).toEqual(['c', 'a', 'b'])
+  })
+
+  test('returns the same array when the move changes nothing', () => {
+    expect(reorderProjects(list, 'b', 'b')).toBe(list)
+    expect(reorderProjects(list, 'b', 'nope')).toBe(list)
+    expect(reorderProjects(list, 'nope', 'b')).toBe(list)
   })
 })

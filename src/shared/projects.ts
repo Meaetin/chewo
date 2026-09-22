@@ -125,6 +125,21 @@ export const EMPTY_PROJECTS_FILE: ProjectsFile = {
   worktrees: []
 }
 
+/**
+ * Move one project to another's position in the sidebar list. Returns the
+ * original array when the move is a no-op, so callers can skip a state update.
+ */
+export function reorderProjects(projects: Project[], id: string, targetId: string): Project[] {
+  const from = projects.findIndex((p) => p.id === id)
+  const to = projects.findIndex((p) => p.id === targetId)
+  if (from === -1 || to === -1 || from === to) return projects
+
+  const next = [...projects]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
 const normalize = (p: string): string => (p.endsWith('/') ? p.slice(0, -1) : p)
 
 /** True when a session's cwd is the project path or lives underneath it. */
