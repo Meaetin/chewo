@@ -147,3 +147,40 @@ two-line note the scroller went from zero scrollable pixels to ~320.
 
 The preview needed the same thing and cannot use the extension, so
 `.notes-md-preview` carries `padding-bottom: 60vh`.
+
+## 2026-09-22 — The collapsed sidebar cannot be narrower than the traffic lights, and its width transition has to yield to the drag handle
+
+⌘B (`sidebar.collapse`) folds the sidebar to `SIDEBAR_RAIL` in `layoutState.ts`: the
+three workflow icons stacked, settings at the foot. Keybind only — there is no
+button, so the rail is reopened by the same chord.
+
+`SIDEBAR_RAIL` is **72px, not 48px**. `trafficLightPosition` is `{ x: 12, y: 13 }`
+(`src/main/index.ts`), and the three lights run to roughly x=64. A 48px rail leaves
+the green button hanging over `.session-header`, on top of the live dot and the
+title. 72px is the floor for any collapsed-sidebar width on this window style.
+
+Two things the animation needs:
+
+- **`.pane-resizing .sidebar-column { transition: none }`.** The same `width` that
+  eases on collapse is written on every pointer move while you drag the separator,
+  so without this the edge visibly trails the cursor. `ResizablePane` already sets
+  that body class for the duration of a drag.
+- **Both states absolute inside `.sidebar-content`.** `.sidebar-body` keeps its
+  expanded width inline and is clipped, rather than reflowing all its rows on the
+  way down. The clipping lives on `.sidebar-content`, never on `.sidebar-column` —
+  `.pane-resize-handle` sits at `right: -3px`, so clipping the column swallows half
+  the drag target and all of its hover accent line.
+
+Opacity hides the inactive layer but leaves its buttons tabbable, so App.tsx puts
+`inert` on whichever layer is hidden. `ResizablePane` takes a `disabled` prop that
+drops the handle while collapsed, keeping the element (and therefore the
+transition) alive instead of swapping it for a plain div.
+
+In Notes the same chord also folds `.notes-pages`, the topic's lesson column, via
+`pagesCollapsed` on `NotesWorkspace` — same 200ms, same trick of pinning the
+contents to full width in `.notes-pages-inner` so they clip. Its `border-right`
+has to go transparent as well, or the 1px survives at zero width and doubles the
+sidebar's own edge. Know what this costs: that header holds the only "New lesson"
+and "Paste as lesson" buttons in the app, and the list under it is the only way to
+switch lessons within a topic, so collapsed Notes is the open lesson and nothing
+else. Deliberate — it is a writing mode, and ⌘B undoes it.

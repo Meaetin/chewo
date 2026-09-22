@@ -12,7 +12,8 @@ describe('workspace layout', () => {
       sidebarWidth: 240,
       toolsWidth: 720,
       explorerWidth: 420,
-      explorerCollapsed: true
+      explorerCollapsed: true,
+      sidebarCollapsed: false
     })
   })
 
@@ -21,7 +22,15 @@ describe('workspace layout', () => {
       sidebarWidth: 300,
       toolsWidth: 620,
       explorerWidth: 240,
-      explorerCollapsed: false
+      explorerCollapsed: false,
+      sidebarCollapsed: false
+    })
+  })
+
+  test('keeps a persisted collapsed sidebar, and its expanded width with it', () => {
+    expect(normalizeLayout({ sidebarWidth: 340, sidebarCollapsed: true }, 1600)).toMatchObject({
+      sidebarWidth: 340,
+      sidebarCollapsed: true
     })
   })
 })

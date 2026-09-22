@@ -103,6 +103,7 @@ import {
   SESSION_MIN,
   SIDEBAR_MAX,
   SIDEBAR_MIN,
+  SIDEBAR_RAIL,
   TOOLS_MIN,
   normalizeLayout
 } from './layoutState'
@@ -957,6 +958,12 @@ export function App(): React.JSX.Element {
         if (workflowRef.current === 'code') {
           setActiveTool((tool) => (tool ? null : lastToolRef.current))
         }
+      }
+      // Folds the whole sidebar to the workflow rail. Unlike the explorer
+      // binding below it is not Code-only — Notes and Todo collapse too.
+      if (matchesKeybind(e, keybinds['sidebar.collapse'])) {
+        e.preventDefault()
+        setLayout((value) => ({ ...value, sidebarCollapsed: !value.sidebarCollapsed }))
       }
       // Explorer only: the tool stays open, its tree folds to the edge.
       if (matchesKeybind(e, keybinds['explorer.collapse'])) {
@@ -2789,12 +2796,11 @@ export function App(): React.JSX.Element {
   const activeShellId = shellTabs.some((tab) => tab.termId === selectedShellId)
     ? selectedShellId
     : (shellTabs.at(-1)?.termId ?? null)
+  // Collapsing the sidebar hands its width to the tools panel's ceiling.
+  const sidebarSize = layout.sidebarCollapsed ? SIDEBAR_RAIL : layout.sidebarWidth
   const toolsMax = Math.max(
     TOOLS_MIN,
-    Math.min(
-      Math.floor(viewportWidth * 0.72),
-      viewportWidth - layout.sidebarWidth - SESSION_MIN
-    )
+    Math.min(Math.floor(viewportWidth * 0.72), viewportWidth - sidebarSize - SESSION_MIN)
   )
   const toolsSize = Math.min(layout.toolsWidth, toolsMax)
   const explorerMax = Math.min(EXPLORER_MAX, Math.max(EXPLORER_MIN, toolsSize - 260))
@@ -2805,81 +2811,104 @@ export function App(): React.JSX.Element {
     <KeybindContext.Provider value={keybinds}>
     <div className="app-layout">
       <ResizablePane
-        className="sidebar-column"
-        size={layout.sidebarWidth}
+        className={`sidebar-column${layout.sidebarCollapsed ? ' sidebar-column--rail' : ''}`}
+        size={sidebarSize}
         min={SIDEBAR_MIN}
         max={SIDEBAR_MAX}
+        disabled={layout.sidebarCollapsed}
         onSizeChange={(sidebarWidth) => setLayout((value) => ({ ...value, sidebarWidth }))}
       >
         {/* hiddenInset traffic lights wired in main process separately */}
         <div className="sidebar-drag-strip" />
-        <div className="workflow-switcher-row">
-          <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
-          <IconButton
-            label={`Settings (${formatKeybind(keybinds['app.settings'])})`}
-            className="app-settings-button"
-            onClick={() => openAppSettings()}
+        {/* Clips both layers on the way down. It cannot be the column itself:
+            the resize handle overhangs the right edge by 3px. */}
+        <div className="sidebar-content">
+          {/* Pinned to the expanded width so collapsing clips the rows away
+              rather than reflowing every one of them on the way down. */}
+          <div
+            className="sidebar-body"
+            style={{ width: layout.sidebarWidth }}
+            inert={layout.sidebarCollapsed}
           >
-            <Settings size={15} strokeWidth={1.75} />
-          </IconButton>
+            <div className="workflow-switcher-row">
+              <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} />
+              <IconButton
+                label={`Settings (${formatKeybind(keybinds['app.settings'])})`}
+                className="app-settings-button"
+                onClick={() => openAppSettings()}
+              >
+                <Settings size={15} strokeWidth={1.75} />
+              </IconButton>
+            </div>
+            {workflow === 'notes' ? (
+              <NotesSidebar
+                tree={notesTree}
+                selected={notesSel}
+                onSelectTopic={selectTopic}
+                onCreateSubject={createSubject}
+                onCreateTopic={createTopic}
+                onRenameItem={renameNotesItem}
+                onDeleteItem={(p) => void deleteNotesItem(p)}
+              />
+            ) : workflow === 'todo' ? (
+              <TodoSidebar projects={projects} selectedId={todoScopeId} onSelect={setTodoScopeId} />
+            ) : (
+              <Sidebar
+                sessions={visibleSessions}
+                hiddenSessions={hiddenSessions}
+                projects={projects}
+                worktrees={worktrees}
+                liveCounts={liveCounts}
+                livePanes={livePanes}
+                selectedProjectId={selectedProjectId}
+                selectedSessionId={
+                  view.kind === 'terminal'
+                    ? tabs.find((t) => t.termId === view.termId)?.sessionId
+                    : undefined
+                }
+                selectedPaneId={view.kind === 'terminal' ? view.termId : undefined}
+                onHideSession={hideSession}
+                onRestoreSession={restoreSession}
+                onSelectProject={selectSection}
+                onCreateProject={() => void createProject()}
+                onReorderProject={reorderProject}
+                onSelect={openSession}
+                onSelectLive={focusTab}
+                onCloseLive={closeTerminal}
+                onNewTerminal={() => {
+                  if (selectedProject) prefetchProject(selectedProject)
+                  newAgent(selectedProject)
+                }}
+                onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
+                liveWorktreeIds={
+                  new Set(
+                    tabs
+                      .filter((tab) => !tab.exited)
+                      .map((tab) => tab.worktreeId)
+                      .filter((id): id is string => !!id)
+                  )
+                }
+                onOpenWorktree={openWorktree}
+                onRemoveWorktree={confirmRemoveWorktree}
+                onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
+                onOpenSettings={(id) => setSettingsFor({ id })}
+                staleCheckouts={staleCheckouts}
+                onSwitchCheckout={(project, to) => void switchCheckout(project, to)}
+                onOpenCapabilities={() => setView({ kind: 'capabilities' })}
+              />
+            )}
+          </div>
+          <div className="sidebar-rail" inert={!layout.sidebarCollapsed}>
+            <WorkflowSwitcher workflow={workflow} onSwitch={setWorkflow} rail />
+            <IconButton
+              label={`Settings (${formatKeybind(keybinds['app.settings'])})`}
+              className="app-settings-button"
+              onClick={() => openAppSettings()}
+            >
+              <Settings size={15} strokeWidth={1.75} />
+            </IconButton>
+          </div>
         </div>
-        {workflow === 'notes' ? (
-          <NotesSidebar
-            tree={notesTree}
-            selected={notesSel}
-            onSelectTopic={selectTopic}
-            onCreateSubject={createSubject}
-            onCreateTopic={createTopic}
-            onRenameItem={renameNotesItem}
-            onDeleteItem={(p) => void deleteNotesItem(p)}
-          />
-        ) : workflow === 'todo' ? (
-          <TodoSidebar projects={projects} selectedId={todoScopeId} onSelect={setTodoScopeId} />
-        ) : (
-      <Sidebar
-        sessions={visibleSessions}
-        hiddenSessions={hiddenSessions}
-        projects={projects}
-        worktrees={worktrees}
-        liveCounts={liveCounts}
-        livePanes={livePanes}
-        selectedProjectId={selectedProjectId}
-        selectedSessionId={
-          view.kind === 'terminal'
-            ? tabs.find((t) => t.termId === view.termId)?.sessionId
-            : undefined
-        }
-        selectedPaneId={view.kind === 'terminal' ? view.termId : undefined}
-        onHideSession={hideSession}
-        onRestoreSession={restoreSession}
-        onSelectProject={selectSection}
-        onCreateProject={() => void createProject()}
-        onReorderProject={reorderProject}
-        onSelect={openSession}
-        onSelectLive={focusTab}
-        onCloseLive={closeTerminal}
-        onNewTerminal={() => {
-          if (selectedProject) prefetchProject(selectedProject)
-          newAgent(selectedProject)
-        }}
-        onNewIsolated={selectedProject ? () => setWtCreateOpen(true) : undefined}
-        liveWorktreeIds={
-          new Set(
-            tabs
-              .filter((tab) => !tab.exited)
-              .map((tab) => tab.worktreeId)
-              .filter((id): id is string => !!id)
-          )
-        }
-        onOpenWorktree={openWorktree}
-        onRemoveWorktree={confirmRemoveWorktree}
-        onReopenWorktree={(wt) => setWorktreeDone(wt, false)}
-        onOpenSettings={(id) => setSettingsFor({ id })}
-        staleCheckouts={staleCheckouts}
-        onSwitchCheckout={(project, to) => void switchCheckout(project, to)}
-        onOpenCapabilities={() => setView({ kind: 'capabilities' })}
-      />
-        )}
       </ResizablePane>
 
       <main className="main-panel">
@@ -3108,6 +3137,7 @@ export function App(): React.JSX.Element {
                     onSelectNote={setSelectedNotePath}
                     onCreateNote={createNote}
                     onDeleteNote={(p) => void deleteNotesItem(p)}
+                    pagesCollapsed={layout.sidebarCollapsed}
                   />
                 ) : (
                   <div className="empty-state">

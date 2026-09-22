@@ -72,13 +72,15 @@ export interface LayoutSettings {
   toolsWidth: number
   explorerWidth: number
   explorerCollapsed: boolean
+  sidebarCollapsed: boolean
 }
 
 export const DEFAULT_LAYOUT: LayoutSettings = {
   sidebarWidth: 300,
   toolsWidth: 620,
   explorerWidth: 240,
-  explorerCollapsed: false
+  explorerCollapsed: false,
+  sidebarCollapsed: false
 }
 
 /** userData/settings.json — one key per settings tab */

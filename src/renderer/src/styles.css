@@ -318,6 +318,14 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
+  transition:
+    width var(--dur-base) var(--ease-standard),
+    min-width var(--dur-base) var(--ease-standard);
+}
+
+/* Dragging writes the same width every pointer move — easing it lags the cursor. */
+.pane-resizing .sidebar-column {
+  transition: none;
 }
 
 .sidebar {
@@ -2902,6 +2910,36 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  transition:
+    width var(--dur-base) var(--ease-standard),
+    min-width var(--dur-base) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-standard);
+}
+
+/* ⌘B takes the lesson column with the sidebar — Notes keeps the rail and the
+   open lesson, nothing else. The border goes too, or its 1px survives at zero
+   width and doubles the rail's own edge. */
+.notes-pages--collapsed {
+  width: 0;
+  min-width: 0;
+  border-right-color: transparent;
+  opacity: 0;
+}
+
+/* Holds the header and list at full width so they clip rather than reflow */
+.notes-pages-inner {
+  width: 230px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-pages {
+    transition: none;
+  }
 }
 
 .notes-pages-header {
@@ -3802,6 +3840,75 @@ body {
    ============================================================ */
 
 /* ===== 2b: Sidebar / Chrome ===== */
+
+/* Collapsed sidebar (⌘B) — the expanded rows and the icon rail are stacked
+   layers that cross-fade while the column itself animates its width. Both are
+   absolute so neither reflows as the column narrows; `inert` in App.tsx takes
+   the hidden one out of the tab order, which opacity alone cannot do. */
+.sidebar-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-body {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.sidebar-column--rail .sidebar-body {
+  opacity: 0;
+}
+
+.sidebar-rail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-4) 0 var(--space-12);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.sidebar-column--rail .sidebar-rail {
+  opacity: 1;
+}
+
+/* Settings sits at the foot of the rail, where the version footer would be */
+.sidebar-rail .app-settings-button {
+  margin-top: auto;
+}
+
+/* Workflow switcher, rail variant — same three tabs, stacked and icon-only */
+.workflow-switcher--rail {
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: 0;
+}
+
+.workflow-switcher--rail .workflow-switcher-option {
+  flex: none;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-column,
+  .sidebar-body,
+  .sidebar-rail {
+    transition: none;
+  }
+}
 
 /* Top drag strip — hiddenInset traffic-light zone (wired in main process later) */
 .sidebar-drag-strip {

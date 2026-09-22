@@ -579,6 +579,8 @@ interface NotesWorkspaceProps {
   onSelectNote: (path: string | null) => void
   onCreateNote: (title: string, body?: string, source?: NoteSource) => Promise<void>
   onDeleteNote: (path: string) => void
+  /** ⌘B folds the lesson column away with the sidebar, leaving only the editor */
+  pagesCollapsed: boolean
 }
 
 /**
@@ -602,7 +604,8 @@ export function NotesWorkspace({
   onStopRecording,
   onSelectNote,
   onCreateNote,
-  onDeleteNote
+  onDeleteNote,
+  pagesCollapsed
 }: NotesWorkspaceProps): React.JSX.Element {
   const recordingHere =
     recording && recording.ref.subject === subject && recording.ref.topic === topic.name
@@ -636,58 +639,66 @@ export function NotesWorkspace({
 
   return (
     <div className="notes-workspace">
-      <div className="notes-pages">
-        <div className="notes-pages-header">
-          <span className="notes-pages-title" title={`${subject} / ${topic.name}`}>
-            {topic.name}
-          </span>
-          <IconButton
-            label="Paste clipboard as a new lesson"
-            dense
-            onClick={() => void pasteNote()}
-          >
-            <ClipboardPaste />
-          </IconButton>
-          <IconButton label="New lesson" dense onClick={() => void onCreateNote('Untitled')}>
-            <Plus />
-          </IconButton>
-        </div>
-
-        <div className="notes-pages-list">
-          {topic.notes.map((n) => (
-            <Row
-              key={n.path}
-              selected={n.path === selectedNotePath}
-              onClick={() => onSelectNote(n.path)}
-              className="note-page-item"
-              trailing={
-                <IconButton
-                  label="Move lesson to Trash"
-                  dense
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDeleteNote(n.path)
-                  }}
-                >
-                  <X />
-                </IconButton>
-              }
+      {/* Kept mounted while collapsed so the width has something to animate.
+          The inner wrapper holds its full width, so the rows clip away
+          instead of reflowing on the way down. */}
+      <div
+        className={`notes-pages${pagesCollapsed ? ' notes-pages--collapsed' : ''}`}
+        inert={pagesCollapsed}
+      >
+        <div className="notes-pages-inner">
+          <div className="notes-pages-header">
+            <span className="notes-pages-title" title={`${subject} / ${topic.name}`}>
+              {topic.name}
+            </span>
+            <IconButton
+              label="Paste clipboard as a new lesson"
+              dense
+              onClick={() => void pasteNote()}
             >
-              <span className="note-page-body">
-                <span className="note-page-title">{n.title}</span>
-                <span className="note-page-date">
-                  {noteDate(n.date)}
-                  {n.source !== 'typed' && ` · ${n.source}`}
+              <ClipboardPaste />
+            </IconButton>
+            <IconButton label="New lesson" dense onClick={() => void onCreateNote('Untitled')}>
+              <Plus />
+            </IconButton>
+          </div>
+
+          <div className="notes-pages-list">
+            {topic.notes.map((n) => (
+              <Row
+                key={n.path}
+                selected={n.path === selectedNotePath}
+                onClick={() => onSelectNote(n.path)}
+                className="note-page-item"
+                trailing={
+                  <IconButton
+                    label="Move lesson to Trash"
+                    dense
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteNote(n.path)
+                    }}
+                  >
+                    <X />
+                  </IconButton>
+                }
+              >
+                <span className="note-page-body">
+                  <span className="note-page-title">{n.title}</span>
+                  <span className="note-page-date">
+                    {noteDate(n.date)}
+                    {n.source !== 'typed' && ` · ${n.source}`}
+                  </span>
                 </span>
-              </span>
-            </Row>
-          ))}
-          {topic.notes.length === 0 && (
-            <div className="session-list-empty">
-              No lessons in this topic yet — add one with the New lesson button, or paste one
-              from the clipboard.
-            </div>
-          )}
+              </Row>
+            ))}
+            {topic.notes.length === 0 && (
+              <div className="session-list-empty">
+                No lessons in this topic yet — add one with the New lesson button, or paste one
+                from the clipboard.
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

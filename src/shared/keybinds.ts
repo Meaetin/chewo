@@ -26,6 +26,7 @@
 
 export type KeybindId =
   | 'tools.toggle'
+  | 'sidebar.collapse'
   | 'explorer.collapse'
   | 'app.settings'
   | 'session.run'
@@ -62,6 +63,14 @@ export const KEYBINDS: KeybindDef[] = [
     group: 'Workspace',
     scope: 'app',
     default: 'CommandOrControl+Shift+E'
+  },
+  {
+    id: 'sidebar.collapse',
+    label: 'Collapse the sidebar',
+    detail: 'Folds the project rail to a column of workflow icons. Works in every workflow.',
+    group: 'Workspace',
+    scope: 'app',
+    default: 'CommandOrControl+B'
   },
   {
     id: 'explorer.collapse',

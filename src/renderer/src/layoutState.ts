@@ -2,6 +2,13 @@ import { DEFAULT_LAYOUT, type LayoutSettings } from '../../shared/appearance'
 
 export const SIDEBAR_MIN = 240
 export const SIDEBAR_MAX = 480
+/**
+ * Width of the collapsed sidebar — a workflow icon rail, not a resizable pane.
+ * Wide enough to clear the traffic lights: they sit at x=12 (`main/index.ts`)
+ * and run to about x=64, so a narrower rail would leave the green button
+ * hanging over the session header.
+ */
+export const SIDEBAR_RAIL = 72
 export const TOOLS_MIN = 380
 export const EXPLORER_MIN = 180
 export const EXPLORER_MAX = 420
@@ -25,6 +32,7 @@ export function normalizeLayout(
       EXPLORER_MIN,
       EXPLORER_MAX
     ),
-    explorerCollapsed: value?.explorerCollapsed ?? DEFAULT_LAYOUT.explorerCollapsed
+    explorerCollapsed: value?.explorerCollapsed ?? DEFAULT_LAYOUT.explorerCollapsed,
+    sidebarCollapsed: value?.sidebarCollapsed ?? DEFAULT_LAYOUT.sidebarCollapsed
   }
 }
