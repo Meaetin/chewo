@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 'electron'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -40,9 +40,11 @@ import {
   getNotesRoot,
   readNote,
   renameNoteItem,
+  resolveNoteAsset,
   scanNotes,
   setNotesRoot,
   writeNote,
+  writeNoteAsset,
   type CreateNoteArgs
 } from './notes'
 import type { NoteStyle, SttOwner, SttSource } from '../shared/notes'
@@ -518,6 +520,11 @@ function registerIpc(): void {
     renameNoteItem(a.path, a.newName)
   )
   ipcMain.handle('notes:delete', (_e, path: string) => deleteNoteItem(path))
+  ipcMain.handle(
+    'notes:writeAsset',
+    (_e, a: { notePath: string; ext: string; bytes: Uint8Array }) =>
+      writeNoteAsset(a.notePath, a.ext, a.bytes)
+  )
   ipcMain.handle('notes:structure', (_e, args: StructureArgs) => structureTranscript(args))
 
   ipcMain.handle('todos:board', (_e, scopeDir: string) => loadBoard(scopeDir))
@@ -859,11 +866,47 @@ function buildMenu(): void {
   )
 }
 
+/**
+ * Images in notes are served over `chewo-asset://` rather than read into a
+ * data URL. A note with ten screenshots would otherwise carry ten base64
+ * strings through IPC and hold them all in renderer memory; this way the
+ * renderer asks for a URL and Chromium streams and caches the file like any
+ * other image.
+ *
+ * Registering it as standard and secure has to happen before the app is ready,
+ * and `supportFetchAPI` is what lets an `<img src>` resolve at all.
+ */
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'chewo-asset',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  }
+])
+
+/**
+ * `chewo-asset://asset/<url-encoded absolute path>`. The path is whatever a
+ * note's `![](…)` resolved to, so it is untrusted input — `resolveNoteAsset`
+ * refuses anything outside the notes root, and a refusal is a 403 rather than
+ * a thrown handler.
+ */
+function registerAssetProtocol(): void {
+  protocol.handle('chewo-asset', async (request) => {
+    try {
+      const encoded = new URL(request.url).pathname.replace(/^\//, '')
+      const file = resolveNoteAsset(decodeURIComponent(encoded))
+      return await net.fetch(pathToFileURL(file).toString())
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+  })
+}
+
 app.whenReady().then(() => {
   const projectsFile = loadProjects()
   if (projectsFile.notesRoot) setNotesRoot(projectsFile.notesRoot)
   buildMenu()
   registerIpc()
+  registerAssetProtocol()
   createWindow()
   migrateTodoHotkey()
   if (mainWindow) {

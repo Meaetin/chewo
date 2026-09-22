@@ -15,7 +15,7 @@ import type {
   RemoveWorktreeResult,
   WorktreeState
 } from '../main/worktrees'
-import type { NotesOpResult } from '../main/notes'
+import type { AssetResult, NotesOpResult } from '../main/notes'
 import type { VersionStatus } from '../main/app-version'
 import type {
   CommitDetailResult,
@@ -330,6 +330,8 @@ const api = {
   notesRename: (path: string, newName: string) =>
     ipcRenderer.invoke('notes:rename', { path, newName }) as Promise<NotesOpResult>,
   notesDelete: (path: string) => ipcRenderer.invoke('notes:delete', path) as Promise<NotesOpResult>,
+  notesWriteAsset: (notePath: string, ext: string, bytes: Uint8Array) =>
+    ipcRenderer.invoke('notes:writeAsset', { notePath, ext, bytes }) as Promise<AssetResult>,
   onNotesChanged: (cb: () => void) => {
     const listener = (): void => cb()
     ipcRenderer.on('notes:changed', listener)

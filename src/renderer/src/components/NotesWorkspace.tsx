@@ -1,14 +1,42 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { ClipboardPaste, Headphones, KeyRound, Mic, Plus, Sparkles, Square, X } from 'lucide-react'
+import {
+  Bold,
+  ClipboardPaste,
+  Code,
+  Headphones,
+  Heading1,
+  Heading2,
+  Heading3,
+  Italic,
+  KeyRound,
+  Link,
+  List,
+  Mic,
+  Plus,
+  Quote,
+  Sigma,
+  Sparkles,
+  Square,
+  X
+} from 'lucide-react'
 import { Button, Dot, IconButton, Row, WorkingText } from './ui'
 import { MD_LINKS } from '../markdownLinks'
-import type { Extension } from '@codemirror/state'
+import { MD_NOTES_REHYPE, MD_NOTES_REMARK } from '../markdownMath'
 import {
+  insertLink,
+  insertMathBlock,
+  toggleHeading,
+  toggleInline,
+  toggleLinePrefix
+} from '../markdownFormat'
+import type { Extension, StateCommand } from '@codemirror/state'
+import { EditorView, scrollPastEnd } from '@codemirror/view'
+import {
+  noteAssetUrl,
   parseNote,
   serializeNote,
   type NoteFrontmatter,
@@ -17,6 +45,7 @@ import {
   type NotesTopic,
   type SttSource
 } from '../../../shared/notes'
+import type { Components } from 'react-markdown'
 import type { TopicRef } from './NotesSidebar'
 
 const AUTOSAVE_MS = 800
@@ -53,6 +82,69 @@ function noteDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString()
 }
 
+/** Image files carried by a paste or a drop; everything else is left to CodeMirror. */
+function imageFiles(data: DataTransfer | null): File[] {
+  return [...(data?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+}
+
+/** `image/png` → `png`, falling back to the file's own extension. */
+function extensionOf(file: File): string {
+  const fromType = file.type.split('/')[1] ?? ''
+  return (fromType || file.name.split('.').pop() || '').toLowerCase()
+}
+
+interface FormatAction {
+  label: string
+  icon: React.ReactNode
+  command: StateCommand
+}
+
+const FORMAT_ACTIONS: FormatAction[] = [
+  { label: 'Bold', icon: <Bold size={14} />, command: toggleInline('**') },
+  { label: 'Italic', icon: <Italic size={14} />, command: toggleInline('*') },
+  { label: 'Heading 1', icon: <Heading1 size={14} />, command: toggleHeading(1) },
+  { label: 'Heading 2', icon: <Heading2 size={14} />, command: toggleHeading(2) },
+  { label: 'Heading 3', icon: <Heading3 size={14} />, command: toggleHeading(3) },
+  { label: 'Bullet list', icon: <List size={14} />, command: toggleLinePrefix('- ') },
+  { label: 'Quote', icon: <Quote size={14} />, command: toggleLinePrefix('> ') },
+  { label: 'Code', icon: <Code size={14} />, command: toggleInline('`') },
+  { label: 'Link', icon: <Link size={14} />, command: insertLink },
+  { label: 'Equation', icon: <Sigma size={14} />, command: insertMathBlock }
+]
+
+/**
+ * Formatting toolbar for the lesson editor. Acts on whatever is highlighted,
+ * or on the line the cursor sits in for the line-level marks.
+ *
+ * Everything runs on mousedown with the default prevented, never on click: a
+ * click moves focus to the button first, and the browser drops the editor's
+ * selection on the way out — so by the time a click handler ran, the words the
+ * user highlighted would no longer be highlighted.
+ */
+function FormatBar({ view }: { view: EditorView | null }): React.JSX.Element {
+  const run = (command: StateCommand) => (e: React.MouseEvent): void => {
+    e.preventDefault()
+    if (!view) return
+    command({ state: view.state, dispatch: (tr) => view.dispatch(tr) })
+    view.focus()
+  }
+  return (
+    <div className="notes-format-bar">
+      {FORMAT_ACTIONS.map((action) => (
+        <IconButton
+          key={action.label}
+          label={action.label}
+          dense
+          tooltipSide="bottom"
+          onMouseDown={run(action.command)}
+        >
+          {action.icon}
+        </IconButton>
+      ))}
+    </div>
+  )
+}
+
 /**
  * Markdown editor for one lesson file. Owns its load/save cycle — parent keys
  * this by path so switching lessons remounts with fresh state. Title edits
@@ -75,6 +167,8 @@ function NoteEditor({
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [preview, setPreview] = useState(false)
+  const [view, setView] = useState<EditorView | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
   const meta = useRef<Omit<NoteFrontmatter, 'title'>>({
     date: new Date().toISOString(),
     source: 'typed',
@@ -118,6 +212,72 @@ function NoteEditor({
     )
   }, [path, title, body])
 
+  /**
+   * Writes pasted or dropped images into the note's own assets folder and drops
+   * an `![](…)` at the cursor. The insert goes through a CodeMirror transaction
+   * rather than `setBody`, so it lands where the cursor is and the editor's
+   * own `onChange` marks the note dirty — the same path typing takes.
+   */
+  const insertImages = useCallback(
+    async (view: EditorView, files: File[]): Promise<void> => {
+      for (const file of files) {
+        const result = await window.api.notesWriteAsset(path, extensionOf(file), new Uint8Array(await file.arrayBuffer()))
+        if (!result.ok || !result.src) {
+          setImageError(result.error ?? 'Could not save the image')
+          continue
+        }
+        setImageError(null)
+        // A note filename with a space would otherwise break the markdown link.
+        view.dispatch(view.state.replaceSelection(`![](${result.src.replace(/ /g, '%20')})`))
+      }
+    },
+    [path]
+  )
+
+  const extensions = useMemo<Extension[]>(
+    () => [
+      markdown(),
+      // Lets the last line be scrolled to the top of the pane, so writing at
+      // the end of a note happens at eye level instead of against the bottom.
+      scrollPastEnd(),
+      EditorView.domEventHandlers({
+        paste(event, view) {
+          const files = imageFiles(event.clipboardData)
+          if (!files.length) return false
+          event.preventDefault()
+          void insertImages(view, files)
+          return true
+        },
+        drop(event, view) {
+          const files = imageFiles(event.dataTransfer)
+          if (!files.length) return false
+          event.preventDefault()
+          // Drop where the pointer is, not where the cursor was left.
+          const at = view.posAtCoords({ x: event.clientX, y: event.clientY })
+          if (at !== null) view.dispatch({ selection: { anchor: at } })
+          void insertImages(view, files)
+          return true
+        }
+      })
+    ],
+    [insertImages]
+  )
+
+  /** Relative image paths resolve against the note, not the app page. */
+  const components = useMemo<Components>(
+    () => ({
+      ...MD_LINKS,
+      img: ({ src, alt, ...rest }) => (
+        <img
+          {...rest}
+          alt={alt ?? ''}
+          src={typeof src === 'string' ? noteAssetUrl(path, src) : undefined}
+        />
+      )
+    }),
+    [path]
+  )
+
   // Debounced autosave; also flush on unmount (lesson switch, workflow switch).
   // The flush must go through a ref: cleanup of an effect depending on `save`
   // would run the stale closure on every keystroke, saving one edit behind.
@@ -160,10 +320,16 @@ function NoteEditor({
           Preview
         </button>
       </div>
+      {!preview && <FormatBar view={view} />}
+      {imageError && <div className="notes-image-error">{imageError}</div>}
       <div className="notes-editor-body">
         {preview ? (
           <div className="notes-md-preview message-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+            <ReactMarkdown
+              remarkPlugins={MD_NOTES_REMARK}
+              rehypePlugins={MD_NOTES_REHYPE}
+              components={components}
+            >
               {body || '*Empty lesson*'}
             </ReactMarkdown>
           </div>
@@ -173,7 +339,8 @@ function NoteEditor({
             value={body}
             theme={theme}
             height="100%"
-            extensions={[markdown()]}
+            extensions={extensions}
+            onCreateEditor={(v) => setView(v)}
             basicSetup={{
               lineNumbers: false,
               foldGutter: false,

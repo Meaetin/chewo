@@ -52,6 +52,7 @@ Structure the new transcript into markdown that CONTINUES the current note:
 - "## " sections grouping the new material by theme, in the order it was taught
 - bullet the key points; put key terms in **bold** followed by their definition
 - keep the speaker's examples; be faithful to the transcript; never invent content
+- write maths as LaTeX between dollar signs — $x^2$ inline, $$…$$ on its own line
 - do not repeat or rewrite material already in the current note
 - no overall summary section, no preamble, no code fences
 
@@ -72,6 +73,7 @@ ${transcript}
 Structure the new transcript into markdown that CONTINUES the current note:
 - "## " sections grouping the discussion by topic, in the order it happened
 - bullet the key points; keep who-said-what only when the transcript makes it clear — never guess speakers
+- write maths as LaTeX between dollar signs — $x^2$ inline, $$…$$ on its own line
 - if decisions were made, end with a "## Decisions" section listing each one
 - if tasks or follow-ups were agreed, end with a "## Action items" section (checkbox bullets "- [ ] ...", with owner if stated)
 - omit the Decisions / Action items sections when the transcript has none; be faithful to the transcript; never invent content

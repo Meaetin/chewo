@@ -70,3 +70,80 @@ Two defects in the Keybinds pane, both found by driving the app with **real** ke
 Two things worth knowing before driving this app with System Events again. (1) **`set frontmost` has to run before every keystroke**, not once at the top of a sweep — the app quietly loses focus between steps and the keys land somewhere else, which reads exactly like "the chord was swallowed by the menu" and cost two wrong diagnoses here. (2) Re-clicking a chord button that is already armed *disarms* it, so a test harness that clicks before each press silently tests nothing.
 
 Not a bug, verified while here: ⌘A, ⌘C, ⌘Z and ⌘R all reach the renderer and are recordable — the `editMenu`/`reload` roles do not swallow them while the web contents hold focus, and the recorder's `preventDefault` stops ⌘R from reloading mid-recording.
+
+## 2026-09-22 — Maths in lessons is KaTeX in the preview, and its version has to match the one `rehype-katex` bundles
+
+Notes stay markdown; `$x^2$` and `$H_2O$` are parsed by `remark-math` and typeset
+by `rehype-katex` in the lesson preview and the notes Q&A
+(`src/renderer/src/markdownMath.ts`, used by `NotesWorkspace.tsx` and
+`NotesChat.tsx`). The structuring prompts in `src/main/structure.ts` now ask for
+LaTeX, so a dictated "x squared" lands as `$x^2$` rather than the words.
+
+**`rehype-katex` depends on KaTeX rather than peer-depending on it**, so
+`npm install katex` pulls a second, newer copy beside the one that actually
+renders — 0.18 top-level, 0.16 nested, at the time of writing. The stylesheet
+imported in `styles.css` comes from the top-level copy, so the mismatch is
+silent: markup from one version styled by another. Top-level `katex` is pinned
+to `^0.16.0` to dedupe them into one.
+
+Two behaviours worth knowing. `$$…$$` only becomes a centred `katex-display`
+block when the delimiters sit on their own lines — inline it renders as ordinary
+inline maths, which is why the toolbar's equation button writes the three-line
+form. And a note reading `it went from $5 to $12` renders as maths, since that
+is a valid single-dollar span; `\$5` escapes it. Requiring `$$` for inline too
+(`singleDollarTextMath: false`) removes the false positive at the cost of every
+inline equation, which is the wrong trade for a lessons app.
+
+## 2026-09-22 — The lesson formatting toolbar runs on mousedown, because click is too late
+
+`src/renderer/src/markdownFormat.ts` holds the bold/italic/heading/bullet/quote/
+code/link/equation commands as CodeMirror `StateCommand`s —
+`@codemirror/lang-markdown` only parses and highlights, so formatting is a text
+edit the toolbar makes itself. Being plain functions of `EditorState`, they are
+unit-tested in `tests/markdown-format.test.ts` with no editor mounted.
+
+**The buttons fire `onMouseDown` with the default prevented, never `onClick`.**
+A click moves focus to the button first and the browser drops the editor's
+selection on the way out, so a click handler would run against a selection the
+user can no longer see. Preventing the default keeps focus — and the highlighted
+words — in CodeMirror.
+
+Two details the tests pin. A marker inserted at the very start of a selection
+lands *outside* it, because CodeMirror maps the selection's left edge past an
+insertion at that point — so the words stay highlighted and the new `- ` does
+not. And a selection where only some lines carry a prefix gains it on the rest
+rather than toggling off, otherwise half a list would silently unbullet.
+
+## 2026-09-22 — Note images are files beside the note, served over a `chewo-asset://` protocol
+
+Pasting or dropping an image into a lesson writes it to
+`<topic>/assets/<note file name>/<timestamp>.<ext>` and inserts a relative
+`![](assets/…)` (`writeNoteAsset` in `src/main/notes.ts`). A folder per note, so
+deleting a note's images never means working out which of a shared pile it
+owned; a relative path, so the notes folder still opens correctly in any other
+markdown editor and survives the notes root moving.
+
+**The preview loads them over a custom protocol, not a data URL.** The file
+editor reads image bytes over IPC and builds base64 (`FileEditor.tsx`), which is
+fine for one image and wasteful for a lesson with ten — every one held in
+renderer memory as a string. `chewo-asset://asset/<url-encoded absolute path>`
+is registered privileged before app-ready and handled with `net.fetch` over a
+`file://` URL, so Chromium streams and caches them like any other image. The
+path comes from a note's `![](…)`, which is untrusted — a note could have been
+written anywhere — so `resolveNoteAsset` runs it through the same root check
+every other notes path takes, and a refusal is a 404 rather than a throw.
+
+The insert goes through a CodeMirror transaction rather than `setBody`, so it
+lands at the cursor and trips the editor's own `onChange` — the same path typing
+takes, which means autosave needs no special case.
+
+## 2026-09-22 — A short lesson could not be scrolled at all, which put writing at the bottom of the screen
+
+The editor's scroller stopped at the last line, so the only way to move the
+text up the screen was to keep typing — every new line was written against the
+bottom edge of the pane. `scrollPastEnd()` from `@codemirror/view` adds enough
+trailing space that the last line can be brought to the top instead. On a
+two-line note the scroller went from zero scrollable pixels to ~320.
+
+The preview needed the same thing and cannot use the extension, so
+`.notes-md-preview` carries `padding-bottom: 60vh`.

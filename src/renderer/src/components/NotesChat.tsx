@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ArrowUp, RefreshCw, Square, X } from 'lucide-react'
 import { IconButton, WorkingText } from './ui'
 import { Select } from './Select'
 import { MD_LINKS } from '../markdownLinks'
+import { MD_NOTES_REHYPE, MD_NOTES_REMARK } from '../markdownMath'
 import type { TopicRef } from './NotesSidebar'
 
 type Scope = 'all' | 'subject' | 'topic'
@@ -173,7 +173,11 @@ export function NotesChat({ root, sel, open, onClose }: NotesChatProps): React.J
           <div key={i} className={`notes-chat-msg notes-chat-msg-${m.role}`}>
             {m.role === 'assistant' ? (
               <div className="message-markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LINKS}>
+                <ReactMarkdown
+                  remarkPlugins={MD_NOTES_REMARK}
+                  rehypePlugins={MD_NOTES_REHYPE}
+                  components={MD_LINKS}
+                >
                   {m.text}
                 </ReactMarkdown>
               </div>

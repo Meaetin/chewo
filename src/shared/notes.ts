@@ -132,3 +132,22 @@ export function isValidFolderName(name: string): boolean {
     !/[/\\:]/.test(trimmed)
   )
 }
+
+/** The scheme main serves note images over — see `registerAssetProtocol`. */
+export const ASSET_SCHEME = 'chewo-asset'
+
+/**
+ * Turns the `src` of a note's `![](…)` into a URL the renderer can load.
+ *
+ * Note images are stored as paths relative to the note so the folder stays
+ * portable, but a relative `src` in the preview would resolve against the app
+ * page, not the note. Absolute paths and real URLs are left alone: a note may
+ * legitimately point at `https://…`, and only a relative path is ours to
+ * rewrite.
+ */
+export function noteAssetUrl(notePath: string, src: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('/')) return src
+  const dir = notePath.slice(0, notePath.lastIndexOf('/'))
+  const decoded = src.replace(/%20/g, ' ')
+  return `${ASSET_SCHEME}://asset/${encodeURIComponent(`${dir}/${decoded}`)}`
+}

@@ -186,6 +186,60 @@ export function createNote(args: CreateNoteArgs): NotesOpResult {
   }
 }
 
+/** Image types a pasted or dropped file may carry into a note. */
+const ASSET_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg'])
+
+/** Folder name for a note's images, alongside the note inside its topic. */
+export const ASSETS_DIR = 'assets'
+
+export interface AssetResult {
+  ok: boolean
+  error?: string
+  /** Path relative to the note, which is what goes in the markdown */
+  src?: string
+}
+
+/**
+ * Saves a pasted or dropped image beside the note that received it, at
+ * `<topic>/assets/<note file name>/<stamp>.<ext>`, and hands back the relative
+ * path for the `![](…)` the editor inserts.
+ *
+ * A folder per note rather than one per topic, so deleting a note's images
+ * never means working out which of a shared pile it owned. The path returned
+ * is relative on purpose: the note keeps working when the notes root moves or
+ * the folder is opened in another markdown editor.
+ */
+export function writeNoteAsset(notePath: string, ext: string, bytes: Uint8Array): AssetResult {
+  const clean = ext.toLowerCase().replace(/^\./, '')
+  if (!ASSET_EXTENSIONS.has(clean)) return { ok: false, error: `Unsupported image type: ${ext}` }
+  try {
+    const note = assertInsideRoot(notePath)
+    const slug = basename(note).replace(/\.md$/, '')
+    const dir = join(dirname(note), ASSETS_DIR, slug)
+    mkdirSync(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    let fileName = `${stamp}.${clean}`
+    for (let n = 2; existsSync(join(dir, fileName)); n++) fileName = `${stamp}-${n}.${clean}`
+    writeFileSync(join(dir, fileName), bytes)
+    return { ok: true, src: `${ASSETS_DIR}/${slug}/${fileName}` }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
+/**
+ * Resolves a note-relative asset path to a file on disk, refusing anything
+ * that climbs out of the notes root. The custom `chewo-asset://` protocol is
+ * the renderer's only way to read these bytes, and its input is whatever a
+ * markdown `![](…)` says — including `../../../etc/passwd` if a note came from
+ * somewhere else — so the check is the boundary, not a formality.
+ */
+export function resolveNoteAsset(absolutePath: string): string {
+  const resolved = assertInsideRoot(absolutePath)
+  if (!statSync(resolved).isFile()) throw new Error(`not a file: ${absolutePath}`)
+  return resolved
+}
+
 export function readNote(path: string): string {
   return readFileSync(assertInsideRoot(path), 'utf8')
 }
