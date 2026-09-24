@@ -3,6 +3,10 @@
 Full notes moved out of `AGENTS.md` so they are read on demand, not loaded
 into every session. Text is verbatim; the index lives in `AGENTS.md`.
 
+## 2026-09-23 — The usage endpoint's `utilization` is always a percentage, so guessing "a value up to 1 is a fraction" breaks at low usage.
+
+2026-09-23: **The usage endpoint's `utilization` is always a percentage, so guessing "a value up to 1 is a fraction" breaks at low usage.** `percent()` in `src/shared/account-usage.ts` multiplied any value in (0, 1] by 100, on the theory that some response might send 0.42 for 42%. No response ever has. The real effect: a window at 1% used (right after the five-hour window resets) read as 100% used and turned the composer red, while `/usage` in the same moment said 1%. Seen live with `/usage` showing five-hour 1%, week 15%, and Chewo showing "5h 100% used". The test `accepts an ISO reset and a fractional utilization` pinned the wrong behaviour. Codex is unaffected: `codex-usage.ts` reads `usedPercent` directly and never runs this conversion.
+
 ## 2026-08-25 — Codex chat parity has two inputs: live app-server items and resumed rollout history. Codex 0.144 rollouts…
 
 2026-08-25: **Codex chat parity has two inputs: live app-server items and resumed rollout history.** Codex 0.144 rollouts record harness activity as `custom_tool_call` / `custom_tool_call_output`, with an `exec` wrapper whose JavaScript invokes the real operation (`tools.exec_command`, `tools.apply_patch`, etc.); older 0.142 files use `function_call` / `local_shell_call`. `parseCodexSession` must preserve both generations and seed structured tool input/display names, or a resumed Codex pane renders assistant prose but silently drops every command and edited file even though the live app-server UI works.

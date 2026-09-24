@@ -83,10 +83,8 @@ function looksLikeWindow(key: string): boolean {
 
 function percent(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
-  // A fraction is still a percentage of something; 0–1 responses would
-  // otherwise render as "0% used" for a nearly spent window
-  const n = value > 0 && value <= 1 ? value * 100 : value
-  return Math.max(0, Math.min(100, n))
+  // Always a percentage — a 1 here is 1% used, the first minutes after a reset
+  return Math.max(0, Math.min(100, value))
 }
 
 function epochSeconds(value: unknown): number | undefined {

@@ -126,12 +126,12 @@ describe('usage payload parsing', () => {
     expect(parsed.windows).toEqual([{ type: 'five_hour', used: 98, resetsAt: RESETS }])
   })
 
-  test('accepts an ISO reset and a fractional utilization', () => {
+  test('accepts an ISO reset and reads a low utilization as a percentage', () => {
     const parsed = parseAccountUsage(
-      { seven_day: { utilization: 0.42, resets_at: '2026-08-07T09:00:00Z' } },
+      { seven_day: { utilization: 1, resets_at: '2026-08-07T09:00:00Z' } },
       NOW
     )
-    expect(parsed.windows[0].used).toBeCloseTo(42)
+    expect(parsed.windows[0].used).toBe(1)
     expect(parsed.windows[0].resetsAt).toBe(Math.floor(Date.parse('2026-08-07T09:00:00Z') / 1000))
   })
 
