@@ -191,6 +191,9 @@ function NoteEditor({
       }
       setLoaded(true)
     })
+    // Leftovers from a session that quit with this lesson open, or from
+    // before images were cleaned up at all.
+    window.api.notesPruneAssets(path).catch(() => {})
     return () => {
       alive = false
     }
@@ -203,10 +206,10 @@ function NoteEditor({
     onAppendApplied(pendingAppend.id)
   }, [loaded, pendingAppend, path, onAppendApplied])
 
-  const save = useCallback(() => {
+  const save = useCallback(async (): Promise<void> => {
     if (!dirty.current) return
     dirty.current = false
-    void window.api.notesWrite(
+    await window.api.notesWrite(
       path,
       serializeNote({ title: title.trim() || 'Untitled', ...meta.current }, body)
     )
@@ -278,7 +281,9 @@ function NoteEditor({
     [path]
   )
 
-  // Debounced autosave; also flush on unmount (lesson switch, workflow switch).
+  // Debounced autosave; also flush on unmount (lesson switch, workflow switch),
+  // then drop any image the lesson stopped showing — only once the flush has
+  // landed, or an image removed in the last keystrokes would still look used.
   // The flush must go through a ref: cleanup of an effect depending on `save`
   // would run the stale closure on every keystroke, saving one edit behind.
   const saveRef = useRef(save)
@@ -286,12 +291,19 @@ function NoteEditor({
   useEffect(() => {
     if (!loaded || !dirty.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(save, AUTOSAVE_MS)
+    saveTimer.current = setTimeout(() => void save(), AUTOSAVE_MS)
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
   }, [loaded, title, body, save])
-  useEffect(() => () => saveRef.current(), [])
+  useEffect(
+    () => () => {
+      saveRef.current()
+        .then(() => window.api.notesPruneAssets(path))
+        .catch(() => {})
+    },
+    [path]
+  )
 
   if (!loaded) return <div className="notes-editor-loading">Loading…</div>
 

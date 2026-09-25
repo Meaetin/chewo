@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
-import { shell } from 'electron'
+import { clipboard, shell } from 'electron'
 import {
   isValidFolderName,
   kebabCase,
@@ -199,6 +199,66 @@ export interface AssetResult {
   src?: string
 }
 
+const noteSlug = (notePath: string): string => basename(notePath).replace(/\.md$/, '')
+
+const visibleFiles = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith('.'))
+    .map((e) => e.name)
+
+/** A malformed `%` escape in a note must not stop the rest of it being read. */
+function decoded(text: string): string {
+  try {
+    return decodeURI(text)
+  } catch {
+    return text
+  }
+}
+
+/**
+ * Trashes the images in one lesson's assets folder that nothing refers to any
+ * more, then the folder itself once it is empty, then the topic's `assets/`.
+ *
+ * "Refers to" is deliberately loose, and every loosening errs toward keeping
+ * a file. Every lesson in the topic counts, not just the owner, because an
+ * image line cut from one lesson and pasted into another still points at the
+ * first lesson's folder. The clipboard counts too: between the cut and the
+ * paste the line lives nowhere else, and switching lessons in that gap is
+ * exactly when a cleanup runs. And a path anywhere in the text counts, not
+ * only inside `![](…)`.
+ */
+async function pruneAssetFolder(topic: string, slug: string): Promise<void> {
+  const assets = join(topic, ASSETS_DIR)
+  const dir = join(assets, slug)
+  let files: string[]
+  try {
+    files = visibleFiles(dir)
+  } catch {
+    return
+  }
+  const texts = readdirSync(topic, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => readFileSync(join(topic, e.name), 'utf8'))
+  texts.push(clipboard.readText())
+  const haystack = texts.map((t) => `${t}\n${decoded(t)}`).join('\n')
+  const unused = files.filter((f) => !haystack.includes(`${ASSETS_DIR}/${slug}/${f}`))
+  if (unused.length === files.length) await shell.trashItem(dir)
+  else for (const f of unused) await shell.trashItem(join(dir, f))
+  if (visibleFiles(assets).length === 0) await shell.trashItem(assets)
+}
+
+/**
+ * Clears out the images a lesson no longer shows. The editor calls this when
+ * a lesson opens and when it closes, never while typing: removing an image
+ * and pressing ⌘Z a second later has to bring back a picture, not a broken
+ * link, and leaving the lesson discards its undo history anyway.
+ */
+export async function pruneNoteAssets(notePath: string): Promise<void> {
+  const note = assertInsideRoot(notePath)
+  if (!existsSync(note)) return
+  await pruneAssetFolder(dirname(note), noteSlug(note))
+}
+
 /**
  * Saves a pasted or dropped image beside the note that received it, at
  * `<topic>/assets/<note file name>/<stamp>.<ext>`, and hands back the relative
@@ -214,7 +274,7 @@ export function writeNoteAsset(notePath: string, ext: string, bytes: Uint8Array)
   if (!ASSET_EXTENSIONS.has(clean)) return { ok: false, error: `Unsupported image type: ${ext}` }
   try {
     const note = assertInsideRoot(notePath)
-    const slug = basename(note).replace(/\.md$/, '')
+    const slug = noteSlug(note)
     const dir = join(dirname(note), ASSETS_DIR, slug)
     mkdirSync(dir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -244,8 +304,15 @@ export function readNote(path: string): string {
   return readFileSync(assertInsideRoot(path), 'utf8')
 }
 
+/**
+ * Overwrites an existing lesson and never creates one. The editor flushes its
+ * last edit when it unmounts, and deleting the open lesson unmounts it after
+ * the delete — so a create here would put a trashed lesson straight back.
+ */
 export function writeNote(path: string, content: string): void {
-  writeFileSync(assertInsideRoot(path), content)
+  const resolved = assertInsideRoot(path)
+  if (!existsSync(resolved)) return
+  writeFileSync(resolved, content)
 }
 
 /**
@@ -270,12 +337,21 @@ export function renameNoteItem(path: string, newName: string): NotesOpResult {
   }
 }
 
-/** Trash (not unlink) — works for notes and whole subject/topic folders. */
+/**
+ * Trash (not unlink) — works for notes and whole subject/topic folders. A
+ * lesson takes its `.raw.md` transcript and its images with it; an image that
+ * another lesson in the topic still shows stays behind for that lesson.
+ */
 export async function deleteNoteItem(path: string): Promise<NotesOpResult> {
   try {
     const resolved = assertInsideRoot(path)
     if (resolved === resolve(getNotesRoot())) return fail('Cannot delete the notes root')
     await shell.trashItem(resolved)
+    if (resolved.endsWith('.md')) {
+      const raw = resolved.replace(/\.md$/, '.raw.md')
+      if (existsSync(raw)) await shell.trashItem(raw)
+      await pruneAssetFolder(dirname(resolved), noteSlug(resolved))
+    }
     return { ok: true }
   } catch (err) {
     return fail(String(err))

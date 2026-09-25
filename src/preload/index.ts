@@ -332,6 +332,8 @@ const api = {
   notesDelete: (path: string) => ipcRenderer.invoke('notes:delete', path) as Promise<NotesOpResult>,
   notesWriteAsset: (notePath: string, ext: string, bytes: Uint8Array) =>
     ipcRenderer.invoke('notes:writeAsset', { notePath, ext, bytes }) as Promise<AssetResult>,
+  notesPruneAssets: (notePath: string) =>
+    ipcRenderer.invoke('notes:pruneAssets', notePath) as Promise<void>,
   onNotesChanged: (cb: () => void) => {
     const listener = (): void => cb()
     ipcRenderer.on('notes:changed', listener)

@@ -137,6 +137,27 @@ The insert goes through a CodeMirror transaction rather than `setBody`, so it
 lands at the cursor and trips the editor's own `onChange` — the same path typing
 takes, which means autosave needs no special case.
 
+## 2026-09-25 — A lesson's images are cleaned up when it opens and closes, never while typing
+
+Removing an image from the text, or deleting the lesson, used to leave the file
+on disk forever. `pruneNoteAssets` in `src/main/notes.ts` now trashes the
+images in a lesson's folder that nothing refers to, then the folder once empty.
+`deleteNoteItem` runs the same sweep after trashing a lesson and its `.raw.md`.
+
+**When it runs is the design.** Sweeping on every autosave would break ⌘Z:
+remove an image, undo a second later, and the picture is already gone. So the
+editor sweeps when a lesson opens and after its final save on close, when the
+undo history is lost anyway. Opening also catches a session that quit mid-edit.
+
+**"Still used" errs toward keeping.** Every lesson in the topic counts, because
+an image line cut from one lesson and pasted into another still points at the
+first lesson's folder. The clipboard counts too — between the cut and the paste
+the line exists nowhere else, and switching lessons in that gap is exactly when
+the sweep runs. Any mention of the path counts, not just an `![](…)`.
+
+`writeNote` no longer creates a missing file. Deleting the open lesson unmounts
+the editor after the delete, and its last-edit flush used to write it back.
+
 ## 2026-09-22 — A short lesson could not be scrolled at all, which put writing at the bottom of the screen
 
 The editor's scroller stopped at the last line, so the only way to move the

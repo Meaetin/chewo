@@ -1,7 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   isValidFolderName,
   noteAssetUrl,
@@ -11,11 +19,26 @@ import {
   type NoteFrontmatter
 } from '../src/shared/notes'
 
-// notes.ts pulls in electron only for shell.trashItem (delete, not rename)
-vi.mock('electron', () => ({ shell: { trashItem: async () => {} } }))
-const { renameNoteItem, resolveNoteAsset, scanNotes, setNotesRoot, writeNoteAsset } = await import(
-  '../src/main/notes'
-)
+// notes.ts pulls in electron for the Trash and the clipboard. Trashing here
+// removes for real, so a test can see what went.
+const clip = vi.hoisted(() => ({ text: '' }))
+vi.mock('electron', async () => {
+  const { rmSync } = await import('node:fs')
+  return {
+    shell: { trashItem: async (p: string) => rmSync(p, { recursive: true }) },
+    clipboard: { readText: () => clip.text }
+  }
+})
+const {
+  deleteNoteItem,
+  pruneNoteAssets,
+  renameNoteItem,
+  resolveNoteAsset,
+  scanNotes,
+  setNotesRoot,
+  writeNote,
+  writeNoteAsset
+} = await import('../src/main/notes')
 
 const META: NoteFrontmatter = {
   title: 'Brachial plexus',
@@ -196,6 +219,108 @@ describe('writeNoteAsset', () => {
     expect(subject?.topics[0].notes.map((n) => n.fileName)).toEqual([
       '2026-07-29-brachial-plexus.md'
     ])
+  })
+})
+
+describe('image cleanup', () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+  let root: string
+  let topic: string
+
+  /** A fresh topic per test, with one lesson that shows the images given. */
+  function lesson(name: string, body = ''): string {
+    const path = join(topic, name)
+    writeFileSync(path, serializeNote(META, body))
+    return path
+  }
+  const image = (note: string): string => writeNoteAsset(note, 'png', png).src!
+  const onDisk = (src: string): boolean => existsSync(join(topic, src))
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'chewo-prune-'))
+    setNotesRoot(root)
+  })
+  beforeEach(() => {
+    topic = mkdtempSync(join(root, 'topic-'))
+    clip.text = ''
+  })
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+
+  test('keeps an image the lesson shows and trashes one it no longer does', async () => {
+    const note = lesson('a.md')
+    const kept = image(note)
+    const dropped = image(note)
+    writeNote(note, serializeNote(META, `![](${kept})`))
+    await pruneNoteAssets(note)
+    expect(onDisk(kept)).toBe(true)
+    expect(onDisk(dropped)).toBe(false)
+  })
+
+  test('trashes the emptied folder and the emptied assets folder', async () => {
+    const note = lesson('a.md')
+    image(note)
+    await pruneNoteAssets(note)
+    expect(existsSync(join(topic, 'assets'))).toBe(false)
+  })
+
+  test('reads a space the editor wrote as %20', async () => {
+    const note = lesson('my lesson.md')
+    const src = image(note)
+    writeNote(note, serializeNote(META, `![](${src.replace(/ /g, '%20')})`))
+    await pruneNoteAssets(note)
+    expect(onDisk(src)).toBe(true)
+  })
+
+  test('keeps an image another lesson in the topic now shows', async () => {
+    const a = lesson('a.md')
+    const src = image(a)
+    lesson('b.md', `![](${src})`)
+    await pruneNoteAssets(a)
+    expect(onDisk(src)).toBe(true)
+  })
+
+  test('keeps an image whose line is on the clipboard, cut but not yet pasted', async () => {
+    const note = lesson('a.md')
+    const src = image(note)
+    clip.text = `![](${src})`
+    await pruneNoteAssets(note)
+    expect(onDisk(src)).toBe(true)
+  })
+
+  test('does nothing for a lesson that is gone', async () => {
+    const note = lesson('a.md')
+    const src = image(note)
+    rmSync(note)
+    await pruneNoteAssets(note)
+    expect(onDisk(src)).toBe(true)
+  })
+
+  test('deleting a lesson takes its transcript and images with it', async () => {
+    const note = lesson('a.md')
+    const src = image(note)
+    writeNote(note, serializeNote(META, `![](${src})`))
+    writeFileSync(join(topic, 'a.raw.md'), 'transcript')
+    lesson('b.md')
+    expect((await deleteNoteItem(note)).ok).toBe(true)
+    expect(readdirSync(topic)).toEqual(['b.md'])
+  })
+
+  test('deleting a lesson leaves an image another lesson shows', async () => {
+    const a = lesson('a.md')
+    const shared = image(a)
+    const own = image(a)
+    writeNote(a, serializeNote(META, `![](${shared}) ![](${own})`))
+    lesson('b.md', `![](${shared})`)
+    await deleteNoteItem(a)
+    expect(onDisk(shared)).toBe(true)
+    expect(onDisk(own)).toBe(false)
+  })
+
+  test('a save to a deleted lesson does not bring it back', async () => {
+    const note = lesson('a.md')
+    await deleteNoteItem(note)
+    writeNote(note, 'late autosave')
+    expect(existsSync(note)).toBe(false)
   })
 })
 

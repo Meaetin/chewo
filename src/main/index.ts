@@ -38,6 +38,7 @@ import {
   createTopic,
   deleteNoteItem,
   getNotesRoot,
+  pruneNoteAssets,
   readNote,
   renameNoteItem,
   resolveNoteAsset,
@@ -525,6 +526,7 @@ function registerIpc(): void {
     (_e, a: { notePath: string; ext: string; bytes: Uint8Array }) =>
       writeNoteAsset(a.notePath, a.ext, a.bytes)
   )
+  ipcMain.handle('notes:pruneAssets', (_e, notePath: string) => pruneNoteAssets(notePath))
   ipcMain.handle('notes:structure', (_e, args: StructureArgs) => structureTranscript(args))
 
   ipcMain.handle('todos:board', (_e, scopeDir: string) => loadBoard(scopeDir))
